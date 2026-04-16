@@ -40,7 +40,7 @@ This document provides detailed documentation for every configuration field in M
 The Main Serve JSON schema for the YAML configuration file is located in this repository and you can access it [here](https://raw.githubusercontent.com/dekoding/main-serve/refs/heads/main/main-serve.json). You can use it for completions and hints in environments that support the [YAML Language Server](https://github.com/redhat-developer/yaml-language-server) by adding it to the top of a configuration file:
 
 ```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/dekoding/main-serve/refs/heads/main/main-serve.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/dekoding/schemas/refs/heads/main/main-serve.json
 server: ...
 ```
 
