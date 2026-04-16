@@ -1,0 +1,128 @@
+## yaml-language-server: $schema=https://raw.githubusercontent.com/dekoding/main-serve/refs/heads/main/main-serve.json
+# To enable schema enforcement and completion, remove one # from the line above
+# 
+# =============================================================================
+# OAuth2 / OpenID Connect - SSO Login + Token Introspection
+# =============================================================================
+#
+# Two complementary auth flows in a single config:
+#
+#   Token introspection (auth: "oauth2")
+#     Endpoints validate Bearer tokens by calling the IdP's userinfo URL.
+#     No local JWT is involved - the IdP is the source of truth.
+#
+#   Authorization code flow with PKCE (built-in routes)
+#     Main Serve redirects users to the IdP's authorize URL, exchanges the
+#     code for tokens, fetches user info, mints a local JWT, and sets it as
+#     an HttpOnly cookie.  After login, endpoints with `auth: "jwt"` work
+#     automatically via the cookie.
+#
+# Built-in OAuth2 routes (added automatically when oauth2 is configured):
+#     /_main-serve/oauth2/authorize   - starts the login flow
+#     /_main-serve/oauth2/callback    - handles the IdP redirect
+#
+# Placeholder (replaced at test time - use your real IdP in production):
+#   __IDP_URL__ -> e.g. https://accounts.google.com
+#
+# Quick start:
+#   1. Register an OAuth2 client with your IdP.
+#   2. Set client_id, client_secret, and the three URLs below.
+#   3. Set redirect_url to your public callback URL.
+#   4. Run:  main-serve --config oauth2.yaml
+
+server:
+  host: "127.0.0.1"
+  port: 0
+
+logging:
+  level: "warn"
+  format: "json"
+
+cors:
+  allowed_origins: ["https://app.example.com"]
+  allowed_methods: ["GET", "POST", "OPTIONS"]
+  allowed_headers: ["Authorization", "Content-Type"]
+  allow_credentials: true          # required for cookie-based JWT
+  max_age: 3600
+
+# =============================================================================
+# Authentication
+# =============================================================================
+auth:
+  # JWT is required alongside the code flow - the code flow mints a local
+  # JWT after the user authenticates with the IdP.
+  jwt:
+    secret: "oauth2-test-jwt-secret-32chars!"
+    algorithm: "HS256"
+    issuer: "main-serve"
+    audience: "my-app"
+    expiry: 3600
+    role_claim: "role"
+
+  oauth2:
+    provider: "test-idp"
+    authorization_url: "__IDP_URL__/authorize"
+    token_url: "__IDP_URL__/token"
+    userinfo_url: "__IDP_URL__/userinfo"
+    client_id: "my-app-client-id"
+    client_secret: "my-app-client-secret"
+    scopes: ["openid", "profile", "email"]
+    redirect_url: "http://localhost:8080/_main-serve/oauth2/callback"
+    success_url: "/dashboard"       # where to send the user after login
+    cookie_name: "app_session"      # name of the HttpOnly JWT cookie
+    state_ttl: 300                  # CSRF state lifetime (seconds)
+    max_pending_states: 100
+
+# =============================================================================
+# Endpoints
+# =============================================================================
+endpoints:
+
+  # Public landing page with an SSO sign-in link.
+  - path: "/welcome"
+    methods: ["get"]
+    action: "custom_response"
+    custom_response:
+      status: 200
+      content_type: "text/html; charset=utf-8"
+      body: |
+        <!DOCTYPE html>
+        <html>
+          <head><title>Welcome</title></head>
+          <body>
+            <h1>Welcome</h1>
+            <a href="/_main-serve/oauth2/authorize">Sign in with SSO</a>
+          </body>
+        </html>
+    auth: "none"
+
+  # OAuth2 token introspection - validates Bearer tokens against the IdP.
+  - path: "/api/profile"
+    methods: ["get"]
+    action: "custom_response"
+    custom_response:
+      status: 200
+      content_type: "application/json"
+      body: '{"resource": "user profile"}'
+    auth: "oauth2"
+
+  # Role-restricted introspection - only "admin" role passes.
+  - path: "/api/admin/settings"
+    methods: ["get"]
+    action: "custom_response"
+    custom_response:
+      status: 200
+      content_type: "application/json"
+      body: '{"admin": true, "settings": "all"}'
+    auth: "oauth2"
+    roles: ["admin"]
+
+  # JWT-protected endpoint - accessible via the cookie set by the code flow.
+  - path: "/api/dashboard"
+    methods: ["get"]
+    action: "custom_response"
+    custom_response:
+      status: 200
+      content_type: "application/json"
+      body: '{"page": "dashboard", "widgets": ["activity", "stats"]}'
+    auth: "jwt"

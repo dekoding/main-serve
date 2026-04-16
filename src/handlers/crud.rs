@@ -1,0 +1,186 @@
+/// Generic CRUD handlers driven by YAML endpoint configuration.
+///
+/// Each CRUD endpoint is dispatched by HTTP method:
+/// - GET (no path param)  -> list records (with pagination, filtering, sorting)
+/// - GET (with path param) -> get single record by PK
+/// - POST                  -> insert new record
+/// - PUT / PATCH           -> update record by PK
+/// - DELETE                -> delete record by PK
+use std::collections::HashMap;
+
+use axum::Json;
+use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
+
+use crate::config::types::{EndpointConfig, SortOrder};
+use crate::db::query::{
+    QueryParams, build_delete, build_insert, build_select_list, build_select_one, build_update,
+};
+use crate::error::AppError;
+use crate::server::state::AppState;
+
+/// Handle a CRUD endpoint - dispatches by method and path params.
+///
+/// # Errors
+///
+/// Returns `AppError::Internal` if the table or database pool is missing.
+/// Returns `AppError::BadRequest` for invalid request bodies or unsupported methods.
+/// Returns `AppError::NotFound` if a targeted record does not exist.
+pub async fn handle_crud(
+    State(state): State<AppState>,
+    method: axum::http::Method,
+    path_params: Option<Path<HashMap<String, String>>>,
+    Query(query_string): Query<HashMap<String, String>>,
+    body: Option<Json<serde_json::Value>>,
+    endpoint: EndpointConfig,
+) -> Result<impl IntoResponse, AppError> {
+    let crud = endpoint
+        .crud
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("CRUD config missing on crud endpoint".to_string()))?;
+
+    let config = state.config.read().await;
+    let table_config = config
+        .tables
+        .get(&crud.table)
+        .ok_or_else(|| AppError::Internal(format!("Table '{}' not found in config", crud.table)))?;
+
+    let db_name = crud.database.as_deref().unwrap_or(&table_config.database);
+
+    let pool = {
+        let pools = state.db_pools.read().await;
+        pools
+            .get(db_name)
+            .ok_or_else(|| AppError::Internal(format!("Database '{db_name}' has no pool")))?
+            .clone()
+    };
+    let driver = pool.driver();
+
+    // Extract PK from path params (e.g. {id}).
+    let pk_value = path_params.as_ref().and_then(|p| p.get("id").cloned());
+
+    match (method.as_str(), pk_value.as_deref()) {
+        // GET /resources -> list
+        ("GET", None) => {
+            let qp = extract_query_params(&query_string);
+            let built = build_select_list(&crud.table, table_config, crud, &qp, driver)?;
+            let rows = pool.fetch_all_json(&built.sql, &built.params).await?;
+            Ok((StatusCode::OK, Json(serde_json::json!({ "data": rows }))).into_response())
+        }
+
+        // GET /resources/{id} -> get one
+        ("GET", Some(pk)) => {
+            let built = build_select_one(&crud.table, table_config, crud, pk, driver)?;
+            match pool.fetch_optional_json(&built.sql, &built.params).await? {
+                Some(row) => Ok((StatusCode::OK, Json(row)).into_response()),
+                None => Err(AppError::NotFound(format!(
+                    "{} with id '{}' not found",
+                    crud.table, pk
+                ))),
+            }
+        }
+
+        // POST /resources -> create
+        ("POST", _) => {
+            let body = body
+                .ok_or_else(|| AppError::BadRequest("Request body required".to_string()))?
+                .0;
+            let built = build_insert(&crud.table, table_config, crud, &body, driver)?;
+
+            // For Postgres, fetch_optional_json to get RETURNING; for others, execute.
+            if built.sql.contains("RETURNING") {
+                let row = pool.fetch_optional_json(&built.sql, &built.params).await?;
+                Ok((
+                    StatusCode::CREATED,
+                    Json(serde_json::json!({ "data": row })),
+                )
+                    .into_response())
+            } else {
+                let rows_affected = pool.execute_with_params(&built.sql, &built.params).await?;
+                Ok((
+                    StatusCode::CREATED,
+                    Json(serde_json::json!({ "rows_affected": rows_affected })),
+                )
+                    .into_response())
+            }
+        }
+
+        // PUT or PATCH /resources/{id} -> update
+        ("PUT" | "PATCH", Some(pk)) => {
+            let body = body
+                .ok_or_else(|| AppError::BadRequest("Request body required".to_string()))?
+                .0;
+            let built = build_update(&crud.table, table_config, crud, pk, &body, driver)?;
+            let rows_affected = pool.execute_with_params(&built.sql, &built.params).await?;
+            if rows_affected == 0 {
+                return Err(AppError::NotFound(format!(
+                    "{} with id '{}' not found",
+                    crud.table, pk
+                )));
+            }
+            Ok((
+                StatusCode::OK,
+                Json(serde_json::json!({ "rows_affected": rows_affected })),
+            )
+                .into_response())
+        }
+
+        // DELETE /resources/{id} -> delete
+        ("DELETE", Some(pk)) => {
+            let built = build_delete(&crud.table, table_config, pk, driver)?;
+            let rows_affected = pool.execute_with_params(&built.sql, &built.params).await?;
+            if rows_affected == 0 {
+                return Err(AppError::NotFound(format!(
+                    "{} with id '{}' not found",
+                    crud.table, pk
+                )));
+            }
+            Ok((
+                StatusCode::OK,
+                Json(serde_json::json!({ "rows_affected": rows_affected })),
+            )
+                .into_response())
+        }
+
+        // PUT/PATCH/DELETE without an ID
+        ("PUT" | "PATCH" | "DELETE", None) => Err(AppError::BadRequest(
+            "Resource ID required in path".to_string(),
+        )),
+
+        _ => Err(AppError::BadRequest(format!(
+            "Unsupported method '{method}' for CRUD endpoint"
+        ))),
+    }
+}
+
+/// Extract pagination, sorting, and filter params from the query string.
+fn extract_query_params(qs: &HashMap<String, String>) -> QueryParams {
+    let page = qs.get("page").and_then(|v| v.parse::<u64>().ok());
+    let page_size = qs
+        .get("page_size")
+        .or_else(|| qs.get("per_page"))
+        .and_then(|v| v.parse::<u64>().ok());
+    let sort = qs.get("sort").cloned();
+    let order = qs.get("order").and_then(|v| match v.as_str() {
+        "asc" | "ASC" => Some(SortOrder::Asc),
+        "desc" | "DESC" => Some(SortOrder::Desc),
+        _ => None,
+    });
+
+    // Everything else that isn't a reserved key is treated as a filter.
+    let reserved = ["page", "page_size", "per_page", "sort", "order"];
+    let filters: HashMap<String, String> = qs
+        .iter()
+        .filter(|(k, _)| !reserved.contains(&k.as_str()))
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+
+    QueryParams {
+        page,
+        page_size,
+        sort,
+        order,
+        filters,
+    }
+}

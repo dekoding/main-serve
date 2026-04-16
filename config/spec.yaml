@@ -1,0 +1,794 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/dekoding/schemas/refs/heads/main/main-serve.json
+# =============================================================================
+# Main Serve - Full YAML Configuration Specification
+# =============================================================================
+#
+# This file documents every configurable field in a Main Serve YAML config.
+# Each field includes its type, default value, and valid options.
+#
+# ENVIRONMENT VARIABLE INTERPOLATION:
+#   Any string value supports ${ENV_VAR} and ${ENV_VAR:-default} syntax.
+#   This is resolved at config load time. Use this for secrets.
+#   Example: password: "${DB_PASSWORD}"
+#            password: "${DB_PASSWORD:-changeme}"
+#
+# FILE INCLUDES ($include directive):
+#   Split large configs across multiple files using $include.
+#   Paths are relative to the file containing the directive.
+#   Glob patterns (e.g. "endpoints/*.yaml") are supported.
+#
+#   In a sequence (e.g. endpoints list):
+#     endpoints:
+#       - $include: "endpoints/users.yaml"        # single file
+#       - $include: "endpoints/*.yaml"             # glob: one item per match
+#       - path: "/inline"                          # inline entries still work
+#         action: custom_response
+#
+#   In a mapping (e.g. databases, tables):
+#     databases:
+#       $include: "db/databases.yaml"              # replaces the mapping
+#     tables:
+#       $include: "tables/*.yaml"                  # merges all matches
+#
+#   Includes can be nested. Circular includes are detected and rejected.
+#   Included files also support ${ENV_VAR} interpolation.
+#
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# SERVER SETTINGS
+# -----------------------------------------------------------------------------
+server:
+  # Bind address for the HTTP listener.
+  # Type: string
+  # Default: "127.0.0.1"
+  host: "127.0.0.1"
+
+  # Port number for the HTTP listener.
+  # Type: integer (1-65535)
+  # Default: 8080
+  port: 8080
+
+  # Number of tokio worker threads. Set to 0 or omit for tokio default (num CPUs).
+  # Type: integer (0 = auto)
+  # Default: 0 (auto)
+  workers: 0
+
+  # Maximum request body size in bytes. Requests exceeding this are rejected with 413.
+  # Type: integer
+  # Default: 10485760 (10 MiB)
+  max_body_size: 10485760
+
+  # HTTP keep-alive timeout in seconds. 0 disables keep-alive.
+  # When > 0, idle keep-alive connections are closed after this many seconds
+  # without a new request (implemented via hyper's header_read_timeout).
+  # Type: integer
+  # Default: 75
+  keep_alive: 75
+
+  # Graceful shutdown timeout in seconds.
+  # After receiving SIGTERM/SIGINT, in-flight requests have this long to complete.
+  # Type: integer
+  # Default: 30
+  shutdown_timeout: 30
+
+  # TLS configuration. Omit this section entirely to serve plain HTTP.
+  tls:
+    # Path to PEM-encoded certificate file.
+    # Type: string (file path)
+    # Required if tls section is present.
+    cert: "/path/to/cert.pem"
+
+    # Path to PEM-encoded private key file.
+    # Type: string (file path)
+    # Required if tls section is present.
+    key: "/path/to/key.pem"
+
+# -----------------------------------------------------------------------------
+# LOGGING
+# -----------------------------------------------------------------------------
+logging:
+  # Log level: trace, debug, info, warn, error
+  # Type: enum (string)
+  # Default: "info"
+  level: "info"
+
+  # Output format: "json" or "pretty"
+  # Type: enum (string)
+  # Default: "pretty"
+  format: "pretty"
+
+  # Whether to log request bodies (can be verbose / contain sensitive data).
+  # Bodies are logged at the DEBUG level. Bodies larger than 16 KiB are
+  # truncated in the log output. The body is buffered in memory for logging
+  # and then replayed to the handler, so enabling this adds memory overhead.
+  # Type: boolean
+  # Default: false
+  log_request_body: false
+
+  # Whether to log response bodies.
+  # Bodies are logged at the DEBUG level. Bodies larger than 16 KiB are
+  # truncated in the log output. The response body is buffered in memory
+  # for logging before being sent to the client.
+  # Type: boolean
+  # Default: false
+  log_response_body: false
+
+  # Maximum body size (in bytes) that will be included in log output.
+  # Bodies larger than this are truncated. Applies to both request and
+  # response body logging.
+  # Type: integer (bytes)
+  # Default: 16384 (16 KiB)
+  max_body_log_size: 16384
+
+# -----------------------------------------------------------------------------
+# CORS (Global defaults - can be overridden per-endpoint)
+# -----------------------------------------------------------------------------
+cors:
+  # Allowed origins. Use ["*"] to allow all.
+  # Type: list of strings
+  # Default: ["*"]
+  allowed_origins:
+    - "*"
+
+  # Allowed HTTP methods.
+  # Type: list of strings (GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD)
+  # Default: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]
+  allowed_methods:
+    - "GET"
+    - "POST"
+    - "PUT"
+    - "PATCH"
+    - "DELETE"
+    - "OPTIONS"
+    - "HEAD"
+
+  # Allowed request headers.
+  # Type: list of strings
+  # Default: ["*"]
+  allowed_headers:
+    - "*"
+
+  # Whether to allow credentials (cookies, authorization headers).
+  # Type: boolean
+  # Default: false
+  allow_credentials: false
+
+  # Max age for preflight cache in seconds.
+  # Type: integer
+  # Default: 86400 (24 hours)
+  max_age: 86400
+
+# -----------------------------------------------------------------------------
+# RATE LIMITING (Global defaults - can be overridden per-endpoint)
+# -----------------------------------------------------------------------------
+rate_limit:
+  # Whether rate limiting is enabled globally.
+  # Type: boolean
+  # Default: false
+  enabled: false
+
+  # Maximum number of requests per window.
+  # Type: integer
+  # Default: 100
+  max_requests: 100
+
+  # Window duration in seconds.
+  # Type: integer
+  # Default: 60
+  window_seconds: 60
+
+  # Key extraction strategy: "ip", "header", "token"
+  #   - ip: rate limit by client IP
+  #   - header: rate limit by value of a specific header (set key_header)
+  #   - token: rate limit by auth token / API key
+  # Type: enum (string)
+  # Default: "ip"
+  key_strategy: "ip"
+
+  # Header name to use when key_strategy is "header".
+  # Type: string
+  # Default: "" (unused unless key_strategy is "header")
+  key_header: ""
+
+  # Number of tracked client entries before triggering cleanup of expired entries.
+  # Increase for high-traffic deployments with many unique clients.
+  # Type: integer
+  # Default: 10000
+  cleanup_threshold: 10000
+
+# -----------------------------------------------------------------------------
+# DATABASES
+# Named database connections. At least one is required for CRUD endpoints.
+# -----------------------------------------------------------------------------
+databases:
+  # Each key is a unique name used to reference this database in endpoints.
+  # Example:
+  main:
+    # Database driver: postgres, mysql, sqlite
+    # Type: enum (string)
+    # Required.
+    driver: "postgres"
+
+    # Connection string / URL.
+    # Type: string (use ${ENV_VAR} for secrets)
+    # Required.
+    url: "${DATABASE_URL}"
+
+    # Minimum number of connections in the pool.
+    # Type: integer
+    # Default: 1
+    min_connections: 1
+
+    # Maximum number of connections in the pool.
+    # Type: integer
+    # Default: 10
+    max_connections: 10
+
+    # Whether to run auto-migrations on startup/reload for tables that
+    # reference this database.
+    # Type: boolean
+    # Default: true
+    auto_migrate: true
+
+    # Whether auto-migration is allowed to drop columns that exist in the
+    # database but are no longer present in the YAML config.
+    # When false (the default), removed columns are logged as warnings but
+    # left untouched - no data is lost.
+    # When true, columns missing from the YAML config will be dropped from
+    # the database via ALTER TABLE ... DROP COLUMN. THIS IS DESTRUCTIVE and
+    # cannot be undone.
+    # Type: boolean
+    # Default: false
+    allow_destructive: false
+
+    # Pool connection acquire timeout in seconds.
+    # How long to wait for a connection from the pool before returning an error.
+    # Type: integer (seconds)
+    # Default: 5
+    acquire_timeout: 5
+
+# -----------------------------------------------------------------------------
+# TABLE SCHEMAS
+# Define database tables. Used for auto-migration and CRUD query generation.
+# -----------------------------------------------------------------------------
+tables:
+  # Each key is the table name.
+  # Example:
+  users:
+    # Which named database this table belongs to (must match a key in `databases`).
+    # Type: string
+    # Default: "main"
+    database: "main"
+
+    # Column definitions. Every table must have at least one primary key column.
+    columns:
+      # Each column is defined as:
+      - name: "id"
+        # Column data type. Supported types:
+        #   integer, bigint, smallint, serial, bigserial,
+        #   text, varchar, char,
+        #   boolean,
+        #   float, double, decimal,
+        #   date, timestamp, timestamptz,
+        #   uuid, json, jsonb,
+        #   blob / bytea
+        # Type: enum (string)
+        # Required.
+        type: "serial"
+
+        # Whether this column is the primary key.
+        # Type: boolean
+        # Default: false
+        primary_key: true
+
+        # Whether this column can be NULL.
+        # Type: boolean
+        # Default: true (primary key columns are always treated as NOT NULL
+        # in the generated DDL regardless of this setting)
+        nullable: false
+
+        # Default SQL expression for this column.
+        # Type: string (optional)
+        # Example: "now()", "'active'", "0"
+        default: null
+
+        # Whether to create a UNIQUE constraint.
+        # Type: boolean
+        # Default: false
+        unique: false
+
+        # Whether to create an index on this column.
+        # Type: boolean
+        # Default: false
+        indexed: false
+
+      - name: "email"
+        type: "varchar"
+        unique: true
+        nullable: false
+        indexed: true
+
+      - name: "password_hash"
+        type: "text"
+        nullable: false
+
+      - name: "role"
+        type: "varchar"
+        nullable: false
+        default: "'user'"
+
+      - name: "created_at"
+        type: "timestamptz"
+        nullable: false
+        default: "now()"
+
+      - name: "updated_at"
+        type: "timestamptz"
+        nullable: false
+        default: "now()"
+
+    # Foreign key constraints.
+    # Type: list (optional)
+    foreign_keys: []
+    #  - column: "org_id"
+    #    references_table: "organizations"
+    #    references_column: "id"
+    #    on_delete: "cascade"    # cascade, set_null, restrict, no_action
+    #    on_update: "cascade"
+
+# -----------------------------------------------------------------------------
+# AUTHENTICATION (Global auth provider definitions)
+# Define named auth providers. Endpoints reference these by name.
+# -----------------------------------------------------------------------------
+auth:
+  # JWT authentication provider.
+  jwt:
+    # Secret key for HMAC signing, or path to public key for RSA/EC.
+    # Type: string (use ${ENV_VAR})
+    # Required if jwt is configured.
+    secret: "${JWT_SECRET}"
+
+    # JWT algorithm: HS256, HS384, HS512, RS256, RS384, RS512, ES256, ES384
+    # Type: enum (string)
+    # Default: "HS256"
+    algorithm: "HS256"
+
+    # Token issuer (iss claim).
+    # Type: string
+    # Default: "main-serve"
+    issuer: "main-serve"
+
+    # Expected audience (aud claim). Optional.
+    # Type: string
+    # Default: "" (not validated if empty)
+    audience: ""
+
+    # Token expiry duration in seconds.
+    # Type: integer
+    # Default: 3600 (1 hour)
+    expiry: 3600
+
+    # Name of the claim that contains the user's role.
+    # Type: string
+    # Default: "role"
+    role_claim: "role"
+
+  # API key authentication.
+  api_key:
+    # Where to look for the API key: "header" or "query".
+    # Type: enum (string)
+    # Default: "header"
+    location: "header"
+
+    # Header name or query parameter name.
+    # Type: string
+    # Default: "X-API-Key"
+    name: "X-API-Key"
+
+    # List of valid API keys (use ${ENV_VAR} for each).
+    # Each key can optionally have a role attached.
+    # Type: list
+    keys:
+      - key: "${API_KEY_1}"
+        role: "admin"
+      - key: "${API_KEY_2}"
+        role: "reader"
+
+  # HTTP Basic authentication.
+  basic:
+    # Realm string returned in WWW-Authenticate header.
+    # Type: string
+    # Default: "main-serve"
+    realm: "main-serve"
+
+    # List of username/password pairs (passwords are argon2 hashes).
+    # Type: list
+    users:
+      - username: "admin"
+        password_hash: "${ADMIN_PASSWORD_HASH}"
+        role: "admin"
+
+  # OAuth2 / OpenID Connect authentication.
+  # Supports two modes:
+  #   1. Token introspection: validate externally-obtained Bearer tokens via
+  #      userinfo_url. Endpoints use `auth: "oauth2"`.
+  #   2. Authorization code flow (with PKCE): Main Serve redirects users to
+  #      the IdP for login, exchanges the code for tokens, fetches user info,
+  #      mints a Main Serve JWT, and sets it as an HttpOnly cookie. This
+  #      bridges OAuth2 into the existing JWT auth model. Requires auth.jwt
+  #      to be configured alongside oauth2.
+  #
+  #   Code flow endpoints (registered automatically when authorization_url is set):
+  #     GET /_main-serve/oauth2/authorize  - redirects to IdP
+  #     GET /_main-serve/oauth2/callback   - handles IdP callback
+  oauth2:
+    # OAuth2 provider name (for logging/identification).
+    # Type: string
+    provider: "generic"
+
+    # Authorization endpoint URL (IdP's login page).
+    # When set, enables the OAuth2 authorization code flow and registers
+    # the /_main-serve/oauth2/authorize and callback endpoints.
+    # Type: string (URL)
+    # Default: "" (code flow disabled)
+    authorization_url: ""
+
+    # Token endpoint URL (where the code is exchanged for tokens).
+    # Required when authorization_url is set.
+    # Type: string (URL)
+    token_url: ""
+
+    # UserInfo endpoint URL (OIDC).
+    # Used to validate bearer tokens (mode 1) and to fetch user info
+    # after code exchange (mode 2). Returns JSON with "sub" and optional
+    # "role" fields.
+    # Type: string (URL)
+    userinfo_url: ""
+
+    # Client ID registered with the OAuth2 provider.
+    # Required when authorization_url is set.
+    # Type: string (use ${ENV_VAR})
+    client_id: "${OAUTH2_CLIENT_ID}"
+
+    # Client secret registered with the OAuth2 provider.
+    # Type: string (use ${ENV_VAR})
+    client_secret: "${OAUTH2_CLIENT_SECRET}"
+
+    # OAuth2 scopes to request during the authorization code flow.
+    # Type: list of strings
+    # Default: ["openid"]
+    scopes:
+      - "openid"
+      - "profile"
+      - "email"
+
+    # Callback URL that the IdP redirects to after authentication.
+    # Must match the redirect URI registered with the OAuth2 provider.
+    # Required when authorization_url is set.
+    # Type: string (URL)
+    redirect_url: "http://localhost:8080/_main-serve/oauth2/callback"
+
+    # URL to redirect the user to after successful OAuth2 login.
+    # Type: string (URL path or full URL)
+    # Default: "/"
+    success_url: "/"
+
+    # Name of the HttpOnly cookie set after a successful OAuth2 login.
+    # Contains the minted JWT. The JWT auth middleware also checks this
+    # cookie, so endpoints with `auth: "jwt"` work seamlessly after login.
+    # Type: string
+    # Default: "main_serve_token"
+    cookie_name: "main_serve_token"
+
+    # Maximum lifetime (in seconds) for a pending OAuth2 authorization state.
+    # States older than this are expired and rejected during the callback.
+    # Type: integer (seconds)
+    # Default: 300 (5 minutes)
+    state_ttl: 300
+
+    # Maximum number of pending OAuth2 authorization flows allowed simultaneously.
+    # Limits memory usage from concurrent or abandoned authorization flows.
+    # Type: integer
+    # Default: 1000
+    max_pending_states: 1000
+
+# -----------------------------------------------------------------------------
+# ENDPOINTS
+# The core of Main Serve: define API routes, static file serving, proxying, etc.
+# -----------------------------------------------------------------------------
+endpoints:
+  # Each endpoint is an entry in this list.
+
+  # ---- CRUD Endpoint Example ----
+  - path: "/api/users"
+    # HTTP methods this endpoint responds to.
+    # Type: list of enums (get, post, put, patch, delete)
+    # Required.
+    methods:
+      - "get"
+      - "post"
+
+    # Action type: crud, proxy, static, custom_response
+    # Type: enum (string)
+    # Required.
+    action: "crud"
+
+    # CRUD-specific configuration (required when action is "crud").
+    crud:
+      # Which table to operate on (must match a key in `tables`).
+      # Type: string
+      # Required.
+      table: "users"
+
+      # Which named database to use (must match a key in `databases`).
+      # Type: string (optional)
+      # Default: inherited from the table's `database` setting, or "main" if neither is set
+      database: "main"
+
+      # Fields to return in GET responses. Use ["*"] for all.
+      # Type: list of strings
+      # Default: ["*"]
+      fields:
+        - "id"
+        - "email"
+        - "role"
+        - "created_at"
+
+      # Fields that are writable on POST/PUT/PATCH. Omit to allow all non-PK fields.
+      # Type: list of strings (optional)
+      writable_fields:
+        - "email"
+        - "password_hash"
+        - "role"
+
+      # Enable pagination on GET list endpoints.
+      # Type: object (optional)
+      pagination:
+        # Whether pagination is enabled.
+        # Type: boolean
+        # Default: true
+        enabled: true
+
+        # Default page size.
+        # Type: integer
+        # Default: 20
+        default_page_size: 20
+
+        # Maximum allowed page size.
+        # Type: integer
+        # Default: 100
+        max_page_size: 100
+
+      # Enable filtering on GET list endpoints (query parameters become WHERE clauses).
+      # Type: object (optional)
+      filtering:
+        # Whether filtering is enabled.
+        # Type: boolean
+        # Default: true
+        enabled: true
+
+        # Columns that can be filtered on.
+        # Type: list of strings. Use ["*"] for all.
+        # Default: ["*"]
+        allowed_fields:
+          - "email"
+          - "role"
+          - "created_at"
+
+      # Enable sorting on GET list endpoints (?sort=field&order=asc).
+      # Type: object (optional)
+      sorting:
+        # Whether sorting is enabled.
+        # Type: boolean
+        # Default: true
+        enabled: true
+
+        # Default sort field.
+        # Type: string
+        # Default: primary key
+        default_field: "created_at"
+
+        # Default sort order: "asc" or "desc".
+        # Type: enum (string)
+        # Default: "asc"
+        default_order: "desc"
+
+        # Fields that can be sorted on.
+        # Type: list of strings. Use ["*"] for all.
+        # Default: ["*"]
+        allowed_fields:
+          - "id"
+          - "email"
+          - "created_at"
+
+      # Static WHERE clause applied to all queries on this endpoint.
+      # Type: string (raw SQL boolean expression, appended to queries as-is)
+      # Example: "deleted_at IS NULL"
+      # Default: null (no filter)
+      where_clause: null
+
+      # Joins with other tables.
+      # Type: list (optional)
+      joins: []
+      #  - table: "organizations"
+      #    on: "users.org_id = organizations.id"
+      #    type: "left"    # inner, left, right
+      #    fields:
+      #      - "organizations.name as org_name"
+
+      # Computed / virtual fields (SQL expressions).
+      # Type: list (optional)
+      computed_fields: []
+      #  - name: "full_name"
+      #    expression: "first_name || ' ' || last_name"
+
+    # Authentication required for this endpoint.
+    # Type: string - name of an auth provider defined in `auth` section,
+    #       or "none" for no auth.
+    # Default: "none"
+    auth: "jwt"
+
+    # Authorization: which roles are allowed to access this endpoint.
+    # Type: list of strings (optional - if omitted, any authenticated user is allowed)
+    roles:
+      - "admin"
+      - "user"
+
+    # Per-endpoint CORS override (same shape as global cors).
+    # Type: object (optional - inherits global if omitted)
+    cors: null
+
+    # Per-endpoint rate limiting override (same shape as global rate_limit).
+    # Type: object (optional - inherits global if omitted)
+    rate_limit: null
+
+
+  # ---- CRUD Endpoint with path parameter (single resource) ----
+  - path: "/api/users/:id"
+    methods:
+      - "get"
+      - "put"
+      - "delete"
+    action: "crud"
+    crud:
+      table: "users"
+      database: "main"
+      fields:
+        - "id"
+        - "email"
+        - "role"
+        - "created_at"
+      writable_fields:
+        - "email"
+        - "role"
+    auth: "jwt"
+    roles:
+      - "admin"
+
+  # ---- Proxy Endpoint Example ----
+  - path: "/api/external/*"
+    methods:
+      - "get"
+      - "post"
+      - "put"
+      - "delete"
+    action: "proxy"
+
+    # Proxy-specific configuration (required when action is "proxy").
+    proxy:
+      # Upstream base URL to forward requests to.
+      # Type: string (URL)
+      # Required.
+      upstream: "https://api.example.com"
+
+      # Path rewrite rules.
+      # Type: object (optional)
+      path_rewrite:
+        # Strip this prefix from the request path before forwarding.
+        # Type: string
+        strip_prefix: "/api/external"
+
+        # Prepend this prefix to the path before forwarding.
+        # Type: string
+        add_prefix: "/v2"
+
+      # Headers to add to the upstream request.
+      # Type: map of string -> string
+      # Default: {}
+      headers:
+        X-Forwarded-For: "client"
+        Authorization: "Bearer ${UPSTREAM_TOKEN}"
+
+      # Timeout settings in seconds.
+      # Type: object
+      timeouts:
+        # Connect timeout.
+        # Type: integer
+        # Default: 5
+        connect: 5
+
+        # Read timeout.
+        # Type: integer
+        # Default: 30
+        read: 30
+
+        # Maximum total time for the proxied request.
+        # Type: integer
+        # Default: 60
+        total: 60
+
+      # Maximum upstream response body size in bytes.
+      # Responses exceeding this limit are rejected to prevent memory exhaustion.
+      # Set to 0 to disable the limit.
+      # Type: integer (bytes)
+      # Default: 268435456 (256 MiB)
+      max_response_size: 268435456
+
+    auth: "api_key"
+
+  # ---- Static File Serving Example ----
+  - path: "/static"
+    methods:
+      - "get"
+    action: "static"
+
+    # Static file serving configuration (required when action is "static").
+    static_files:
+      # Root directory for static files (relative to CWD or absolute).
+      # Type: string (directory path)
+      # Required.
+      root: "./public"
+
+      # Default index file for directory requests.
+      # Type: string
+      # Default: "index.html"
+      index: "index.html"
+
+      # Whether to show directory listings when no index file is found.
+      # Type: boolean
+      # Default: false
+      directory_listing: false
+
+      # Cache-Control header max-age in seconds. 0 disables caching.
+      # Type: integer
+      # Default: 3600
+      cache_max_age: 3600
+
+      # SPA fallback: if true, 404s for non-file paths return the index file.
+      # Type: boolean
+      # Default: false
+      spa_fallback: false
+
+    auth: "none"
+
+  # ---- Custom Response Example ----
+  - path: "/api/info"
+    methods:
+      - "get"
+    action: "custom_response"
+
+    # Custom response configuration (required when action is "custom_response").
+    custom_response:
+      # HTTP status code.
+      # Type: integer
+      # Default: 200
+      status: 200
+
+      # Response content type.
+      # Type: string
+      # Default: "application/json"
+      content_type: "application/json"
+
+      # Response body (inline string).
+      # Type: string
+      body: '{"name": "Main Serve", "version": "0.1.0"}'
+
+      # Response headers to include.
+      # Type: map of string -> string
+      # Default: {}
+      headers:
+        X-Custom-A: "hello"
+        X-Custom-B: "world"
+
+    auth: "none"

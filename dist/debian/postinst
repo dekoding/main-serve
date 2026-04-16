@@ -1,0 +1,6 @@
+#!/bin/sh
+set -e
+# Create system user and directories via systemd drop-ins.
+# These are idempotent and safe to re-run.
+systemd-sysusers main-serve.conf 2>/dev/null || true
+systemd-tmpfiles --create main-serve.conf 2>/dev/null || true

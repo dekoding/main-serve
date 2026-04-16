@@ -1,0 +1,21 @@
+post_install() {
+    systemd-sysusers main-serve.conf 2>/dev/null || true
+    systemd-tmpfiles --create main-serve.conf 2>/dev/null || true
+    echo ">> Enable with: systemctl enable --now main-serve.service"
+    echo ">> Config at: /etc/main-serve/config.yaml"
+}
+
+post_upgrade() {
+    systemd-sysusers main-serve.conf 2>/dev/null || true
+    systemd-tmpfiles --create main-serve.conf 2>/dev/null || true
+    systemctl daemon-reload 2>/dev/null || true
+}
+
+pre_remove() {
+    systemctl stop main-serve.service 2>/dev/null || true
+    systemctl disable main-serve.service 2>/dev/null || true
+}
+
+post_remove() {
+    systemctl daemon-reload 2>/dev/null || true
+}

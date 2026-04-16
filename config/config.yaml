@@ -1,0 +1,120 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/dekoding/main-serve/refs/heads/main/main-serve.json
+# =============================================================================
+# Main Serve - Default Configuration
+# =============================================================================
+# A minimal, working configuration to get started quickly. Used by default if
+# you run `main-serve` without a `--config` flag.
+#
+# See config/spec.yaml for the full reference of all options.
+#
+# To run explicitly with this config:
+#   MAIN_SERVE_ADMIN_TOKEN=my-secret-token main-serve -c config/config.yaml
+# =============================================================================
+
+server:
+  host: "127.0.0.1"
+  port: 8080
+
+logging:
+  level: "debug"
+  format: "pretty"
+
+cors:
+  allowed_origins:
+    - "*"
+  allow_credentials: false
+
+# ---------------------------------------------------------------------------
+# Database - uses SQLite for easy demo (no external DB needed)
+# ---------------------------------------------------------------------------
+databases:
+  main:
+    driver: "sqlite"
+    url: "sqlite://demo.db?mode=rwc"
+    max_connections: 5
+    auto_migrate: true
+
+# ---------------------------------------------------------------------------
+# Table Schemas
+# ---------------------------------------------------------------------------
+tables:
+  posts:
+    database: "main"
+    columns:
+      - name: "id"
+        type: "integer"
+        primary_key: true
+      - name: "title"
+        type: "varchar"
+        nullable: false
+      - name: "body"
+        type: "text"
+        nullable: false
+      - name: "author"
+        type: "varchar"
+        nullable: false
+      - name: "published"
+        type: "boolean"
+        nullable: false
+        default: "false"
+      - name: "created_at"
+        type: "timestamp"
+        nullable: false
+        default: "CURRENT_TIMESTAMP"
+
+# ---------------------------------------------------------------------------
+# Authentication - simple API key for the demo
+# ---------------------------------------------------------------------------
+auth:
+  api_key:
+    location: "header"
+    name: "X-API-Key"
+    keys:
+      - key: "${API_KEY:-demo-key-12345}"
+        role: "admin"
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
+endpoints:
+  # List posts / create post
+  - path: "/api/posts"
+    methods: ["get", "post"]
+    action: "crud"
+    crud:
+      table: "posts"
+      fields: ["id", "title", "body", "author", "published", "created_at"]
+      writable_fields: ["title", "body", "author", "published"]
+      pagination:
+        enabled: true
+        default_page_size: 10
+        max_page_size: 50
+      sorting:
+        enabled: true
+        default_field: "created_at"
+        default_order: "desc"
+      filtering:
+        enabled: true
+        allowed_fields: ["author", "published"]
+    auth: "none"
+
+  # Get / update / delete single post
+  - path: "/api/posts/:id"
+    methods: ["get", "put", "delete"]
+    action: "crud"
+    crud:
+      table: "posts"
+      fields: ["id", "title", "body", "author", "published", "created_at"]
+      writable_fields: ["title", "body", "author", "published"]
+    auth: "api_key"
+    roles: ["admin"]
+
+  # Static info endpoint (no DB needed)
+  - path: "/api/info"
+    methods: ["get"]
+    action: "custom_response"
+    custom_response:
+      status: 200
+      content_type: "application/json"
+      body: '{"name": "Main Serve Demo", "version": "0.1.0"}'
+    auth: "none"

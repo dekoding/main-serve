@@ -1,0 +1,145 @@
+## yaml-language-server: $schema=https://raw.githubusercontent.com/dekoding/main-serve/refs/heads/main/main-serve.json
+# To enable schema enforcement and completion, remove one # from the line above
+# 
+# =============================================================================
+# Custom Responses - Fixed Content, Redirects, and Error Pages
+# =============================================================================
+#
+# Use `action: "custom_response"` when the response is fully known at config
+# time (no database, no upstream).  Common use cases:
+#
+#   • Health checks & readiness probes      /health          -> 200 JSON
+#   • API info / version banners            /api/info        -> 200 JSON + headers
+#   • Landing pages                         /welcome         -> 200 HTML
+#   • SEO assets                            /robots.txt      -> 200 text
+#   • Permanent redirects                   /docs            -> 301
+#   • Maintenance pages                     /api/maintenance -> 503
+#   • Sitemaps                              /api/sitemap.xml -> 200 XML
+#
+# Getting started:
+#   1. Copy this file into your project.
+#   2. Edit the endpoints below to match your needs.
+#   3. Run:  main-serve --config custom_responses.yaml
+
+server:
+  host: "127.0.0.1"
+  port: 0
+
+logging:
+  level: "warn"
+
+# =============================================================================
+# Restrict CORS to a single trusted origin and enable credentials.
+# When allow_credentials is true you must list headers explicitly
+# (a wildcard is not allowed per the CORS spec).
+# =============================================================================
+cors:
+  allowed_origins: ["https://myapp.example.com"]
+  allowed_methods: ["GET", "POST", "OPTIONS"]
+  allowed_headers: ["Content-Type", "Authorization"]
+  allow_credentials: true
+  max_age: 7200                  # browsers cache pre-flight for 2 hours
+
+# =============================================================================
+# Global rate limit - protects every endpoint.
+# =============================================================================
+rate_limit:
+  enabled: true
+  max_requests: 1000
+  window_seconds: 60
+
+endpoints:
+
+  # JSON API info
+  # Returns service metadata with custom response headers.
+  - path: "/api/info"
+    methods: ["get"]
+    action: "custom_response"
+    custom_response:
+      status: 200
+      content_type: "application/json"
+      body: '{"name": "My Service", "version": "2.1.0", "environment": "production"}'
+      headers:
+        X-Service-Name: "my-service"
+        X-API-Version: "2.1"
+    auth: "none"
+
+  # Health check
+  # Lightweight probe for load balancers and orchestrators.
+  - path: "/health"
+    methods: ["get"]
+    action: "custom_response"
+    custom_response:
+      status: 200
+      content_type: "application/json"
+      body: '{"status": "healthy", "uptime": "ok"}'
+    auth: "none"
+
+  # HTML landing page
+  # A small static page served directly from the config.
+  - path: "/welcome"
+    methods: ["get"]
+    action: "custom_response"
+    custom_response:
+      status: 200
+      content_type: "text/html; charset=utf-8"
+      body: |
+        <!DOCTYPE html>
+        <html>
+          <head><title>Welcome</title></head>
+          <body><h1>Welcome to My Service</h1><p>API docs at /api/info</p></body>
+        </html>
+    auth: "none"
+
+  # Plain-text robots.txt
+  - path: "/robots.txt"
+    methods: ["get"]
+    action: "custom_response"
+    custom_response:
+      status: 200
+      content_type: "text/plain"
+      body: "User-agent: *\nDisallow: /api/\nAllow: /welcome"
+    auth: "none"
+
+  # Permanent redirect
+  # Redirect old docs URL to the new location with a cacheable 301.
+  - path: "/docs"
+    methods: ["get"]
+    action: "custom_response"
+    custom_response:
+      status: 301
+      content_type: "text/plain"
+      body: "Moved Permanently"
+      headers:
+        Location: "https://docs.example.com/v2"
+        Cache-Control: "public, max-age=86400"
+    auth: "none"
+
+  # Maintenance mode (503)
+  # Drop this in front of your API while deploying.  Accepts all methods
+  # so every caller gets the same "come back later" response.
+  - path: "/api/maintenance"
+    methods: ["get", "post", "put", "delete"]
+    action: "custom_response"
+    custom_response:
+      status: 503
+      content_type: "application/json"
+      body: '{"error": "Service temporarily unavailable", "retry_after": 300}'
+      headers:
+        Retry-After: "300"
+    auth: "none"
+
+  # XML sitemap
+  - path: "/api/sitemap.xml"
+    methods: ["get"]
+    action: "custom_response"
+    custom_response:
+      status: 200
+      content_type: "application/xml"
+      body: |
+        <?xml version="1.0" encoding="UTF-8"?>
+        <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+          <url><loc>https://example.com/</loc></url>
+          <url><loc>https://example.com/welcome</loc></url>
+        </urlset>
+    auth: "none"

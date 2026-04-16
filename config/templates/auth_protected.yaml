@@ -1,0 +1,201 @@
+## yaml-language-server: $schema=https://raw.githubusercontent.com/dekoding/main-serve/refs/heads/main/main-serve.json
+# To enable schema enforcement and completion, remove one # from the line above
+# 
+# =============================================================================
+# Auth-Protected API - JWT, API Key, and HTTP Basic with RBAC
+# =============================================================================
+#
+# A typical REST API that uses three auth methods side-by-side:
+#
+#   JWT (Bearer tokens)  - for browser / mobile clients.
+#   API keys (header)    - for server-to-server or CLI callers.
+#   HTTP Basic           - for an internal admin panel.
+#
+# Each endpoint declares which auth method it expects and, optionally, which
+# roles are allowed.  A missing role list means "any authenticated user".
+#
+# The CRUD endpoints are backed by a real database with auto-migration, so
+# this config is a working starting point for a content-management API.
+#
+# Placeholders (replaced at test time - swap them for real values in prod):
+#   __DB_DRIVER__       -> sqlite | postgres | mysql
+#   __DB_URL__          -> connection string, e.g. sqlite://data.db
+#   __TABLE_NAME__      -> table name (unique per test run)
+#   __BASIC_AUTH_HASH__ -> argon2id hash of the admin password
+#
+# Quick start:
+#   1. Replace the placeholders above.
+#   2. Generate a password hash:  main-serve hash-password
+#   3. Run:  main-serve --config auth_protected.yaml
+
+server:
+  host: "127.0.0.1"
+  port: 0
+  max_body_size: 2097152          # 2 MiB
+
+logging:
+  level: "warn"
+  format: "json"
+
+# =============================================================================
+# Lock CORS to frontend origin and send credentials (cookies / auth headers).
+# =============================================================================
+cors:
+  allowed_origins: ["https://app.example.com"]
+  allowed_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+  allowed_headers: ["Authorization", "Content-Type", "X-API-Key"]
+  allow_credentials: true
+  max_age: 3600
+
+# =============================================================================
+# Global rate limit per client IP.
+# =============================================================================
+rate_limit:
+  enabled: true
+  max_requests: 500
+  window_seconds: 60
+  key_strategy: "ip"
+
+# =============================================================================
+# Authentication providers
+# =============================================================================
+auth:
+  jwt:
+    secret: "real-world-test-secret-key-32ch"   # ≥ 32 chars for HS256
+    algorithm: "HS256"
+    issuer: "main-serve"
+    audience: "my-app"
+    expiry: 3600                   # token lifetime in seconds
+    role_claim: "role"             # JWT claim that carries the user's role
+
+  api_key:
+    location: "header"             # "header" or "query"
+    name: "X-API-Key"             # header / query-param name
+    keys:
+      - key: "prod-key-admin-001"
+        role: "admin"
+      - key: "prod-key-reader-002"
+        role: "reader"
+      - key: "prod-key-writer-003"
+        role: "writer"
+
+  basic:
+    realm: "My Service Admin"
+    users:
+      - username: "admin"
+        password_hash: "__BASIC_AUTH_HASH__"
+        role: "admin"
+
+# =============================================================================
+# Database
+# =============================================================================
+databases:
+  main:
+    driver: "__DB_DRIVER__"
+    url: "__DB_URL__"
+    auto_migrate: true             # create / alter tables on startup
+    max_connections: 5
+    min_connections: 1
+
+tables:
+  __TABLE_NAME__:
+    database: "main"
+    columns:
+      - name: "id"
+        type: "serial"
+        primary_key: true
+      - name: "title"
+        type: "varchar"
+        nullable: false
+      - name: "content"
+        type: "text"
+        nullable: true
+      - name: "status"
+        type: "varchar"
+        nullable: false
+        default: "'draft'"
+      - name: "created_at"
+        type: "timestamp"
+        nullable: false
+        default: "CURRENT_TIMESTAMP"
+
+# =============================================================================
+# Endpoints
+# =============================================================================
+endpoints:
+
+  # Public health probe - no auth required.
+  - path: "/health"
+    methods: ["get"]
+    action: "custom_response"
+    custom_response:
+      status: 200
+      content_type: "application/json"
+      body: '{"status": "ok"}'
+    auth: "none"
+
+  # JWT-protected article list + create.
+  # Any valid JWT holder can read or create (no role restriction here).
+  - path: "/api/articles"
+    methods: ["get", "post"]
+    action: "crud"
+    crud:
+      table: "__TABLE_NAME__"
+      fields: ["id", "title", "content", "status", "created_at"]
+      writable_fields: ["title", "content", "status"]
+      pagination:
+        enabled: true
+        default_page_size: 20
+        max_page_size: 100
+      filtering:
+        enabled: true
+        allowed_fields: ["status"]
+      sorting:
+        enabled: true
+        default_field: "created_at"
+        default_order: "desc"
+    auth: "jwt"
+
+  # Single-article operations - admin role only.
+  - path: "/api/articles/{id}"
+    methods: ["get", "put", "delete"]
+    action: "crud"
+    crud:
+      table: "__TABLE_NAME__"
+      fields: ["id", "title", "content", "status", "created_at"]
+      writable_fields: ["title", "content", "status"]
+    auth: "jwt"
+    roles: ["admin"]
+
+  # API key: reader + admin can access the feed.
+  - path: "/api/feed"
+    methods: ["get"]
+    action: "custom_response"
+    custom_response:
+      status: 200
+      content_type: "application/json"
+      body: '{"feed": "articles", "format": "json"}'
+    auth: "api_key"
+    roles: ["reader", "admin"]
+
+  # API key: admin-only stats endpoint.
+  - path: "/api/admin/stats"
+    methods: ["get"]
+    action: "custom_response"
+    custom_response:
+      status: 200
+      content_type: "application/json"
+      body: '{"total_articles": 42, "active_users": 7}'
+    auth: "api_key"
+    roles: ["admin"]
+
+  # HTTP Basic: admin panel (protected by realm "My Service Admin").
+  - path: "/admin/config"
+    methods: ["get"]
+    action: "custom_response"
+    custom_response:
+      status: 200
+      content_type: "application/json"
+      body: '{"config": "current settings"}'
+    auth: "basic"
+    roles: ["admin"]

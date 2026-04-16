@@ -1,0 +1,208 @@
+## yaml-language-server: $schema=https://raw.githubusercontent.com/dekoding/main-serve/refs/heads/main/main-serve.json
+# To enable schema enforcement and completion, remove one # from the line above
+# 
+# =============================================================================
+# Full-Stack Application - SPA + API + Admin Panel
+# =============================================================================
+#
+# A realistic, production-shaped config that combines every major feature:
+#
+#   Frontend       /app/*         SPA with client-side routing
+#                  /assets/*      Long-cached static assets (1 week)
+#   Public         /health        Health-check probe
+#   API (JWT)      /api/users     CRUD with pagination, filtering, sorting,
+#                                 and a where_clause that hides inactive rows
+#                  /api/users/{id}  Admin-only single-resource operations
+#   Service        /api/service/ping  API key for machine-to-machine calls
+#   Admin          /admin/status      HTTP Basic, realm "Admin Panel"
+#
+# Placeholders (replaced at test time - swap for real values in prod):
+#   {ROOT}              -> path to your web root (e.g. ./dist)
+#   __DB_DRIVER__       -> sqlite | postgres | mysql
+#   __DB_URL__          -> connection string
+#   __TABLE_NAME__      -> table name
+#   __BASIC_AUTH_HASH__ -> argon2id hash of admin password
+
+server:
+  host: "127.0.0.1"
+  port: 0
+  max_body_size: 5242880          # 5 MiB
+  keep_alive: 75
+  shutdown_timeout: 10
+
+logging:
+  level: "warn"
+  format: "json"
+
+cors:
+  allowed_origins: ["https://myapp.example.com"]
+  allowed_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+  allowed_headers: ["Authorization", "Content-Type", "X-API-Key"]
+  allow_credentials: true
+  max_age: 3600
+
+rate_limit:
+  enabled: true
+  max_requests: 200
+  window_seconds: 60
+  key_strategy: "ip"
+
+# =============================================================================
+# Authentication providers
+# =============================================================================
+auth:
+  jwt:
+    secret: "real-world-test-secret-key-32ch"
+    algorithm: "HS256"
+    issuer: "main-serve"
+    audience: "my-app"
+    expiry: 3600
+    role_claim: "role"
+
+  api_key:
+    location: "header"
+    name: "X-API-Key"
+    keys:
+      - key: "service-to-service-key"
+        role: "service"
+
+  basic:
+    realm: "Admin Panel"
+    users:
+      - username: "admin"
+        password_hash: "__BASIC_AUTH_HASH__"
+        role: "admin"
+
+# =============================================================================
+# Database
+# =============================================================================
+databases:
+  main:
+    driver: "__DB_DRIVER__"
+    url: "__DB_URL__"
+    auto_migrate: true
+    max_connections: 10
+
+tables:
+  __TABLE_NAME__:
+    database: "main"
+    columns:
+      - name: "id"
+        type: "serial"
+        primary_key: true
+      - name: "name"
+        type: "varchar"
+        nullable: false
+      - name: "email"
+        type: "varchar"
+        nullable: false
+        unique: true
+      - name: "role"
+        type: "varchar"
+        nullable: false
+        default: "'user'"
+      - name: "active"
+        type: "boolean"
+        nullable: false
+        default: "true"
+      - name: "created_at"
+        type: "timestamp"
+        nullable: false
+        default: "CURRENT_TIMESTAMP"
+
+# =============================================================================
+# Endpoints
+# =============================================================================
+endpoints:
+
+  # Public / frontend
+
+  ## SPA frontend - client-side routing via spa_fallback.
+  - path: "/app/*"
+    methods: ["get"]
+    action: "static"
+    static_files:
+      root: "{ROOT}" # Add $ to beginning to use as interpolated variable
+      index: "index.html"
+      spa_fallback: true
+      cache_max_age: 0
+    auth: "none"
+
+  ## Hashed static assets - cache aggressively.
+  - path: "/assets/*"
+    methods: ["get"]
+    action: "static"
+    static_files:
+      root: "{ROOT}" # Add $ to beginning to use as interpolated variable
+      index: "index.html"
+      cache_max_age: 604800        # 1 week
+      spa_fallback: false
+    auth: "none"
+
+  ## Health probe for load balancers.
+  - path: "/health"
+    methods: ["get"]
+    action: "custom_response"
+    custom_response:
+      status: 200
+      content_type: "application/json"
+      body: '{"status": "healthy", "version": "1.0.0"}'
+    auth: "none"
+
+  # JWT-protected CRUD
+
+  ## User list + create.  The where_clause ensures only active users are
+  ## returned by GET (inactive rows are soft-deleted but still in the DB).
+  - path: "/api/users"
+    methods: ["get", "post"]
+    action: "crud"
+    crud:
+      table: "__TABLE_NAME__"
+      fields: ["id", "name", "email", "role", "active", "created_at"]
+      writable_fields: ["name", "email", "role", "active"]
+      pagination:
+        enabled: true
+        default_page_size: 25
+        max_page_size: 100
+      filtering:
+        enabled: true
+        allowed_fields: ["role", "active"]
+      sorting:
+        enabled: true
+        default_field: "created_at"
+        default_order: "desc"
+      where_clause: "active = true"
+    auth: "jwt"
+
+  ## Single-user operations - admin only.
+  - path: "/api/users/{id}"
+    methods: ["get", "put", "delete"]
+    action: "crud"
+    crud:
+      table: "__TABLE_NAME__"
+      fields: ["id", "name", "email", "role", "active", "created_at"]
+      writable_fields: ["name", "email", "role", "active"]
+    auth: "jwt"
+    roles: ["admin"]
+
+  # API key - service-to-service
+  - path: "/api/service/ping"
+    methods: ["get"]
+    action: "custom_response"
+    custom_response:
+      status: 200
+      content_type: "application/json"
+      body: '{"pong": true}'
+    auth: "api_key"
+    roles: ["service"]
+
+  # HTTP Basic - admin panel 
+  - path: "/admin/status"
+    methods: ["get"]
+    action: "custom_response"
+    custom_response:
+      status: 200
+      content_type: "application/json"
+      body: '{"admin": true, "panel": "status"}'
+    auth: "basic"
+    roles: ["admin"]

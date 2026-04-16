@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+if [ "$1" = "purge" ]; then
+    rm -rf /var/lib/main-serve
+    rm -rf /etc/main-serve
+    if command -v userdel >/dev/null 2>&1; then
+        userdel main-serve 2>/dev/null || true
+    fi
+    if command -v groupdel >/dev/null 2>&1; then
+        groupdel main-serve 2>/dev/null || true
+    fi
+fi
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl daemon-reload 2>/dev/null || true
+fi

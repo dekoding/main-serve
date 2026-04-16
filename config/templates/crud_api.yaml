@@ -1,0 +1,348 @@
+## yaml-language-server: $schema=https://raw.githubusercontent.com/dekoding/main-serve/refs/heads/main/main-serve.json
+# To enable schema enforcement and completion, remove one # from the line above
+# 
+# =============================================================================
+# CRUD API - Relational Data with Joins, Computed Fields, and Filtering
+# =============================================================================
+#
+# A content-management API that showcases every CRUD feature:
+#
+#   • Multiple related tables with foreign keys
+#   • Joins (INNER and LEFT) to include data from related tables
+#   • Computed fields (virtual columns from SQL expressions)
+#   • WHERE clauses to scope visible data (e.g. only published articles)
+#   • Pagination, sorting, and filtering with allow-lists
+#   • Field-level control: different readable vs. writable field sets
+#   • Role-based access: readers can browse, writers can create and edit
+#
+# Domain model:
+#
+#   authors --< articles >-- categories
+#            1:N          N:1 (optional)
+#
+# Placeholders (replaced at test time - swap for real values in prod):
+#   __DB_DRIVER__  -> sqlite | postgres | mysql
+#   __DB_URL__     -> connection string
+#   __TABLE_NAME__ -> base name (related tables are suffixed: _authors, _categories)
+#
+# Quick start:
+#   1. Replace the placeholders above.
+#   2. Run:  main-serve --config crud_api.yaml
+
+server:
+  host: "127.0.0.1"
+  port: 0
+
+logging:
+  level: "warn"
+  format: "json"
+
+cors:
+  allowed_origins: ["*"]
+  allowed_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+  max_age: 3600
+
+# Simple API-key auth with three roles: reader, writer, admin.
+# Other templates cover JWT, Basic, and OAuth2 in depth.
+auth:
+  api_key:
+    location: "header"
+    name: "X-API-Key"
+    keys:
+      - key: "read-key-001"
+        role: "reader"
+      - key: "write-key-002"
+        role: "writer"
+      - key: "admin-key-003"
+        role: "admin"
+
+# =============================================================================
+# Database
+# =============================================================================
+databases:
+  main:
+    driver: "__DB_DRIVER__"
+    url: "__DB_URL__"
+    auto_migrate: true
+    max_connections: 10
+
+# =============================================================================
+# Table schemas
+#
+# Tables are defined in dependency order so foreign keys resolve correctly
+# during auto-migration.
+#
+# TODO: Remove order requirement
+# =============================================================================
+
+tables:
+  __TABLE_NAME___authors:
+    database: "main"
+    columns:
+      - name: "id"
+        type: "serial"
+        primary_key: true
+      - name: "name"
+        type: "varchar"
+        nullable: false
+      - name: "email"
+        type: "varchar"
+        nullable: false
+        unique: true
+      - name: "bio"
+        type: "text"
+        nullable: true
+      - name: "created_at"
+        type: "timestamp"
+        nullable: false
+        default: "CURRENT_TIMESTAMP"
+
+  __TABLE_NAME___categories:
+    database: "main"
+    columns:
+      - name: "id"
+        type: "serial"
+        primary_key: true
+      - name: "name"
+        type: "varchar"
+        nullable: false
+        unique: true
+      - name: "description"
+        type: "text"
+        nullable: true
+
+  __TABLE_NAME__:
+    database: "main"
+    columns:
+      - name: "id"
+        type: "serial"
+        primary_key: true
+      - name: "title"
+        type: "varchar"
+        nullable: false
+        indexed: true
+      - name: "slug"
+        type: "varchar"
+        nullable: false
+        unique: true
+      - name: "body"
+        type: "text"
+        nullable: false
+      - name: "status"
+        type: "varchar"
+        nullable: false
+        default: "'draft'"
+      - name: "author_id"
+        type: "integer"
+        nullable: false
+      - name: "category_id"
+        type: "integer"
+        nullable: true
+      - name: "view_count"
+        type: "integer"
+        nullable: false
+        default: "0"
+      - name: "created_at"
+        type: "timestamp"
+        nullable: false
+        default: "CURRENT_TIMESTAMP"
+      - name: "published_at"
+        type: "timestamp"
+        nullable: true
+    foreign_keys:
+      - column: "author_id"
+        references_table: "__TABLE_NAME___authors"
+        references_column: "id"
+        on_delete: "cascade"
+      - column: "category_id"
+        references_table: "__TABLE_NAME___categories"
+        references_column: "id"
+        on_delete: "set_null"
+
+# =============================================================================
+# Endpoints
+# =============================================================================
+endpoints:
+
+  # Authors: simple CRUD
+
+  ## List / create authors.
+  - path: "/api/authors"
+    methods: ["get", "post"]
+    action: "crud"
+    crud:
+      table: "__TABLE_NAME___authors"
+      fields: ["id", "name", "email", "created_at"]
+      writable_fields: ["name", "email", "bio"]
+      pagination:
+        enabled: true
+        default_page_size: 20
+        max_page_size: 50
+      sorting:
+        enabled: true
+        default_field: "name"
+        default_order: "asc"
+        allowed_fields: ["id", "name", "created_at"]
+      filtering:
+        enabled: true
+        allowed_fields: ["name"]
+    auth: "none"
+
+  ## Get / update / delete a single author.
+  - path: "/api/authors/:id"
+    methods: ["get", "put", "delete"]
+    action: "crud"
+    crud:
+      table: "__TABLE_NAME___authors"
+      fields: ["id", "name", "email", "bio", "created_at"]
+      writable_fields: ["name", "email", "bio"]
+    auth: "api_key"
+    roles: ["writer", "admin"]
+
+  # Categories: simple CRUD
+
+  ## List / create categories.
+  - path: "/api/categories"
+    methods: ["get", "post"]
+    action: "crud"
+    crud:
+      table: "__TABLE_NAME___categories"
+      fields: ["id", "name", "description"]
+      writable_fields: ["name", "description"]
+      pagination:
+        enabled: true
+        default_page_size: 50
+        max_page_size: 100
+      sorting:
+        enabled: true
+        default_field: "name"
+        default_order: "asc"
+    auth: "none"
+
+  ## Get / update / delete a single category.
+  - path: "/api/categories/:id"
+    methods: ["get", "put", "delete"]
+    action: "crud"
+    crud:
+      table: "__TABLE_NAME___categories"
+      fields: ["id", "name", "description"]
+      writable_fields: ["name", "description"]
+    auth: "api_key"
+    roles: ["writer", "admin"]
+
+  # Articles: joins, computed fields, where_clause
+
+  ## Public list of published articles with author and category info.
+  ## Demonstrates INNER JOIN (every article has an author), LEFT JOIN
+  ## (category is optional), computed fields, and a static WHERE clause.
+  - path: "/api/articles"
+    methods: ["get"]
+    action: "crud"
+    crud:
+      table: "__TABLE_NAME__"
+      fields:
+        - "id"
+        - "title"
+        - "slug"
+        - "status"
+        - "view_count"
+        - "created_at"
+        - "published_at"
+      pagination:
+        enabled: true
+        default_page_size: 20
+        max_page_size: 100
+      sorting:
+        enabled: true
+        default_field: "created_at"
+        default_order: "desc"
+        allowed_fields:
+          - "id"
+          - "title"
+          - "view_count"
+          - "created_at"
+          - "published_at"
+      filtering:
+        enabled: true
+        allowed_fields: ["status", "author_id", "category_id"]
+      # Only show published articles in the public listing.
+      where_clause: "__TABLE_NAME__.status = 'published'"
+      # INNER JOIN: every article has an author.
+      # LEFT JOIN: category is optional - articles without one still appear.
+      joins:
+        - table: "__TABLE_NAME___authors"
+          on: "__TABLE_NAME__.author_id = __TABLE_NAME___authors.id"
+          join_type: "inner"
+          fields:
+            - "__TABLE_NAME___authors.name AS author_name"
+        - table: "__TABLE_NAME___categories"
+          on: "__TABLE_NAME__.category_id = __TABLE_NAME___categories.id"
+          join_type: "left"
+          fields:
+            - "__TABLE_NAME___categories.name AS category_name"
+      # Virtual columns computed at query time.
+      computed_fields:
+        - name: "body_length"
+          expression: "LENGTH(__TABLE_NAME__.body)"
+    auth: "none"
+
+  ## Create an article (authenticated writers only).
+  - path: "/api/articles"
+    methods: ["post"]
+    action: "crud"
+    crud:
+      table: "__TABLE_NAME__"
+      writable_fields:
+        - "title"
+        - "slug"
+        - "body"
+        - "status"
+        - "author_id"
+        - "category_id"
+    auth: "api_key"
+    roles: ["writer", "admin"]
+
+  ## Get a single article by ID (all fields, no joins - use the list
+  ## endpoint for enriched data).
+  - path: "/api/articles/:id"
+    methods: ["get"]
+    action: "crud"
+    crud:
+      table: "__TABLE_NAME__"
+      fields:
+        - "id"
+        - "title"
+        - "slug"
+        - "body"
+        - "status"
+        - "author_id"
+        - "category_id"
+        - "view_count"
+        - "created_at"
+        - "published_at"
+    auth: "none"
+
+  ## Update an article.
+  - path: "/api/articles/:id"
+    methods: ["put"]
+    action: "crud"
+    crud:
+      table: "__TABLE_NAME__"
+      writable_fields:
+        - "title"
+        - "slug"
+        - "body"
+        - "status"
+        - "category_id"
+        - "view_count"
+    auth: "api_key"
+    roles: ["writer", "admin"]
+
+  ## Delete an article (admin only).
+  - path: "/api/articles/:id"
+    methods: ["delete"]
+    action: "crud"
+    crud:
+      table: "__TABLE_NAME__"
+    auth: "api_key"
+    roles: ["admin"]

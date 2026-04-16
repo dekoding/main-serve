@@ -1,0 +1,117 @@
+[package]
+name = "main-serve"
+version = "0.1.0"
+edition = "2024"
+description = "A high-performance, YAML-configured web server with full API support"
+license = "MIT"
+repository = "https://github.com/dekoding/main-serve"
+homepage = "https://github.com/dekoding/main-serve"
+keywords = ["yaml", "server", "api", "rest", "crud"]
+categories = ["network-programming", "web-programming::http-server"]
+readme = "README.md"
+
+[package.metadata.deb]
+maintainer = "Damon Kaswell <dekoding@damonkaswell.com>"
+copyright = "2026 Damon Kaswell"
+extended-description = "A high-performance, YAML-configured web server"
+section = "web"
+priority = "optional"
+assets = [
+    ["target/release/main-serve", "usr/bin/", "755"],
+    ["config/config.yaml", "etc/main-serve/config.yaml", "644"],
+    ["dist/main-serve.service", "lib/systemd/system/main-serve.service", "644"],
+    ["dist/main-serve.sysusers", "lib/sysusers.d/main-serve.conf", "644"],
+    ["dist/main-serve.tmpfiles", "lib/tmpfiles.d/main-serve.conf", "644"],
+]
+conf-files = ["/etc/main-serve/config.yaml"]
+maintainer-scripts = "dist/debian/"
+
+[package.metadata.generate-rpm]
+assets = [
+    { source = "target/release/main-serve", dest = "/usr/bin/main-serve", mode = "755" },
+    { source = "config/config.yaml", dest = "/etc/main-serve/config.yaml", mode = "644", config = true },
+    { source = "dist/main-serve.service", dest = "/lib/systemd/system/main-serve.service", mode = "644" },
+    { source = "dist/main-serve.sysusers", dest = "/lib/sysusers.d/main-serve.conf", mode = "644" },
+    { source = "dist/main-serve.tmpfiles", dest = "/lib/tmpfiles.d/main-serve.conf", mode = "644" },
+    { source = "LICENSE", dest = "/usr/share/licenses/main-serve/LICENSE", mode = "644", doc = true },
+]
+
+[package.metadata.generate-rpm.requires]
+systemd = "*"
+
+# RPM scriptlets for systemd integration
+[package.metadata.generate-rpm.scriptlets]
+post_install_script = """
+systemd-sysusers main-serve.conf 2>/dev/null || true
+systemd-tmpfiles --create main-serve.conf 2>/dev/null || true
+systemctl daemon-reload 2>/dev/null || true
+"""
+pre_uninstall_script = """
+systemctl stop main-serve.service 2>/dev/null || true
+systemctl disable main-serve.service 2>/dev/null || true
+"""
+post_uninstall_script = """
+systemctl daemon-reload 2>/dev/null || true
+"""
+
+[dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# HTTP framework
+axum = { version = "0.8", features = ["macros"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["cors", "compression-gzip", "trace", "fs", "request-id", "util", "set-header"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+# Database
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "mysql", "sqlite", "json", "chrono", "uuid"] }
+
+# Authentication
+jsonwebtoken = { version = "10", features = ["rust_crypto"] }
+argon2 = "0.5"
+
+# HTTP client (for reverse proxy)
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+
+# TLS
+tokio-rustls = "0.26"
+rustls = { version = "0.23", features = ["ring"] }
+rustls-pemfile = "2"
+
+# CLI
+clap = { version = "4", features = ["derive", "env"] }
+
+# Logging / Tracing
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Utilities
+uuid = { version = "1", features = ["v4"] }
+chrono = { version = "0.4", features = ["serde"] }
+sha2 = "0.11"
+subtle = "2"
+base64 = "0.22"
+url = "2"
+regex = "1"
+glob = "0.3"
+hyper = { version = "1", features = ["full"] }
+hyper-util = { version = "0.1", features = ["tokio", "server-auto"] }
+http = "1"
+http-body-util = "0.1"
+bytes = "1"
+percent-encoding = { version = "2.3.2", features = ["std"] }
+nix = { version = "0.31", features = ["user"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3"
+rcgen = "0.14"

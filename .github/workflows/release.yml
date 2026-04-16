@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-linux:
+    name: Build Linux packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Run tests
+        run: cargo test --verbose
+
+      - name: Install packaging tools
+        run: cargo install cargo-deb cargo-generate-rpm
+
+      - name: Build .deb package
+        run: cargo deb --no-build
+
+      - name: Build .rpm package
+        run: cargo generate-rpm
+
+      - name: Generate checksums
+        run: |
+          cd target
+          sha256sum release/main-serve > SHA256SUMS
+          sha256sum debian/*.deb >> SHA256SUMS
+          sha256sum generate-rpm/*.rpm >> SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            target/debian/*.deb
+            target/generate-rpm/*.rpm
+            target/release/main-serve
+            target/SHA256SUMS

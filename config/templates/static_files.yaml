@@ -1,0 +1,90 @@
+## yaml-language-server: $schema=https://raw.githubusercontent.com/dekoding/main-serve/refs/heads/main/main-serve.json
+# To enable schema enforcement and completion, remove one # from the line above
+# 
+# =============================================================================
+# Static File Serving
+# =============================================================================
+#
+# Three common modes for serving files from disk:
+#
+#   /assets/*   Standard serving.  Returns the file if it exists, 404 otherwise.
+#               Ideal for images, CSS, JS bundles, and other hashed assets where
+#               you want aggressive caching (cache_max_age: 86400 = 1 day).
+#
+#   /app/*      Single-Page App (SPA).  Any path that doesn't match a real file
+#               returns index.html so your client-side router can handle it.
+#               Caching is disabled (cache_max_age: 0) because the HTML shell
+#               must always be fresh.
+#
+#   /files/*    Directory listing.  When a folder has no index file the server
+#               renders a browsable file listing. Useful for download portals or
+#               internal file shares.
+#
+# Getting started:
+#   1. Replace {ROOT} below with the absolute path to your web root, e.g.
+#      /var/www/html  or  ./dist
+#   2. Pick the modes you need and delete the rest.
+#   3. Run:  main-serve --config config/templates/static_files.yaml
+#
+# Placeholder: {ROOT} - absolute path to the directory containing your files.
+#              (Replaced automatically when running the integration tests.)
+
+server:
+  host: "127.0.0.1"
+  port: 0                       # 0 = pick a random available port
+  max_body_size: 1048576        # 1 MiB - only matters for upload endpoints
+
+logging:
+  level: "warn"
+  format: "json"
+
+# Allow any origin for static assets. Tighten this for production.
+cors:
+  allowed_origins: ["*"]
+  allowed_methods: ["GET", "HEAD", "OPTIONS"]
+  max_age: 3600
+
+# =============================================================================
+# Endpoints
+# =============================================================================
+endpoints:
+
+  # Standard static serving
+  # Serves files verbatim.  Missing paths return 404.
+  - path: "/assets/*"
+    methods: ["get"]
+    action: "static"
+    static_files:
+      root: "{ROOT}" # Add $ to beginning to use as interpolated variable
+      index: "index.html"        # served when the path ends in /
+      directory_listing: false    # never expose folder contents
+      cache_max_age: 86400       # 1 day - tune per deployment strategy
+      spa_fallback: false
+    auth: "none"
+
+  # SPA mode
+  # Unknown paths fall through to index.html for client-side routing
+  # (React Router, Vue Router, etc.).
+  - path: "/app/*"
+    methods: ["get"]
+    action: "static"
+    static_files:
+      root: "{ROOT}" # Add $ to beginning to use as interpolated variable
+      index: "index.html"
+      directory_listing: false
+      cache_max_age: 0            # never cache the HTML shell
+      spa_fallback: true          # ← the key setting
+    auth: "none"
+
+  # Directory listing
+  # When a folder has no index file the server generates an HTML listing.
+  - path: "/files/*"
+    methods: ["get"]
+    action: "static"
+    static_files:
+      root: "{ROOT}" # Add $ to beginning to use as interpolated variable
+      index: "index.html"
+      directory_listing: true     # ← enable browsable listings
+      cache_max_age: 0
+      spa_fallback: false
+    auth: "none"

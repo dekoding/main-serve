@@ -1,0 +1,413 @@
+use std::fmt;
+use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::process;
+
+use clap::Parser;
+use tokio::net::TcpListener;
+use tracing_subscriber::EnvFilter;
+
+use main_serve::config::load_config;
+use main_serve::config::types::LogFormat;
+use main_serve::db::migration::run_migrations;
+use main_serve::db::pool::{close_pools, create_pools};
+use main_serve::server::{AppState, build_router, build_tls_acceptor};
+
+/// Main Serve - a high-performance, YAML-configured web server.
+#[derive(Parser)]
+#[command(name = "main-serve", version, about)]
+struct Cli {
+    /// Path to YAML config file.
+    /// If not specified, checks ./config/config.yaml then /etc/main-serve/config.yaml.
+    #[arg(short, long)]
+    config: Option<PathBuf>,
+
+    /// Admin token for the reload endpoint (overrides MAIN_SERVE_ADMIN_TOKEN env var).
+    #[arg(long, env = "MAIN_SERVE_ADMIN_TOKEN", default_value = "")]
+    admin_token: String,
+
+    /// Validate config and exit without starting the server.
+    #[arg(long)]
+    validate: bool,
+
+    /// Parse config, print resolved endpoints, and exit.
+    #[arg(long)]
+    dry_run: bool,
+}
+
+impl fmt::Debug for Cli {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Cli")
+            .field("config", &self.config)
+            .field("admin_token", &"[REDACTED]")
+            .field("validate", &self.validate)
+            .field("dry_run", &self.dry_run)
+            .finish()
+    }
+}
+
+fn main() {
+    let cli = Cli::parse();
+
+    // Resolve config path: explicit CLI flag -> ./config/config.yaml -> /etc/main-serve/config.yaml
+    let config_path = resolve_config_path(&cli.config);
+
+    // Load config first (before tracing init) so we can use logging settings.
+    // We can't log config errors with tracing yet, so use eprintln.
+    let config = match load_config(&config_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Failed to load config: {e}");
+            process::exit(1);
+        }
+    };
+
+    // Initialize tracing using config values.
+    // RUST_LOG env var takes precedence over the config file level.
+    let filter_str = match config.logging.level {
+        main_serve::config::types::LogLevel::Trace => "trace",
+        main_serve::config::types::LogLevel::Debug => "debug",
+        main_serve::config::types::LogLevel::Info => "info",
+        main_serve::config::types::LogLevel::Warn => "warn",
+        main_serve::config::types::LogLevel::Error => "error",
+    };
+    let env_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(filter_str));
+
+    match config.logging.format {
+        LogFormat::Json => {
+            tracing_subscriber::fmt()
+                .json()
+                .with_env_filter(env_filter)
+                .init();
+        }
+        LogFormat::Pretty => {
+            tracing_subscriber::fmt().with_env_filter(env_filter).init();
+        }
+    }
+
+    // Build the tokio runtime with configurable worker threads.
+    let mut runtime_builder = tokio::runtime::Builder::new_multi_thread();
+    runtime_builder.enable_all();
+    if config.server.workers > 0 {
+        runtime_builder.worker_threads(config.server.workers);
+    }
+    let runtime = runtime_builder.build().unwrap_or_else(|e| {
+        tracing::error!("Failed to build tokio runtime: {e}");
+        process::exit(1);
+    });
+
+    runtime.block_on(async_main(cli, config, config_path));
+}
+
+/// Resolve the config file path using priority order:
+/// 1. Explicit CLI flag (if provided)
+/// 2. ./config/config.yaml (local development)
+/// 3. /etc/main-serve/config.yaml (system install)
+fn resolve_config_path(cli_path: &Option<PathBuf>) -> PathBuf {
+    if let Some(explicit) = cli_path {
+        return explicit.clone();
+    }
+
+    let local = PathBuf::from("config/config.yaml");
+    if local.exists() {
+        return local;
+    }
+
+    let system = PathBuf::from("/etc/main-serve/config.yaml");
+    if system.exists() {
+        return system;
+    }
+
+    // Default to local path so the error message is helpful for new users.
+    local
+}
+
+async fn async_main(cli: Cli, config: main_serve::config::AppConfig, config_path: PathBuf) {
+    // --validate: just validate and exit.
+    if cli.validate {
+        tracing::info!("Configuration is valid.");
+        process::exit(0);
+    }
+
+    // --dry-run: print resolved endpoints and exit.
+    if cli.dry_run {
+        tracing::info!("Resolved configuration:");
+        tracing::info!("  Server: {}:{}", config.server.host, config.server.port);
+        tracing::info!("  Databases: {}", config.databases.len());
+        tracing::info!("  Tables: {}", config.tables.len());
+        tracing::info!("  Endpoints:");
+        for ep in &config.endpoints {
+            let methods: Vec<String> = ep.methods.iter().map(|m| format!("{m:?}")).collect();
+            tracing::info!(
+                "    {} [{}] -> {:?}",
+                ep.path,
+                methods.join(", "),
+                ep.action
+            );
+        }
+        process::exit(0);
+    }
+
+    // Ensure admin token is set.
+    if cli.admin_token.is_empty() {
+        tracing::warn!(
+            "No admin token configured. The reload endpoint will reject all requests. \
+             Set MAIN_SERVE_ADMIN_TOKEN or use --admin-token."
+        );
+    }
+
+    let host = config.server.host.clone();
+    let port = config.server.port;
+    let shutdown_timeout = config.server.shutdown_timeout;
+
+    // Build shared state and router.
+    let state = AppState::new(config, config_path, cli.admin_token.clone());
+
+    // Create database pools and run migrations.
+    if !state.config.read().await.databases.is_empty() {
+        let config_ref = state.config.read().await;
+        match create_pools(&config_ref.databases).await {
+            Ok(pools) => {
+                if let Err(e) =
+                    run_migrations(&config_ref.tables, &pools, &config_ref.databases).await
+                {
+                    tracing::error!("Migration failed: {e}");
+                    close_pools(&pools).await;
+                    process::exit(1);
+                }
+                drop(config_ref);
+                let mut pool_lock = state.db_pools.write().await;
+                *pool_lock = pools;
+            }
+            Err(e) => {
+                tracing::error!("Failed to create database pools: {e}");
+                process::exit(1);
+            }
+        }
+    }
+
+    let config_guard = state.config.read().await;
+    let app = build_router(&config_guard, state.clone());
+    drop(config_guard);
+
+    // Bind the TCP listener.
+    let addr: SocketAddr = format!("{host}:{port}").parse().unwrap_or_else(|e| {
+        tracing::error!("Invalid bind address '{host}:{port}': {e}");
+        process::exit(1);
+    });
+
+    let listener = TcpListener::bind(addr).await.unwrap_or_else(|e| {
+        tracing::error!("Failed to bind to {addr}: {e}");
+        process::exit(1);
+    });
+
+    // Read keep-alive and TLS config.
+    let config_read = state.config.read().await;
+    let keep_alive = config_read.server.keep_alive;
+    let tls_config = config_read.server.tls.clone();
+    drop(config_read);
+
+    if let Some(ref tls) = tls_config {
+        // TLS mode: use tokio-rustls acceptor.
+        let acceptor = match build_tls_acceptor(tls) {
+            Ok(a) => a,
+            Err(e) => {
+                tracing::error!("Failed to configure TLS: {e}");
+                process::exit(1);
+            }
+        };
+
+        tracing::info!("Main Serve listening on https://{addr}");
+
+        serve_tls(listener, acceptor, app, shutdown_timeout, keep_alive).await;
+    } else {
+        // Plain HTTP mode.
+        tracing::info!("Main Serve listening on http://{addr}");
+
+        serve_plain(listener, app, shutdown_timeout, keep_alive).await;
+    }
+
+    // Drain database pools on shutdown.
+    {
+        let pools = state.db_pools.read().await;
+        close_pools(&pools).await;
+    }
+
+    tracing::info!("Server shut down gracefully.");
+}
+
+/// Wait for SIGINT or SIGTERM, then allow a grace period for in-flight requests.
+async fn shutdown_signal(timeout_secs: u64) {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("Failed to listen for Ctrl+C");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("Failed to listen for SIGTERM")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {
+            tracing::info!("Received SIGINT, starting graceful shutdown (timeout: {timeout_secs}s)...");
+        }
+        _ = terminate => {
+            tracing::info!("Received SIGTERM, starting graceful shutdown (timeout: {timeout_secs}s)...");
+        }
+    }
+}
+
+/// Build a hyper `auto::Builder` with keep-alive configured from the YAML spec.
+///
+/// `keep_alive == 0` disables HTTP/1 keep-alive entirely.
+/// `keep_alive > 0` enables keep-alive and sets a `header_read_timeout` equal to
+/// the configured value, which controls how long idle keep-alive connections wait
+/// for the next request before being closed.
+fn build_http_builder(
+    keep_alive: u64,
+) -> hyper_util::server::conn::auto::Builder<hyper_util::rt::tokio::TokioExecutor> {
+    use hyper_util::rt::tokio::{TokioExecutor, TokioTimer};
+    use hyper_util::server::conn::auto::Builder;
+
+    let mut builder = Builder::new(TokioExecutor::new());
+    if keep_alive == 0 {
+        builder.http1().keep_alive(false);
+    } else {
+        builder
+            .http1()
+            .keep_alive(true)
+            .timer(TokioTimer::new())
+            .header_read_timeout(std::time::Duration::from_secs(keep_alive));
+    }
+    builder
+}
+
+/// Serve plain HTTP using hyper's connection builder directly.
+///
+/// This bypasses `axum::serve` so we can configure HTTP/1 keep-alive timeouts
+/// via hyper's `header_read_timeout`.
+async fn serve_plain(
+    listener: TcpListener,
+    app: axum::Router,
+    shutdown_timeout: u64,
+    keep_alive: u64,
+) {
+    let shutdown = shutdown_signal(shutdown_timeout);
+    tokio::pin!(shutdown);
+
+    let builder = build_http_builder(keep_alive);
+
+    loop {
+        tokio::select! {
+            result = listener.accept() => {
+                let (tcp_stream, remote_addr) = match result {
+                    Ok(conn) => conn,
+                    Err(e) => {
+                        tracing::warn!("Failed to accept TCP connection: {e}");
+                        continue;
+                    }
+                };
+
+                let builder = builder.clone();
+                let app = app.clone();
+
+                tokio::spawn(async move {
+                    handle_connection(tcp_stream, remote_addr, builder, app).await;
+                });
+            }
+            _ = &mut shutdown => {
+                tracing::info!("Stopping listener...");
+                break;
+            }
+        }
+    }
+}
+
+/// Serve HTTPS using tokio-rustls TLS acceptor.
+///
+/// Accepts TLS-wrapped TCP connections in a loop and hands each to hyper
+/// for HTTP processing. Shuts down gracefully on signal.
+async fn serve_tls(
+    listener: TcpListener,
+    acceptor: tokio_rustls::TlsAcceptor,
+    app: axum::Router,
+    shutdown_timeout: u64,
+    keep_alive: u64,
+) {
+    let shutdown = shutdown_signal(shutdown_timeout);
+    tokio::pin!(shutdown);
+
+    let builder = build_http_builder(keep_alive);
+
+    loop {
+        tokio::select! {
+            result = listener.accept() => {
+                let (tcp_stream, remote_addr) = match result {
+                    Ok(conn) => conn,
+                    Err(e) => {
+                        tracing::warn!("Failed to accept TCP connection: {e}");
+                        continue;
+                    }
+                };
+
+                let acceptor = acceptor.clone();
+                let builder = builder.clone();
+                let app = app.clone();
+
+                tokio::spawn(async move {
+                    let tls_stream = match acceptor.accept(tcp_stream).await {
+                        Ok(s) => s,
+                        Err(e) => {
+                            tracing::debug!("TLS handshake failed from {remote_addr}: {e}");
+                            return;
+                        }
+                    };
+
+                    handle_connection(tls_stream, remote_addr, builder, app).await;
+                });
+            }
+            _ = &mut shutdown => {
+                tracing::info!("Stopping TLS listener...");
+                break;
+            }
+        }
+    }
+}
+
+/// Handle a single accepted connection by wrapping it in hyper IO and serving
+/// HTTP requests through the axum router.
+///
+/// This is generic over the IO stream type so it works for both plain TCP
+/// and TLS-wrapped connections.
+async fn handle_connection<I>(
+    io_stream: I,
+    remote_addr: std::net::SocketAddr,
+    builder: hyper_util::server::conn::auto::Builder<hyper_util::rt::tokio::TokioExecutor>,
+    app: axum::Router,
+) where
+    I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
+    use hyper::body::Incoming;
+    use hyper_util::rt::tokio::TokioIo;
+    use tower::Service;
+
+    let io = TokioIo::new(io_stream);
+    let service = hyper::service::service_fn(move |mut req: hyper::Request<Incoming>| {
+        req.extensions_mut().insert(remote_addr);
+        let mut app = app.clone();
+        async move { app.call(req).await }
+    });
+
+    if let Err(e) = builder.serve_connection(io, service).await {
+        tracing::debug!("Connection error from {remote_addr}: {e}");
+    }
+}

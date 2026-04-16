@@ -1,0 +1,102 @@
+## yaml-language-server: $schema=https://raw.githubusercontent.com/dekoding/main-serve/refs/heads/main/main-serve.json
+# To enable schema enforcement and completion, remove one # from the line above
+# 
+# =============================================================================
+# Reverse Proxy - Forward Requests to Upstream Services
+# =============================================================================
+#
+# Use `action: "proxy"` to forward incoming requests to an upstream HTTP
+# service.  Main Serve rewrites paths, injects headers, and enforces
+# per-endpoint timeouts - no code required.
+#
+# Common use cases:
+#   • API gateway in front of microservices
+#   • Legacy backend migration (old paths -> new upstream)
+#   • Adding auth / rate limiting in front of an unprotected service
+#
+# Features demonstrated here:
+#
+#   /api/v1/*        Pass-through proxy with path_rewrite (strip /api/v1,
+#                    add /v1) and custom request headers.
+#   /legacy/*        Rewrite legacy paths: strip /legacy, add /api/v2.
+#   /external/time   Proxy to an external API with tight timeouts.
+#
+# Placeholder (replaced at test time - use your real upstream in production):
+#   __UPSTREAM_URL__ -> e.g. http://localhost:3000
+#
+# Quick start:
+#   1. Replace __UPSTREAM_URL__ with your upstream base URL.
+#   2. Adjust path_rewrite rules and timeouts for your topology.
+#   3. Run:  main-serve --config proxy.yaml
+
+server:
+  host: "127.0.0.1"
+  port: 0
+
+logging:
+  level: "warn"
+  format: "json"
+
+cors:
+  allowed_origins: ["*"]
+  allowed_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+  max_age: 3600
+
+# =============================================================================
+# Endpoints
+# =============================================================================
+endpoints:
+
+  # API gateway
+  # Incoming:  GET /api/v1/users?active=true
+  # Upstream:  GET __UPSTREAM_URL__/v1/users?active=true
+  #
+  # strip_prefix removes "/api/v1" -> "/users?active=true"
+  # add_prefix   prepends "/v1"    -> "/v1/users?active=true"
+  - path: "/api/v1/*"
+    methods: ["get", "post", "put", "delete"]
+    action: "proxy"
+    proxy:
+      upstream: "__UPSTREAM_URL__"
+      path_rewrite:
+        strip_prefix: "/api/v1"
+        add_prefix: "/v1"
+      headers:
+        X-Forwarded-By: "main-serve"
+        X-Request-Source: "gateway"
+      timeouts:
+        connect: 5
+        read: 30
+        total: 60
+      max_response_size: 10485760   # 10 MiB - reject larger payloads
+    auth: "none"
+
+  # Legacy path migration
+  # Incoming:  GET /legacy/widgets
+  # Upstream:  GET __UPSTREAM_URL__/api/v2/widgets
+  - path: "/legacy/*"
+    methods: ["get"]
+    action: "proxy"
+    proxy:
+      upstream: "__UPSTREAM_URL__"
+      path_rewrite:
+        strip_prefix: "/legacy"
+        add_prefix: "/api/v2"
+      timeouts:
+        connect: 3
+        read: 15
+        total: 20
+    auth: "none"
+
+  # External API with tight timeouts
+  # No path rewrite - proxied as-is.
+  - path: "/external/time"
+    methods: ["get"]
+    action: "proxy"
+    proxy:
+      upstream: "__UPSTREAM_URL__"
+      timeouts:
+        connect: 2
+        read: 5
+        total: 8
+    auth: "none"
