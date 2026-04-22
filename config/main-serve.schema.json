@@ -54,6 +54,11 @@
             "description": "An environment variable reference, e.g. ${MY_VAR}",
             "pattern": "\\$\\{[A-Za-z_][A-Za-z0-9_]*\\}"
         },
+        "RequestContextVar": {
+            "type": "string",
+            "description": "A request context reference, e.g. ${request.user.id}",
+            "pattern": "\\$\\{request\\.(user\\.(id|role)|headers\\.[A-Za-z0-9_-]+)\\}"
+        },
         "Auth": {
             "type": "object",
             "additionalProperties": false,
@@ -578,7 +583,7 @@
                 },
                 "where_clause": {
                     "type": [ "string", "null" ],
-                    "description": "Static WHERE clause applied to all queries on this endpoint.",
+                    "description": "WHERE clause applied to all queries on this endpoint. Can be static (e.g. \"deleted_at IS NULL\") or dynamic with interpolation (e.g. \"author_id = ${request.user.id}\").",
                     "examples": [ "deleted_at IS NULL" ],
                     "default": null
                 },

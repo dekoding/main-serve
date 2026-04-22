@@ -12,6 +12,15 @@
 #   Example: password: "${DB_PASSWORD}"
 #            password: "${DB_PASSWORD:-changeme}"
 #
+# REQUEST CONTEXT INTERPOLATION:
+#   Certain fields (like `where_clause`) support dynamic interpolation 
+#   using the `${key}` syntax to inject request-specific data.
+#   Supported keys:
+#     - ${request.user.id}: The authenticated user's ID.
+#     - ${request.user.role}: The authenticated user's role.
+#     - ${request.headers.NAME}: The value of a specific request header.
+#   Example: where_clause: "author_id = ${request.user.id}"
+#
 # FILE INCLUDES ($include directive):
 #   Split large configs across multiple files using $include.
 #   Paths are relative to the file containing the directive.
@@ -602,11 +611,13 @@ endpoints:
           - "email"
           - "created_at"
 
-      # Static WHERE clause applied to all queries on this endpoint.
-      # Type: string (raw SQL boolean expression, appended to queries as-is)
+      # WHERE clause applied to all queries on this endpoint.
+      #   Can be static (e.g. "deleted_at IS NULL") or dynamic
+      #   with interpolation (e.g. "author_id = ${request.user.id}").
+      # Type: string
       # Example: "deleted_at IS NULL"
       # Default: null (no filter)
-      where_clause: null
+      where_clause: "author_id = ${request.user.id}"
 
       # Joins with other tables.
       # Type: list (optional)
