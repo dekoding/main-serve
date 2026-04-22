@@ -617,7 +617,7 @@ endpoints:
       # Type: string
       # Example: "deleted_at IS NULL"
       # Default: null (no filter)
-      where_clause: "author_id = ${request.user.id}"
+      where_clause: null
 
       # Joins with other tables.
       # Type: list (optional)
