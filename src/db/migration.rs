@@ -45,7 +45,7 @@ pub async fn run_migrations(
         let db_config = databases.get(db_name);
 
         // Check if auto_migrate is enabled for this database.
-        let should_migrate = db_config.map_or(true, |db| db.auto_migrate);
+        let should_migrate = db_config.is_none_or(|db| db.auto_migrate);
         if !should_migrate {
             tracing::debug!(
                 "Skipping migration for table '{table_name}' (auto_migrate disabled for '{db_name}')"
