@@ -6,14 +6,14 @@
 ///    by calling the configured `userinfo_url`. Used when endpoints specify
 ///    `auth: "oauth2"`.
 ///
-/// 2. **Authorization code flow (with PKCE)**: Handles the full OAuth2
-///    redirect flow. Main Serve acts as an OAuth2 client:
-///    - `GET /_main-serve/oauth2/authorize` - redirects to the IdP
+/// 2. **Authorization code flow (with PKCE)**: Handles the full `OAuth2`
+///    redirect flow. Main Serve acts as an `OAuth2` client:
+///    - `GET /_main-serve/oauth2/authorize` - redirects to the `IdP`
 ///    - `GET /_main-serve/oauth2/callback` - exchanges the code for tokens,
 ///      calls userinfo, mints a Main Serve JWT, sets a cookie, and redirects
 ///      to the configured `success_url`.
 ///
-///    This bridges OAuth2 into the existing JWT auth model: after the code
+///    This bridges `OAuth2` into the existing JWT auth model: after the code
 ///    flow completes, all subsequent requests are authenticated via the
 ///    minted JWT (in the cookie or Authorization header).
 use std::collections::HashMap;
@@ -28,7 +28,7 @@ use crate::config::types::OAuth2Config;
 use crate::error::AppError;
 use crate::server::state::AppState;
 
-/// Pending OAuth2 authorization flow (stored between authorize and callback).
+/// Pending `OAuth2` authorization flow (stored between authorize and callback).
 #[derive(Debug)]
 pub struct PendingOAuth2 {
     /// PKCE code verifier to include in the token exchange.
@@ -37,8 +37,8 @@ pub struct PendingOAuth2 {
     pub created_at: Instant,
 }
 
-/// Default lifetime for a pending OAuth2 state (5 minutes).
-/// Used as fallback when OAuth2 config is unavailable in the callback path.
+/// Default lifetime for a pending `OAuth2` state (5 minutes).
+/// Used as fallback when `OAuth2` config is unavailable in the callback path.
 const DEFAULT_STATE_TTL_SECS: u64 = 300;
 
 /// Generate a PKCE code verifier and its S256 code challenge.
@@ -66,7 +66,7 @@ fn cleanup_expired(pending: &mut HashMap<String, PendingOAuth2>, ttl: std::time:
     pending.retain(|_, v| v.created_at.elapsed() < ttl);
 }
 
-/// Validate an OAuth2 access token by calling the userinfo endpoint.
+/// Validate an `OAuth2` access token by calling the userinfo endpoint.
 ///
 /// Returns the user's subject and optional role from the userinfo response.
 ///
@@ -91,11 +91,11 @@ pub async fn validate_oauth2_token(
 /// Handle `GET /_main-serve/oauth2/authorize`.
 ///
 /// Generates a PKCE pair and state nonce, stores the pending state, and
-/// redirects the user to the IdP's authorization endpoint.
+/// redirects the user to the `IdP`'s authorization endpoint.
 ///
 /// # Errors
 ///
-/// Returns `AppError::Config` if OAuth2 is not configured or the authorization
+/// Returns `AppError::Config` if `OAuth2` is not configured or the authorization
 /// URL is empty.
 pub async fn handle_oauth2_authorize(State(state): State<AppState>) -> Result<Response, AppError> {
     let config = state.config.read().await;
@@ -169,12 +169,12 @@ pub async fn handle_oauth2_authorize(State(state): State<AppState>) -> Result<Re
 /// Handle `GET /_main-serve/oauth2/callback`.
 ///
 /// Validates the state, exchanges the authorization code for tokens at the
-/// IdP's token endpoint, retrieves user info, mints a Main Serve JWT,
-/// sets it as an HttpOnly cookie, and redirects to `success_url`.
+/// `IdP`'s token endpoint, retrieves user info, mints a Main Serve JWT,
+/// sets it as an `HttpOnly` cookie, and redirects to `success_url`.
 ///
 /// # Errors
 ///
-/// Returns `AppError::Auth` if the IdP returned an error or the state is
+/// Returns `AppError::Auth` if the `IdP` returned an error or the state is
 /// invalid/expired. Returns `AppError::BadRequest` if required query parameters
 /// are missing.
 pub async fn handle_oauth2_callback(
@@ -183,10 +183,7 @@ pub async fn handle_oauth2_callback(
 ) -> Result<Response, AppError> {
     // Check for error response from the IdP.
     if let Some(error) = params.get("error") {
-        let desc = params
-            .get("error_description")
-            .map(String::as_str)
-            .unwrap_or("");
+        let desc = params.get("error_description").map_or("", String::as_str);
         tracing::warn!("OAuth2 provider returned error: {error} {desc}");
         return Err(AppError::Auth("OAuth2 authorization failed".to_string()));
     }
@@ -201,12 +198,10 @@ pub async fn handle_oauth2_callback(
     // Read the state TTL from config for expiry checks.
     let state_ttl = {
         let config = state.config.read().await;
-        config
-            .auth
-            .oauth2
-            .as_ref()
-            .map(|o| std::time::Duration::from_secs(o.state_ttl))
-            .unwrap_or(std::time::Duration::from_secs(DEFAULT_STATE_TTL_SECS))
+        config.auth.oauth2.as_ref().map_or(
+            std::time::Duration::from_secs(DEFAULT_STATE_TTL_SECS),
+            |o| std::time::Duration::from_secs(o.state_ttl),
+        )
     };
 
     // Look up and remove the pending state (one-time use).
@@ -244,12 +239,12 @@ pub async fn handle_oauth2_callback(
         .ok_or_else(|| AppError::Auth("Token response missing access_token".to_string()))?;
 
     // Fetch user info to get subject and role.
-    let (sub, role) = if !oauth2.userinfo_url.is_empty() {
-        fetch_userinfo(&oauth2.userinfo_url, access_token).await?
-    } else {
+    let (sub, role) = if oauth2.userinfo_url.is_empty() {
         return Err(AppError::Config(
             "OAuth2 userinfo_url is required for the code flow".to_string(),
         ));
+    } else {
+        fetch_userinfo(&oauth2.userinfo_url, access_token).await?
     };
 
     // Mint a Main Serve JWT using the existing jwt config.
@@ -290,7 +285,7 @@ pub async fn handle_oauth2_callback(
         .unwrap())
 }
 
-/// Exchange an authorization code for tokens at the IdP's token endpoint.
+/// Exchange an authorization code for tokens at the `IdP`'s token endpoint.
 async fn exchange_code(
     config: &OAuth2Config,
     code: &str,
@@ -370,6 +365,7 @@ async fn fetch_userinfo(
 }
 
 /// Extract a named cookie value from the request's Cookie header.
+#[must_use]
 pub fn extract_cookie(headers: &axum::http::HeaderMap, name: &str) -> Option<String> {
     let cookie_header = headers.get("cookie")?.to_str().ok()?;
     let prefix = format!("{name}=");

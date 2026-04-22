@@ -152,6 +152,7 @@ impl DatabasePool {
     }
 
     /// Get the driver type of this pool.
+    #[must_use]
     pub fn driver(&self) -> DatabaseDriver {
         match self {
             DatabasePool::Sqlite(_) => DatabaseDriver::Sqlite,
@@ -162,7 +163,7 @@ impl DatabasePool {
 
     /// Gracefully close the pool, draining connections.
     pub async fn close(&self) {
-        dispatch!(self, |p| p.close().await)
+        dispatch!(self, |p| p.close().await);
     }
 }
 

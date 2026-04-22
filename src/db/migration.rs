@@ -11,8 +11,8 @@
 /// * **Type / constraint mismatches** -> logged as warnings; no automatic
 ///   alteration is attempted because cross-driver support is inconsistent.
 ///
-/// Indexes are created idempotently. SQLite and PostgreSQL use
-/// `CREATE INDEX IF NOT EXISTS`; MySQL introspects existing indexes first and
+/// Indexes are created idempotently. `SQLite` and `PostgreSQL` use
+/// `CREATE INDEX IF NOT EXISTS`; `MySQL` introspects existing indexes first and
 /// only creates missing ones.
 use std::collections::HashMap;
 
@@ -45,7 +45,7 @@ pub async fn run_migrations(
         let db_config = databases.get(db_name);
 
         // Check if auto_migrate is enabled for this database.
-        let should_migrate = db_config.map(|db| db.auto_migrate).unwrap_or(true);
+        let should_migrate = db_config.is_none_or(|db| db.auto_migrate);
         if !should_migrate {
             tracing::debug!(
                 "Skipping migration for table '{table_name}' (auto_migrate disabled for '{db_name}')"
@@ -75,7 +75,7 @@ pub async fn run_migrations(
             })?;
         } else {
             // Table exists - compute diff and apply ALTER TABLE statements.
-            let allow_destructive = db_config.map(|db| db.allow_destructive).unwrap_or(false);
+            let allow_destructive = db_config.is_some_and(|db| db.allow_destructive);
             alter_existing_table(
                 pool,
                 table_name,
@@ -433,7 +433,7 @@ fn quote_ident(_table: &str, name: &str, driver: DatabaseDriver) -> String {
     quote_object_name(name, driver)
 }
 
-/// Map a ColumnType to its SQL type string for the given driver.
+/// Map a `ColumnType` to its SQL type string for the given driver.
 fn column_type_to_sql(ct: &ColumnType, driver: DatabaseDriver) -> &'static str {
     match (ct, driver) {
         // Integer types
@@ -498,7 +498,7 @@ fn column_type_to_sql(ct: &ColumnType, driver: DatabaseDriver) -> &'static str {
     }
 }
 
-/// Map a ForeignKeyAction to its SQL fragment.
+/// Map a `ForeignKeyAction` to its SQL fragment.
 fn fk_action_to_sql(action: &ForeignKeyAction) -> &'static str {
     match action {
         ForeignKeyAction::Cascade => "CASCADE",

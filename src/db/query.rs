@@ -10,6 +10,7 @@
 use std::collections::HashMap;
 
 use crate::config::types::{ColumnType, CrudConfig, DatabaseDriver, SortOrder, TableConfig};
+use crate::context::RequestContext;
 use crate::error::AppError;
 
 /// Parameters extracted from an HTTP request for a CRUD operation.
@@ -23,7 +24,7 @@ pub struct QueryParams {
     pub sort: Option<String>,
     /// Sort order.
     pub order: Option<SortOrder>,
-    /// Filter values: column_name -> value.
+    /// Filter values: `column_name` -> value.
     pub filters: HashMap<String, String>,
 }
 
@@ -116,10 +117,84 @@ impl SelectBuilder {
         }
     }
 
-    /// Append the static `where_clause` from config, if any.
-    fn apply_where_clause(&mut self, crud: &CrudConfig) {
+    /// Append the `where_clause` from config, resolving dynamic parameters if present.
+    fn apply_where_clause(
+        &mut self,
+        crud: &CrudConfig,
+        context: &RequestContext,
+    ) -> Result<(), AppError> {
         if let Some(ref wc) = crud.where_clause {
-            self.conditions.push(format!("({wc})"));
+            let interpolated = self.interpolate_where_clause(wc, context)?;
+            self.conditions.push(format!("({interpolated})"));
+        }
+        Ok(())
+    }
+
+    /// Interpolate ${key} patterns in a string using the provided `RequestContext`.
+    fn interpolate_where_clause(
+        &mut self,
+        wc: &str,
+        context: &RequestContext,
+    ) -> Result<String, AppError> {
+        use regex::Regex;
+        let re = Regex::new(r"\$\{([^}]+)\}").unwrap();
+        let mut last_match_end = 0;
+        let mut new_string = String::new();
+
+        for cap in re.captures_iter(wc) {
+            let full_match = cap.get(0).unwrap();
+            let key = cap.get(1).unwrap().as_str();
+
+            new_string.push_str(&wc[last_match_end..full_match.start()]);
+
+            let mut resolved_value = self.resolve_context_key(key, context);
+
+            // Handle default values: ${key:-default}
+            if resolved_value.is_none()
+                && key.contains(":-")
+                && let Some(idx) = key.find(":-")
+            {
+                let base_key = &key[..idx];
+                let default_val = &key[idx + 2..];
+                resolved_value = self
+                    .resolve_context_key(base_key, context)
+                    .or(Some(default_val.to_string()));
+            }
+
+            if let Some(val) = resolved_value {
+                let ph = crate::db::query::placeholder(self.driver, self.param_idx);
+                self.params.push(serde_json::Value::String(val));
+                self.param_idx += 1;
+                new_string.push_str(&ph);
+            } else {
+                return Err(AppError::BadRequest(format!(
+                    "Could not resolve interpolation key: {key}"
+                )));
+            }
+
+            last_match_end = full_match.end();
+        }
+
+        new_string.push_str(&wc[last_match_end..]);
+        Ok(new_string)
+    }
+
+    /// Helper to resolve a single context key.
+    fn resolve_context_key(&self, key: &str, context: &RequestContext) -> Option<String> {
+        if key == "request.user.id" {
+            context.user_id.clone()
+        } else if key == "request.user.role" {
+            context.user_role.clone()
+        } else if key == "request.method" {
+            Some(context.method.clone())
+        } else if key == "request.path" {
+            Some(context.path.clone())
+        } else if let Some(header_name) = key.strip_prefix("request.headers.") {
+            context.headers.get(header_name).cloned()
+        } else if let Some(query_key) = key.strip_prefix("request.query.") {
+            context.query_params.get(query_key).cloned()
+        } else {
+            None
         }
     }
 
@@ -128,6 +203,7 @@ impl SelectBuilder {
         &mut self,
         crud: &CrudConfig,
         filters: &HashMap<String, String>,
+        _context: &RequestContext,
     ) -> Result<(), AppError> {
         if !crud.filtering.enabled {
             return Ok(());
@@ -180,8 +256,7 @@ impl SelectBuilder {
                     .columns
                     .iter()
                     .find(|c| c.primary_key)
-                    .map(|c| c.name.as_str())
-                    .unwrap_or("id")
+                    .map_or("id", |c| c.name.as_str())
             } else {
                 &crud.sorting.default_field
             }
@@ -294,14 +369,15 @@ pub fn build_select_list(
     crud: &CrudConfig,
     query_params: &QueryParams,
     driver: DatabaseDriver,
+    context: &RequestContext,
 ) -> Result<BuiltQuery, AppError> {
     let fields = resolve_fields(&crud.fields, table_config);
     let mut sb = SelectBuilder::new(table_name, fields, driver);
 
     sb.apply_joins(crud);
     sb.apply_computed_fields(crud);
-    sb.apply_where_clause(crud);
-    sb.apply_filters(crud, &query_params.filters)?;
+    sb.apply_where_clause(crud, context)?;
+    sb.apply_filters(crud, &query_params.filters, context)?;
     sb.apply_sorting(crud, table_config, query_params)?;
     sb.apply_pagination(crud, query_params);
 
@@ -319,13 +395,14 @@ pub fn build_select_one(
     crud: &CrudConfig,
     pk_value: &str,
     driver: DatabaseDriver,
+    context: &RequestContext,
 ) -> Result<BuiltQuery, AppError> {
     let fields = resolve_fields(&crud.fields, table_config);
     let pk_col = find_pk_column(table_config)?;
     let mut sb = SelectBuilder::new(table_name, fields, driver);
 
     sb.apply_pk_condition(&pk_col, coerce_pk_value(table_config, pk_value));
-    sb.apply_where_clause(crud);
+    sb.apply_where_clause(crud, context)?;
     sb.limit_one();
 
     Ok(sb.build())
@@ -344,6 +421,7 @@ pub fn build_insert(
     crud: &CrudConfig,
     body: &serde_json::Value,
     driver: DatabaseDriver,
+    context: &RequestContext,
 ) -> Result<BuiltQuery, AppError> {
     let obj = body
         .as_object()
@@ -363,8 +441,16 @@ pub fn build_insert(
             return Err(AppError::BadRequest(format!("Invalid field name: {key}")));
         }
         columns.push(key.clone());
+
+        // Handle interpolation for string values in the request body.
+        let final_value = if let Some(s) = value.as_str() {
+            interpolate_value(s, context)
+        } else {
+            value.clone()
+        };
+
         placeholders.push(placeholder(driver, param_idx));
-        params.push(value.clone());
+        params.push(final_value);
         param_idx += 1;
     }
 
@@ -405,6 +491,7 @@ pub fn build_update(
     pk_value: &str,
     body: &serde_json::Value,
     driver: DatabaseDriver,
+    context: &RequestContext,
 ) -> Result<BuiltQuery, AppError> {
     let obj = body
         .as_object()
@@ -423,8 +510,16 @@ pub fn build_update(
         if !is_valid_identifier(key) {
             return Err(AppError::BadRequest(format!("Invalid field name: {key}")));
         }
+
+        // Handle interpolation for string values in the request body.
+        let final_value = if let Some(s) = value.as_str() {
+            interpolate_value(s, context)
+        } else {
+            value.clone()
+        };
+
         set_parts.push(format!("{} = {}", key, placeholder(driver, param_idx)));
-        params.push(value.clone());
+        params.push(final_value);
         param_idx += 1;
     }
 
@@ -475,6 +570,79 @@ pub fn build_delete(
 // Helpers
 // =============================================================================
 
+/// Helper to interpolate a string value.
+fn interpolate_value(value: &str, context: &RequestContext) -> serde_json::Value {
+    use regex::Regex;
+    let re = Regex::new(r"\$\{([^}]+)\}").unwrap();
+
+    // If there are no matches, return the original string as a JSON value.
+    if !re.is_match(value) {
+        return serde_json::Value::String(value.to_string());
+    }
+
+    // If there are matches, we need to perform the interpolation.
+    let mut last_match_end = 0;
+    let mut new_string = String::new();
+    let mut found_resolution = false;
+
+    for cap in re.captures_iter(value) {
+        let full_match = cap.get(0).unwrap();
+        let key = cap.get(1).unwrap().as_str();
+
+        new_string.push_str(&value[last_match_end..full_match.start()]);
+
+        // Check for default values: ${key:-default}
+        let resolved_value = if key.contains(":-") {
+            if let Some(idx) = key.find(":-") {
+                let base_key = &key[..idx];
+                let default_val = &key[idx + 2..];
+                resolve_single_key(base_key, context).or(Some(default_val.to_string()))
+            } else {
+                None
+            }
+        } else {
+            resolve_single_key(key, context)
+        };
+
+        if let Some(val) = resolved_value {
+            new_string.push_str(&val);
+            found_resolution = true;
+        } else {
+            // If it couldn't be resolved, keep the original placeholder.
+            new_string.push_str(full_match.as_str());
+        }
+
+        last_match_end = full_match.end();
+    }
+
+    new_string.push_str(&value[last_match_end..]);
+
+    if found_resolution {
+        serde_json::Value::String(new_string)
+    } else {
+        serde_json::Value::String(value.to_string())
+    }
+}
+
+/// Helper to resolve a single context key (shared logic with `SelectBuilder`).
+fn resolve_single_key(key: &str, context: &RequestContext) -> Option<String> {
+    if key == "request.user.id" {
+        context.user_id.clone()
+    } else if key == "request.user.role" {
+        context.user_role.clone()
+    } else if key == "request.method" {
+        Some(context.method.clone())
+    } else if key == "request.path" {
+        Some(context.path.clone())
+    } else if let Some(header_name) = key.strip_prefix("request.headers.") {
+        context.headers.get(header_name).cloned()
+    } else if let Some(query_key) = key.strip_prefix("request.query.") {
+        context.query_params.get(query_key).cloned()
+    } else {
+        None
+    }
+}
+
 /// Generate a driver-appropriate parameter placeholder.
 fn placeholder(driver: DatabaseDriver, index: usize) -> String {
     match driver {
@@ -519,7 +687,7 @@ fn find_pk_column(table: &TableConfig) -> Result<String, AppError> {
 /// Coerce a PK value from a URL path segment (always a string) into the
 /// appropriate `serde_json::Value` based on the column's declared type.
 ///
-/// PostgreSQL requires bind parameters to match the column type exactly;
+/// `PostgreSQL` requires bind parameters to match the column type exactly;
 /// binding a string `"1"` against an integer column causes a type error.
 fn coerce_pk_value(table: &TableConfig, raw: &str) -> serde_json::Value {
     let col_type = table
@@ -535,14 +703,16 @@ fn coerce_pk_value(table: &TableConfig, raw: &str) -> serde_json::Value {
             | ColumnType::Smallint
             | ColumnType::Serial
             | ColumnType::Bigserial,
-        ) => raw
-            .parse::<i64>()
-            .map(|n| serde_json::json!(n))
-            .unwrap_or_else(|_| serde_json::Value::String(raw.to_string())),
-        Some(ColumnType::Float | ColumnType::Double | ColumnType::Decimal) => raw
-            .parse::<f64>()
-            .map(|n| serde_json::json!(n))
-            .unwrap_or_else(|_| serde_json::Value::String(raw.to_string())),
+        ) => raw.parse::<i64>().map_or_else(
+            |_| serde_json::Value::String(raw.to_string()),
+            |n| serde_json::json!(n),
+        ),
+        Some(ColumnType::Float | ColumnType::Double | ColumnType::Decimal) => {
+            raw.parse::<f64>().map_or_else(
+                |_| serde_json::Value::String(raw.to_string()),
+                |n| serde_json::json!(n),
+            )
+        }
         _ => serde_json::Value::String(raw.to_string()),
     }
 }
@@ -603,7 +773,15 @@ mod tests {
         let table = test_table();
         let crud = test_crud();
         let params = QueryParams::default();
-        let q = build_select_list("posts", &table, &crud, &params, DatabaseDriver::Sqlite).unwrap();
+        let q = build_select_list(
+            "posts",
+            &table,
+            &crud,
+            &params,
+            DatabaseDriver::Sqlite,
+            &RequestContext::new(),
+        )
+        .unwrap();
         assert_eq!(
             q.sql,
             "SELECT id, title, author FROM posts ORDER BY id ASC LIMIT ? OFFSET ?"
@@ -624,7 +802,15 @@ mod tests {
                 .collect(),
             ..Default::default()
         };
-        let q = build_select_list("posts", &table, &crud, &params, DatabaseDriver::Sqlite).unwrap();
+        let q = build_select_list(
+            "posts",
+            &table,
+            &crud,
+            &params,
+            DatabaseDriver::Sqlite,
+            &RequestContext::new(),
+        )
+        .unwrap();
         assert_eq!(
             q.sql,
             "SELECT id, title, author FROM posts WHERE author = ? ORDER BY id ASC LIMIT ? OFFSET ?"
@@ -649,8 +835,15 @@ mod tests {
                 .collect(),
             ..Default::default()
         };
-        let q =
-            build_select_list("posts", &table, &crud, &params, DatabaseDriver::Postgres).unwrap();
+        let q = build_select_list(
+            "posts",
+            &table,
+            &crud,
+            &params,
+            DatabaseDriver::Postgres,
+            &RequestContext::new(),
+        )
+        .unwrap();
         assert_eq!(
             q.sql,
             "SELECT id, title, author FROM posts WHERE author = $1 ORDER BY id ASC LIMIT $2 OFFSET $3"
@@ -669,7 +862,15 @@ mod tests {
     fn test_build_select_one() {
         let table = test_table();
         let crud = test_crud();
-        let q = build_select_one("posts", &table, &crud, "42", DatabaseDriver::Sqlite).unwrap();
+        let q = build_select_one(
+            "posts",
+            &table,
+            &crud,
+            "42",
+            DatabaseDriver::Sqlite,
+            &RequestContext::new(),
+        )
+        .unwrap();
         assert_eq!(
             q.sql,
             "SELECT id, title, author FROM posts WHERE id = ? LIMIT 1"
@@ -682,7 +883,15 @@ mod tests {
         let table = test_table();
         let crud = test_crud();
         let body = serde_json::json!({"title": "Hello", "author": "Alice"});
-        let q = build_insert("posts", &table, &crud, &body, DatabaseDriver::Sqlite).unwrap();
+        let q = build_insert(
+            "posts",
+            &table,
+            &crud,
+            &body,
+            DatabaseDriver::Sqlite,
+            &RequestContext::new(),
+        )
+        .unwrap();
         // BTreeMap iteration is alphabetical: author before title.
         assert_eq!(q.sql, "INSERT INTO posts (author, title) VALUES (?, ?)");
         assert_eq!(
@@ -696,7 +905,15 @@ mod tests {
         let table = test_table();
         let crud = test_crud();
         let body = serde_json::json!({"title": "Hello", "author": "Alice", "id": 999});
-        let q = build_insert("posts", &table, &crud, &body, DatabaseDriver::Sqlite).unwrap();
+        let q = build_insert(
+            "posts",
+            &table,
+            &crud,
+            &body,
+            DatabaseDriver::Sqlite,
+            &RequestContext::new(),
+        )
+        .unwrap();
         // "id" should be excluded since it's not in writable_fields.
         assert_eq!(q.sql, "INSERT INTO posts (author, title) VALUES (?, ?)");
         assert_eq!(
@@ -710,7 +927,17 @@ mod tests {
         let table = test_table();
         let crud = test_crud();
         let body = serde_json::json!({"title": "Updated"});
-        let q = build_update("posts", &table, &crud, "42", &body, DatabaseDriver::Sqlite).unwrap();
+        let context = crate::context::RequestContext::new();
+        let q = build_update(
+            "posts",
+            &table,
+            &crud,
+            "42",
+            &body,
+            DatabaseDriver::Sqlite,
+            &context,
+        )
+        .unwrap();
         assert_eq!(q.sql, "UPDATE posts SET title = ? WHERE id = ?");
         assert_eq!(
             q.params,
@@ -739,7 +966,15 @@ mod tests {
         let table = test_table();
         let crud = test_crud();
         let body = serde_json::json!({"title": "Hello", "author": "Alice"});
-        let q = build_insert("posts", &table, &crud, &body, DatabaseDriver::Postgres).unwrap();
+        let q = build_insert(
+            "posts",
+            &table,
+            &crud,
+            &body,
+            DatabaseDriver::Postgres,
+            &RequestContext::new(),
+        )
+        .unwrap();
         assert_eq!(
             q.sql,
             "INSERT INTO posts (author, title) VALUES ($1, $2) RETURNING id"

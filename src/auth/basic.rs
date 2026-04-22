@@ -56,6 +56,7 @@ pub fn validate_basic_auth(
 }
 
 /// Extract the Basic auth value from an Authorization header.
+#[must_use]
 pub fn extract_basic_auth(auth_header: &str) -> Option<&str> {
     if auth_header.starts_with("Basic ") {
         Some(auth_header)

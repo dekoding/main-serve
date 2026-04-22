@@ -47,8 +47,7 @@ pub fn build_router(config: &AppConfig, state: AppState) -> Router {
         .auth
         .oauth2
         .as_ref()
-        .map(|o| !o.authorization_url.is_empty())
-        .unwrap_or(false)
+        .is_some_and(|o| !o.authorization_url.is_empty())
     {
         app = app
             .route(
@@ -63,7 +62,7 @@ pub fn build_router(config: &AppConfig, state: AppState) -> Router {
 
     // Wire user-defined endpoints from config.
     for endpoint in &config.endpoints {
-        let mut path = endpoint.path.replace(":id", "{id}").replace("*", "{*rest}");
+        let mut path = endpoint.path.replace(":id", "{id}").replace('*', "{*rest}");
 
         // Static endpoints need a catch-all suffix to serve files under
         // the root directory.  If the user omitted the trailing /* in the
@@ -179,6 +178,8 @@ fn add_endpoint_route(
             route_method(app, path, method, handler, cors)
         }
         EndpointAction::Crud => {
+            let ep = ep.clone();
+            let path_owned = path.to_string();
             let handler =
                 move |state: axum::extract::State<AppState>,
                       method: axum::http::Method,
@@ -188,9 +189,27 @@ fn add_endpoint_route(
                       headers: HeaderMap,
                       body: Option<axum::Json<serde_json::Value>>| {
                     let ep = ep.clone();
+                    let path = path_owned.clone();
                     async move {
-                        run_pre_checks(&state, &headers, &query.0, &ep, extract_addr(remote_addr))
-                            .await?;
+                        let auth_info = run_pre_checks(
+                            &state,
+                            &headers,
+                            &query.0,
+                            &ep,
+                            extract_addr(remote_addr),
+                        )
+                        .await?;
+                        let context = crate::context::RequestContext {
+                            user_id: auth_info.subject.clone().into(),
+                            user_role: auth_info.role,
+                            headers: headers
+                                .iter()
+                                .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+                                .collect(),
+                            method: method.to_string(),
+                            path,
+                            query_params: query.0.clone(),
+                        };
                         handle_crud(
                             axum::extract::State(state.0),
                             method,
@@ -198,9 +217,9 @@ fn add_endpoint_route(
                             Query(query.0),
                             body,
                             ep,
+                            context,
                         )
                         .await
-                        .map(IntoResponse::into_response)
                     }
                 };
             route_method(app, path, method, handler, cors)
@@ -249,13 +268,15 @@ fn add_endpoint_route(
 }
 
 /// Run rate limiting, authentication, and role-based authorization for an endpoint.
+///
+/// Returns `AuthInfo` on success.
 async fn run_pre_checks(
     state: &axum::extract::State<AppState>,
     headers: &HeaderMap,
     query_params: &HashMap<String, String>,
     endpoint: &EndpointConfig,
     remote_addr: Option<std::net::SocketAddr>,
-) -> Result<(), AppError> {
+) -> Result<crate::auth::middleware::AuthInfo, AppError> {
     // Rate limiting comes first - reject early before auth overhead.
     let config = state.config.read().await;
     let rl_config = endpoint.rate_limit.as_ref().unwrap_or(&config.rate_limit);
@@ -265,7 +286,7 @@ async fn run_pre_checks(
         .await?;
 
     if endpoint.auth == "none" {
-        return Ok(());
+        return Ok(crate::auth::middleware::AuthInfo::default());
     }
 
     let auth_info = authenticate(&endpoint.auth, &config.auth, headers, query_params).await?;
@@ -273,7 +294,7 @@ async fn run_pre_checks(
 
     check_roles(&auth_info, &endpoint.roles)?;
 
-    Ok(())
+    Ok(auth_info)
 }
 
 /// Route a handler to a specific HTTP method on a path.

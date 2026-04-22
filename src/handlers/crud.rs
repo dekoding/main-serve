@@ -34,6 +34,7 @@ pub async fn handle_crud(
     Query(query_string): Query<HashMap<String, String>>,
     body: Option<Json<serde_json::Value>>,
     endpoint: EndpointConfig,
+    context: crate::context::RequestContext,
 ) -> Result<impl IntoResponse, AppError> {
     let crud = endpoint
         .crud
@@ -64,14 +65,14 @@ pub async fn handle_crud(
         // GET /resources -> list
         ("GET", None) => {
             let qp = extract_query_params(&query_string);
-            let built = build_select_list(&crud.table, table_config, crud, &qp, driver)?;
+            let built = build_select_list(&crud.table, table_config, crud, &qp, driver, &context)?;
             let rows = pool.fetch_all_json(&built.sql, &built.params).await?;
             Ok((StatusCode::OK, Json(serde_json::json!({ "data": rows }))).into_response())
         }
 
         // GET /resources/{id} -> get one
         ("GET", Some(pk)) => {
-            let built = build_select_one(&crud.table, table_config, crud, pk, driver)?;
+            let built = build_select_one(&crud.table, table_config, crud, pk, driver, &context)?;
             match pool.fetch_optional_json(&built.sql, &built.params).await? {
                 Some(row) => Ok((StatusCode::OK, Json(row)).into_response()),
                 None => Err(AppError::NotFound(format!(
@@ -86,7 +87,7 @@ pub async fn handle_crud(
             let body = body
                 .ok_or_else(|| AppError::BadRequest("Request body required".to_string()))?
                 .0;
-            let built = build_insert(&crud.table, table_config, crud, &body, driver)?;
+            let built = build_insert(&crud.table, table_config, crud, &body, driver, &context)?;
 
             // For Postgres, fetch_optional_json to get RETURNING; for others, execute.
             if built.sql.contains("RETURNING") {
@@ -111,7 +112,7 @@ pub async fn handle_crud(
             let body = body
                 .ok_or_else(|| AppError::BadRequest("Request body required".to_string()))?
                 .0;
-            let built = build_update(&crud.table, table_config, crud, pk, &body, driver)?;
+            let built = build_update(&crud.table, table_config, crud, pk, &body, driver, &context)?;
             let rows_affected = pool.execute_with_params(&built.sql, &built.params).await?;
             if rows_affected == 0 {
                 return Err(AppError::NotFound(format!(
@@ -142,15 +143,7 @@ pub async fn handle_crud(
             )
                 .into_response())
         }
-
-        // PUT/PATCH/DELETE without an ID
-        ("PUT" | "PATCH" | "DELETE", None) => Err(AppError::BadRequest(
-            "Resource ID required in path".to_string(),
-        )),
-
-        _ => Err(AppError::BadRequest(format!(
-            "Unsupported method '{method}' for CRUD endpoint"
-        ))),
+        _ => Err(AppError::BadRequest("Unsupported method".to_string())),
     }
 }
 

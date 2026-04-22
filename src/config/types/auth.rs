@@ -142,15 +142,15 @@ pub struct BasicAuthUser {
 pub struct OAuth2Config {
     /// Provider name (informational only).
     pub provider: String,
-    /// IdP authorization endpoint URL.
+    /// `IdP` authorization endpoint URL.
     pub authorization_url: String,
-    /// IdP token exchange endpoint URL.
+    /// `IdP` token exchange endpoint URL.
     pub token_url: String,
-    /// IdP userinfo endpoint URL (used for token introspection).
+    /// `IdP` userinfo endpoint URL (used for token introspection).
     pub userinfo_url: String,
-    /// OAuth2 client ID.
+    /// `OAuth2` client ID.
     pub client_id: String,
-    /// OAuth2 client secret.
+    /// `OAuth2` client secret.
     pub client_secret: String,
     /// Requested scopes.
     #[serde(default)]
@@ -161,10 +161,10 @@ pub struct OAuth2Config {
     pub success_url: String,
     /// Name of the cookie used to store the minted JWT.
     pub cookie_name: String,
-    /// Maximum lifetime (in seconds) for a pending OAuth2 authorization state.
+    /// Maximum lifetime (in seconds) for a pending `OAuth2` authorization state.
     #[serde(default = "default_state_ttl")]
     pub state_ttl: u64,
-    /// Maximum number of pending OAuth2 authorization flows allowed simultaneously.
+    /// Maximum number of pending `OAuth2` authorization flows allowed simultaneously.
     #[serde(default = "default_max_pending_states")]
     pub max_pending_states: usize,
 }

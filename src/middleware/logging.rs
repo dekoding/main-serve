@@ -16,6 +16,7 @@ use crate::server::state::AppState;
 // Bodies larger than this are truncated in the log output.
 
 /// Build a `TraceLayer` for HTTP request/response tracing.
+#[must_use]
 pub fn build_trace_layer()
 -> TraceLayer<tower_http::classify::SharedClassifier<tower_http::classify::ServerErrorsAsFailures>>
 {

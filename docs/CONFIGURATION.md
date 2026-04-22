@@ -73,6 +73,31 @@ auth:
 
 Interpolation is resolved at config load time, before YAML parsing. This means you can use it in any string field, including within URLs, paths, and header values.
 
+### Request Context Interpolation
+
+Certain fields (like `where_clause`) support dynamic interpolation using the `${key}` syntax to inject request-specific data at runtime. This allows for object-level authorization and ownership logic.
+
+**Supported Keys:**
+
+| Key | Description |
+|---|---|
+| `${request.user.id}` | The unique identifier of the authenticated user. |
+| `${request.user.role}` | The assigned role of the authenticated user. |
+| `${request.headers.NAME}` | The value of the specified request header (`NAME`). |
+
+**Examples:**
+
+```yaml
+endpoints:
+  - path: "/api/posts"
+    action: "crud"
+    crud:
+      # Only allow users to see their own posts
+      where_clause: "author_id = ${request.user.id}"
+```
+
+Interpolation is resolved at query execution time. If a key cannot be resolved, the query will fail with a `400 Bad Request` error.
+
 ### File Includes
 
 Large configurations can be split across multiple files using the `$include` directive. All paths are relative to the file containing the directive. Glob patterns (e.g., `*.yaml`, `endpoints/*.yaml`) are supported.

@@ -23,7 +23,7 @@ struct RateLimitEntry {
     window_start: Instant,
 }
 
-/// Shared rate limiter state - a map of key -> (count, window_start).
+/// Shared rate limiter state - a map of key -> (count, `window_start`).
 #[derive(Debug, Clone)]
 pub struct RateLimiter {
     entries: Arc<Mutex<HashMap<String, RateLimitEntry>>>,
@@ -37,6 +37,7 @@ impl Default for RateLimiter {
 
 impl RateLimiter {
     /// Create a new empty rate limiter.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             entries: Arc::new(Mutex::new(HashMap::new())),
@@ -104,9 +105,9 @@ fn extract_key(
     remote_addr: Option<SocketAddr>,
 ) -> String {
     match config.key_strategy {
-        RateLimitKeyStrategy::Ip => remote_addr
-            .map(|addr| addr.ip().to_string())
-            .unwrap_or_else(|| "unknown".to_string()),
+        RateLimitKeyStrategy::Ip => {
+            remote_addr.map_or_else(|| "unknown".to_string(), |addr| addr.ip().to_string())
+        }
         RateLimitKeyStrategy::Header => headers
             .get(&config.key_header)
             .and_then(|v| v.to_str().ok())
