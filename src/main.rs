@@ -22,7 +22,7 @@ struct Cli {
     #[arg(short, long)]
     config: Option<PathBuf>,
 
-    /// Admin token for the reload endpoint (overrides MAIN_SERVE_ADMIN_TOKEN env var).
+    /// Admin token for the reload endpoint (overrides `MAIN_SERVE_ADMIN_TOKEN` env var).
     #[arg(long, env = "MAIN_SERVE_ADMIN_TOKEN", default_value = "")]
     admin_token: String,
 
@@ -257,10 +257,10 @@ async fn shutdown_signal(timeout_secs: u64) {
     let terminate = std::future::pending::<()>();
 
     tokio::select! {
-        _ = ctrl_c => {
+        () = ctrl_c => {
             tracing::info!("Received SIGINT, starting graceful shutdown (timeout: {timeout_secs}s)...");
         }
-        _ = terminate => {
+        () = terminate => {
             tracing::info!("Received SIGTERM, starting graceful shutdown (timeout: {timeout_secs}s)...");
         }
     }
@@ -324,7 +324,7 @@ async fn serve_plain(
                     handle_connection(tcp_stream, remote_addr, builder, app).await;
                 });
             }
-            _ = &mut shutdown => {
+            () = &mut shutdown => {
                 tracing::info!("Stopping listener...");
                 break;
             }
@@ -375,7 +375,7 @@ async fn serve_tls(
                     handle_connection(tls_stream, remote_addr, builder, app).await;
                 });
             }
-            _ = &mut shutdown => {
+            () = &mut shutdown => {
                 tracing::info!("Stopping TLS listener...");
                 break;
             }

@@ -9,7 +9,7 @@
 /// - `cors` - CORS policy
 /// - `rate_limit` - Rate limiting
 /// - `database` - Database connections and table schemas
-/// - `auth` - Authentication providers (JWT, API key, Basic, OAuth2)
+/// - `auth` - Authentication providers (JWT, API key, Basic, `OAuth2`)
 /// - `endpoints` - Endpoint definitions and action configs (CRUD, proxy, static, custom)
 mod auth;
 mod cors;

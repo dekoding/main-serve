@@ -56,25 +56,22 @@ pub async fn authenticate(
                 .and_then(extract_bearer_token)
                 .map(ToString::to_string);
 
-            let token = match token_from_header {
-                Some(t) => t,
-                None => {
-                    // Check for JWT in the OAuth2 cookie.
-                    let cookie_name = auth_config
-                        .oauth2
-                        .as_ref()
-                        .map(|o| o.cookie_name.as_str())
-                        .filter(|n| !n.is_empty());
+            let token = if let Some(t) = token_from_header {
+                t
+            } else {
+                // Check for JWT in the OAuth2 cookie.
+                let cookie_name = auth_config
+                    .oauth2
+                    .as_ref()
+                    .map(|o| o.cookie_name.as_str())
+                    .filter(|n| !n.is_empty());
 
-                    match cookie_name {
-                        Some(name) => extract_cookie(headers, name).ok_or_else(|| {
-                            AppError::Auth(
-                                "Missing Authorization header or auth cookie".to_string(),
-                            )
-                        })?,
-                        None => {
-                            return Err(AppError::Auth("Missing Authorization header".to_string()));
-                        }
+                match cookie_name {
+                    Some(name) => extract_cookie(headers, name).ok_or_else(|| {
+                        AppError::Auth("Missing Authorization header or auth cookie".to_string())
+                    })?,
+                    None => {
+                        return Err(AppError::Auth("Missing Authorization header".to_string()));
                     }
                 }
             };

@@ -16,9 +16,10 @@ pub struct RequestContext {
     pub query_params: std::collections::HashMap<String, String>,
 }
 
-/// Methods for RequestContext.
+/// Methods for `RequestContext`.
 impl RequestContext {
-    /// Creates a new, empty RequestContext.
+    /// Creates a new, empty `RequestContext`.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }

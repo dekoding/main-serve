@@ -10,8 +10,8 @@
 use std::collections::HashMap;
 
 use crate::config::types::{ColumnType, CrudConfig, DatabaseDriver, SortOrder, TableConfig};
-use crate::error::AppError;
 use crate::context::RequestContext;
+use crate::error::AppError;
 
 /// Parameters extracted from an HTTP request for a CRUD operation.
 #[derive(Debug, Default)]
@@ -180,11 +180,7 @@ impl SelectBuilder {
     }
 
     /// Helper to resolve a single context key.
-    fn resolve_context_key(
-        &self,
-        key: &str,
-        context: &RequestContext,
-    ) -> Option<String> {
+    fn resolve_context_key(&self, key: &str, context: &RequestContext) -> Option<String> {
         if key == "request.user.id" {
             context.user_id.clone()
         } else if key == "request.user.role" {
@@ -707,10 +703,16 @@ fn coerce_pk_value(table: &TableConfig, raw: &str) -> serde_json::Value {
             | ColumnType::Smallint
             | ColumnType::Serial
             | ColumnType::Bigserial,
-        ) => raw
-            .parse::<i64>().map_or_else(|_| serde_json::Value::String(raw.to_string()), |n| serde_json::json!(n)),
-        Some(ColumnType::Float | ColumnType::Double | ColumnType::Decimal) => raw
-            .parse::<f64>().map_or_else(|_| serde_json::Value::String(raw.to_string()), |n| serde_json::json!(n)),
+        ) => raw.parse::<i64>().map_or_else(
+            |_| serde_json::Value::String(raw.to_string()),
+            |n| serde_json::json!(n),
+        ),
+        Some(ColumnType::Float | ColumnType::Double | ColumnType::Decimal) => {
+            raw.parse::<f64>().map_or_else(
+                |_| serde_json::Value::String(raw.to_string()),
+                |n| serde_json::json!(n),
+            )
+        }
         _ => serde_json::Value::String(raw.to_string()),
     }
 }

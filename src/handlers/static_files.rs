@@ -214,11 +214,8 @@ async fn generate_directory_listing(dir: &Path, request_path: &str) -> Result<Re
     while let Ok(Some(entry)) = entries.next_entry().await {
         let name = entry.file_name().to_string_lossy().to_string();
         let metadata = entry.metadata().await.ok();
-        let is_dir = metadata
-            .as_ref()
-            .map(std::fs::Metadata::is_dir)
-            .unwrap_or(false);
-        let size = metadata.as_ref().map(std::fs::Metadata::len).unwrap_or(0);
+        let is_dir = metadata.as_ref().is_some_and(std::fs::Metadata::is_dir);
+        let size = metadata.as_ref().map_or(0, std::fs::Metadata::len);
         let modified = metadata.as_ref().and_then(|m| m.modified().ok());
         items.push(DirEntryInfo {
             name,
@@ -227,16 +224,13 @@ async fn generate_directory_listing(dir: &Path, request_path: &str) -> Result<Re
             modified,
             mode: metadata
                 .as_ref()
-                .map(std::os::unix::fs::MetadataExt::mode)
-                .unwrap_or(0),
+                .map_or(0, std::os::unix::fs::MetadataExt::mode),
             uid: metadata
                 .as_ref()
-                .map(std::os::unix::fs::MetadataExt::uid)
-                .unwrap_or(0),
+                .map_or(0, std::os::unix::fs::MetadataExt::uid),
             gid: metadata
                 .as_ref()
-                .map(std::os::unix::fs::MetadataExt::gid)
-                .unwrap_or(0),
+                .map_or(0, std::os::unix::fs::MetadataExt::gid),
         });
     }
     items.sort_by(|a, b| {
@@ -298,8 +292,7 @@ async fn generate_directory_listing(dir: &Path, request_path: &str) -> Result<Re
         };
         let modified_str = item
             .modified
-            .map(format_modified)
-            .unwrap_or_else(|| "-".to_string());
+            .map_or_else(|| "-".to_string(), format_modified);
 
         html.push_str("<tr>");
         {
@@ -342,8 +335,7 @@ fn resolve_username(uid: u32) -> String {
     nix::unistd::User::from_uid(nix::unistd::Uid::from_raw(uid))
         .ok()
         .flatten()
-        .map(|u| u.name)
-        .unwrap_or_else(|| uid.to_string())
+        .map_or_else(|| uid.to_string(), |u| u.name)
 }
 
 /// Resolve a numeric gid to a group name, falling back to the numeric string.
@@ -351,8 +343,7 @@ fn resolve_group(gid: u32) -> String {
     nix::unistd::Group::from_gid(nix::unistd::Gid::from_raw(gid))
         .ok()
         .flatten()
-        .map(|u| u.name)
-        .unwrap_or_else(|| gid.to_string())
+        .map_or_else(|| gid.to_string(), |u| u.name)
 }
 
 /// Format a byte count as a human-readable size string.

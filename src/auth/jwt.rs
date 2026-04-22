@@ -154,6 +154,7 @@ pub fn create_token(sub: &str, role: Option<&str>, config: &JwtConfig) -> Result
 }
 
 /// Extract the Bearer token from an Authorization header value.
+#[must_use]
 pub fn extract_bearer_token(auth_header: &str) -> Option<&str> {
     auth_header.strip_prefix("Bearer ")
 }

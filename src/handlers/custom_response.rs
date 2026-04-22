@@ -8,7 +8,7 @@ use axum::response::{IntoResponse, Response};
 use crate::config::types::EndpointConfig;
 use crate::server::state::AppState;
 
-/// Handle a custom_response endpoint - returns the fixed response defined in config.
+/// Handle a `custom_response` endpoint - returns the fixed response defined in config.
 pub async fn handle_custom_response(
     State(_state): State<AppState>,
     endpoint: EndpointConfig,

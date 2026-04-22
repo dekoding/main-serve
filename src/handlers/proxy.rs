@@ -98,7 +98,7 @@ pub async fn handle_proxy(
     let mut upstream_req = client.request(reqwest_method, &upstream_url);
 
     // Forward select headers from the original request.
-    for (name, value) in headers.iter() {
+    for (name, value) in &headers {
         if !HOP_BY_HOP_HEADERS.contains(&name.as_str())
             && let Ok(val) = value.to_str()
         {
@@ -126,7 +126,7 @@ pub async fn handle_proxy(
     let mut response_builder = axum::http::Response::builder().status(status);
 
     // Forward upstream response headers, stripping hop-by-hop headers.
-    for (name, value) in upstream_response.headers().iter() {
+    for (name, value) in upstream_response.headers() {
         if !HOP_BY_HOP_HEADERS.contains(&name.as_str())
             && let (Ok(hn), Ok(hv)) = (
                 name.as_str().parse::<HeaderName>(),

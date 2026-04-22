@@ -32,12 +32,13 @@ pub struct AppState {
     /// Global rate limiter shared across all endpoints.
     pub rate_limiter: RateLimiter,
 
-    /// Pending OAuth2 authorization code flow states (state -> PKCE verifier).
+    /// Pending `OAuth2` authorization code flow states (state -> PKCE verifier).
     pub oauth2_pending: Arc<Mutex<HashMap<String, PendingOAuth2>>>,
 }
 
 impl AppState {
     /// Create a new `AppState` from an initial config, its file path, and the admin token.
+    #[must_use]
     pub fn new(config: AppConfig, config_path: PathBuf, admin_token: String) -> Self {
         Self {
             config: Arc::new(RwLock::new(config)),
