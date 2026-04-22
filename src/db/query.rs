@@ -137,13 +137,19 @@ impl SelectBuilder {
         context: &RequestContext,
     ) -> Result<String, AppError> {
         use regex::Regex;
-        let re = Regex::new(r"\$\{([^}]+)\}").unwrap();
+        let re = Regex::new(r"\$\{([^}]+)\}")
+            .map_err(|e| AppError::Internal(format!("Invalid interpolation regex: {e}")))?;
         let mut last_match_end = 0;
         let mut new_string = String::new();
 
         for cap in re.captures_iter(wc) {
-            let full_match = cap.get(0).unwrap();
-            let key = cap.get(1).unwrap().as_str();
+            let full_match = cap
+                .get(0)
+                .ok_or_else(|| AppError::Internal("Regex match failed".to_string()))?;
+            let key = cap
+                .get(1)
+                .ok_or_else(|| AppError::Internal("Regex capture failed".to_string()))?
+                .as_str();
 
             new_string.push_str(&wc[last_match_end..full_match.start()]);
 
@@ -444,7 +450,7 @@ pub fn build_insert(
 
         // Handle interpolation for string values in the request body.
         let final_value = if let Some(s) = value.as_str() {
-            interpolate_value(s, context)
+            interpolate_value(s, context)?
         } else {
             value.clone()
         };
@@ -513,7 +519,7 @@ pub fn build_update(
 
         // Handle interpolation for string values in the request body.
         let final_value = if let Some(s) = value.as_str() {
-            interpolate_value(s, context)
+            interpolate_value(s, context)?
         } else {
             value.clone()
         };
@@ -571,13 +577,15 @@ pub fn build_delete(
 // =============================================================================
 
 /// Helper to interpolate a string value.
-fn interpolate_value(value: &str, context: &RequestContext) -> serde_json::Value {
+/// Helper to interpolate a string value.
+fn interpolate_value(value: &str, context: &RequestContext) -> Result<serde_json::Value, AppError> {
     use regex::Regex;
-    let re = Regex::new(r"\$\{([^}]+)\}").unwrap();
+    let re = Regex::new(r"\$\{([^}]+)\}")
+        .map_err(|e| AppError::Internal(format!("Invalid interpolation regex: {e}")))?;
 
     // If there are no matches, return the original string as a JSON value.
     if !re.is_match(value) {
-        return serde_json::Value::String(value.to_string());
+        return Ok(serde_json::Value::String(value.to_string()));
     }
 
     // If there are matches, we need to perform the interpolation.
@@ -586,8 +594,13 @@ fn interpolate_value(value: &str, context: &RequestContext) -> serde_json::Value
     let mut found_resolution = false;
 
     for cap in re.captures_iter(value) {
-        let full_match = cap.get(0).unwrap();
-        let key = cap.get(1).unwrap().as_str();
+        let full_match = cap
+            .get(0)
+            .ok_or_else(|| AppError::Internal("Regex match failed".to_string()))?;
+        let key = cap
+            .get(1)
+            .ok_or_else(|| AppError::Internal("Regex capture failed".to_string()))?
+            .as_str();
 
         new_string.push_str(&value[last_match_end..full_match.start()]);
 
@@ -618,9 +631,9 @@ fn interpolate_value(value: &str, context: &RequestContext) -> serde_json::Value
     new_string.push_str(&value[last_match_end..]);
 
     if found_resolution {
-        serde_json::Value::String(new_string)
+        Ok(serde_json::Value::String(new_string))
     } else {
-        serde_json::Value::String(value.to_string())
+        Ok(serde_json::Value::String(value.to_string()))
     }
 }
 
