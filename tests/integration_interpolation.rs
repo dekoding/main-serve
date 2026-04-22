@@ -78,8 +78,10 @@ fn setup_test_env() -> (TableConfig, CrudConfig) {
 #[tokio::test]
 async fn test_interpolation_in_where_clause() {
     let (table, crud) = setup_test_env();
-    let mut context = RequestContext::default();
-    context.user_id = Some("123".to_string());
+    let context = RequestContext {
+        user_id: Some("123".to_string()),
+        ..Default::default()
+    };
 
     let q = build_select_list(
         "posts",
@@ -98,8 +100,10 @@ async fn test_interpolation_in_where_clause() {
 #[tokio::test]
 async fn test_interpolation_in_insert_body() {
     let (table, crud) = setup_test_env();
-    let mut context = RequestContext::default();
-    context.user_id = Some("456".to_string());
+    let context = RequestContext {
+        user_id: Some("456".to_string()),
+        ..Default::default()
+    };
 
     let body = serde_json::json!({
         "user_id": "${request.user.id}",
@@ -126,8 +130,10 @@ async fn test_interpolation_in_insert_body() {
 #[tokio::test]
 async fn test_interpolation_in_update_body() {
     let (table, crud) = setup_test_env();
-    let mut context = RequestContext::default();
-    context.user_id = Some("789".to_string());
+    let context = RequestContext {
+        user_id: Some("789".to_string()),
+        ..Default::default()
+    };
 
     let body = serde_json::json!({
         "content": "Updated content by ${request.user.id}"
