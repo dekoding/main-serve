@@ -8,7 +8,8 @@ use crate::error::AppError;
 /// Characters allowed in SQL expressions from config (join ON clauses,
 /// computed field expressions, where clauses). This rejects semicolons,
 /// comments, and other dangerous SQL metacharacters while still allowing
-/// typical expressions like `table.col = other.col` or `COUNT(*)`.
+/// typical expressions like `table.col = other.col` or `COUNT(*)`, and
+/// interpolation syntax like `${request.user.id}`.
 fn is_safe_sql_fragment(s: &str) -> bool {
     !s.is_empty() && !s.contains(';') && !s.contains("--") && !s.contains("/*")
 }
