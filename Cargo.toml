@@ -110,6 +110,7 @@ http-body-util = "0.1"
 bytes = "1"
 percent-encoding = { version = "2.3.2", features = ["std"] }
 nix = { version = "0.31", features = ["user"] }
+jsonb = "0.5.6"
 
 [dev-dependencies]
 tokio-test = "0.4"
