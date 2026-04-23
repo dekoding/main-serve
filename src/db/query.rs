@@ -739,8 +739,10 @@ fn is_valid_identifier(s: &str) -> bool {
 }
 
 /// Validate that a string is a safe SQL expression (for JSONB computed fields).
-/// Ensures the string is structurally valid and contains only allowed characters,
-/// but does not attempt to parse the full SQL.
+/// 
+/// This function supports:
+/// 1. Formal JSONPath syntax (via the `jsonb` crate).
+/// 2. Standard SQL/PostgreSQL JSONB operators (e.g., `->`, `->>`, `#>`, `#>>`).
 fn is_valid_expression(s: &str) -> bool {
     if s.is_empty() {
         return false;
@@ -752,7 +754,15 @@ fn is_valid_expression(s: &str) -> bool {
         return false;
     }
 
-    // 2. Check for balanced parentheses.
+    // 2. Try parsing as a formal JSONPath.
+    // If it's valid JSONPath, we trust the crate's parser.
+    if jsonb::jsonpath::parse_json_path(s.as_bytes()).is_ok() {
+        return true;
+    }
+
+    // 3. Fallback: Heuristic check for standard SQL/PostgreSQL JSONB expressions.
+    
+    // Check for balanced parentheses.
     let mut paren_depth = 0;
     for c in s.chars() {
         match c {
@@ -770,16 +780,16 @@ fn is_valid_expression(s: &str) -> bool {
         return false;
     }
 
-    // 3. Check for balanced single quotes (basic check for string literals).
+    // Check for balanced single quotes.
     let quote_count = s.chars().filter(|&c| c == '\'').count();
     if quote_count % 2 != 0 {
         return false;
     }
 
     // 4. Whitelist of allowed characters.
-    // Includes: alphanumeric, whitespace, and common SQL/JSONB symbols.
+    // Added '#' to support PostgreSQL JSONB operators like #> and #>>.
     s.chars()
-        .all(|c| c.is_alphanumeric() || c.is_whitespace() || "_.,()=<>+-*/'".contains(c))
+        .all(|c| c.is_alphanumeric() || c.is_whitespace() || "_.,()=<>+-*/'#".contains(c))
 }
 
 #[cfg(test)]
@@ -876,6 +886,76 @@ mod tests {
             q.params,
             vec![
                 serde_json::json!("alice"),
+                serde_json::json!(20i64),
+                serde_json::json!(0i64)
+            ]
+        );
+    }
+
+    #[test]
+    fn test_build_select_list_with_jsonpath_filter() {
+        let table = test_table();
+        let crud = test_crud();
+        let params = QueryParams {
+            // Testing formal JSONPath syntax
+            filters: [("$.metadata.role".to_string(), "admin".to_string())]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
+        let q = build_select_list(
+            "posts",
+            &table,
+            &crud,
+            &params,
+            DatabaseDriver::Sqlite,
+            &RequestContext::new(),
+        )
+        .unwrap();
+        
+        assert_eq!(
+            q.sql,
+            "SELECT id, title, author FROM posts WHERE $.metadata.role = ? ORDER BY id ASC LIMIT ? OFFSET ?"
+        );
+        assert_eq!(
+            q.params,
+            vec![
+                serde_json::json!("admin"),
+                serde_json::json!(20i64),
+                serde_json::json!(0i64)
+            ]
+        );
+    }
+
+    #[test]
+    fn test_build_select_list_with_jsonb_operator_filter() {
+        let table = test_table();
+        let crud = test_crud();
+        let params = QueryParams {
+            // Testing PostgreSQL operator fallback (->>)
+            filters: [("metadata->>'role'".to_string(), "admin".to_string())]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
+        let q = build_select_list(
+            "posts",
+            &table,
+            &crud,
+            &params,
+            DatabaseDriver::Postgres,
+            &RequestContext::new(),
+        )
+        .unwrap();
+        
+        assert_eq!(
+            q.sql,
+            "SELECT id, title, author FROM posts WHERE metadata->>'role' = $1 ORDER BY id ASC LIMIT $2 OFFSET $3"
+        );
+        assert_eq!(
+            q.params,
+            vec![
+                serde_json::json!("admin"),
                 serde_json::json!(20i64),
                 serde_json::json!(0i64)
             ]
