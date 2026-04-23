@@ -570,6 +570,7 @@ endpoints:
         max_page_size: 100
 
       # Enable filtering on GET list endpoints (query parameters become WHERE clauses).
+      # JSONB path syntax is supported for filtering on JSON/JSONB columns (e.g. ?metadata->>role=admin).
       # Type: object (optional)
       filtering:
         # Whether filtering is enabled.
@@ -586,6 +587,7 @@ endpoints:
           - "created_at"
 
       # Enable sorting on GET list endpoints (?sort=field&order=asc).
+      # JSONB path syntax is supported for sorting on JSON/JSONB columns (e.g. ?sort=metadata->>role).
       # Type: object (optional)
       sorting:
         # Whether sorting is enabled.

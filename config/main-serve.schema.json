@@ -575,11 +575,11 @@
                 },
                 "filtering": {
                     "$ref": "#/definitions/Filtering",
-                    "description": "Enable filtering on GET list endpoints (query parameters become WHERE clauses)."
+                    "description": "Enable filtering on GET list endpoints (query parameters become WHERE clauses).\n# JSONB path syntax is supported for filtering on JSON/JSONB columns (e.g. ?metadata->>role=admin)."
                 },
                 "sorting": {
                     "$ref": "#/definitions/Sorting",
-                    "description": "Enable sorting on GET list endpoints (?sort=field&order=asc)."
+                    "description": "Enable sorting on GET list endpoints (?sort=field&order=asc).\nJSONB path syntax is supported for sorting on JSON/JSONB columns (e.g. ?sort=metadata->>role)."
                 },
                 "where_clause": {
                     "type": [ "string", "null" ],
