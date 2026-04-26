@@ -35,6 +35,29 @@ pub struct BuiltQuery {
     pub params: Vec<serde_json::Value>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FilterOperator {
+    Eq,
+    Ne,
+    Gt,
+    Gte,
+    Lt,
+    Lte,
+    In,
+    NotIn,
+    Contains,
+    Exists,
+    StartsWith,
+    EndsWith,
+    Like,
+    ILike,
+}
+
+struct FilterExpression {
+    path: Vec<String>,
+    operator: FilterOperator,
+}
+
 // =============================================================================
 // SelectBuilder - shared pipeline for all SELECT queries
 // =============================================================================
@@ -211,26 +234,567 @@ impl SelectBuilder {
         filters: &HashMap<String, String>,
         _context: &RequestContext,
     ) -> Result<(), AppError> {
-        if !crud.filtering.enabled {
-            return Ok(());
-        }
         for (key, value) in filters {
-            if !is_valid_expression(key) {
-                return Err(AppError::BadRequest(format!("Invalid filter field: {key}")));
-            }
+            let expr = self.parse_filter_key(key)?;
+
+            let base_column = expr
+                .path
+                .first()
+                .ok_or_else(|| AppError::BadRequest(format!("Invalid filter key: {key}")))?;
+
             let allowed = &crud.filtering.allowed_fields;
-            if !allowed.contains(&"*".to_string()) && !allowed.contains(key) {
+            if !allowed.contains(&"*".to_string()) && !allowed.contains(base_column) {
                 return Err(AppError::BadRequest(format!(
-                    "Filtering on '{key}' is not allowed"
+                    "Filtering by '{key}' is not allowed"
                 )));
             }
-            self.conditions.push(format!(
-                "{} = {}",
-                key,
-                placeholder(self.driver, self.param_idx)
-            ));
-            self.params.push(serde_json::Value::String(value.clone()));
-            self.param_idx += 1;
+
+            self.apply_filter_expression(expr, value)?;
+        }
+        Ok(())
+    }
+
+    /// Parses a filter key like `metadata.user.age[gt]` into a `FilterExpression`.
+    fn parse_filter_key(&self, key: &str) -> Result<FilterExpression, AppError> {
+        use regex::Regex;
+        let re = Regex::new(r"^(.*)\[([a-z_]+)\]$")
+            .map_err(|e| AppError::Internal(format!("Invalid regex: {e}")))?;
+
+        let (path_str, operator_str) = if let Some(caps) = re.captures(key) {
+            (caps.get(1).unwrap().as_str(), caps.get(2).unwrap().as_str())
+        } else {
+            (key, "eq")
+        };
+
+        let operator = match operator_str {
+            "eq" => FilterOperator::Eq,
+            "ne" => FilterOperator::Ne,
+            "gt" => FilterOperator::Gt,
+            "gte" => FilterOperator::Gte,
+            "lt" => FilterOperator::Lt,
+            "lte" => FilterOperator::Lte,
+            "in" => FilterOperator::In,
+            "not_in" => FilterOperator::NotIn,
+            "contains" => FilterOperator::Contains,
+            "exists" => FilterOperator::Exists,
+            "startswith" => FilterOperator::StartsWith,
+            "endswith" => FilterOperator::EndsWith,
+            "like" => FilterOperator::Like,
+            "ilike" => FilterOperator::ILike,
+            _ => {
+                return Err(AppError::BadRequest(format!(
+                    "Unsupported operator: {operator_str}"
+                )));
+            }
+        };
+
+        let path: Vec<String> = path_str.split('.').map(|s| s.to_string()).collect();
+
+        Ok(FilterExpression { path, operator })
+    }
+
+    /// Applies a single filter expression to the query.
+    fn apply_filter_expression(
+        &mut self,
+        expr: FilterExpression,
+        value: &str,
+    ) -> Result<(), AppError> {
+        match self.driver {
+            DatabaseDriver::Postgres => self.apply_postgres_filter(expr, value),
+            DatabaseDriver::Mysql => self.apply_mysql_filter(expr, value),
+            DatabaseDriver::Sqlite => self.apply_sqlite_filter(expr, value),
+        }
+    }
+
+    fn apply_postgres_filter(
+        &mut self,
+        expr: FilterExpression,
+        value: &str,
+    ) -> Result<(), AppError> {
+        let path_str = expr.path.join(".");
+        let param = placeholder(self.driver, self.param_idx);
+
+        match expr.operator {
+            FilterOperator::Eq => {
+                // Cast to text for string comparison
+                self.conditions
+                    .push(format!("({} #>> '{}') = {}", self.table, path_str, param));
+                self.params
+                    .push(serde_json::Value::String(value.to_string()));
+                self.param_idx += 1;
+            }
+            FilterOperator::Ne => {
+                self.conditions
+                    .push(format!("({} #>> '{}') <> {}", self.table, path_str, param));
+                self.params
+                    .push(serde_json::Value::String(value.to_string()));
+                self.param_idx += 1;
+            }
+            FilterOperator::Gt => {
+                self.conditions.push(format!(
+                    "({} #>> '{}')::numeric > {}",
+                    self.table, path_str, param
+                ));
+                match value.parse::<f64>() {
+                    Ok(n) => self.params.push(serde_json::json!(n)),
+                    Err(_) => self.params.push(serde_json::json!(0.0)),
+                }
+                self.param_idx += 1;
+            }
+            FilterOperator::Gte => {
+                self.conditions.push(format!(
+                    "({} #>> '{}')::numeric >= {}",
+                    self.table, path_str, param
+                ));
+                match value.parse::<f64>() {
+                    Ok(n) => self.params.push(serde_json::json!(n)),
+                    Err(_) => self.params.push(serde_json::json!(0.0)),
+                }
+                self.param_idx += 1;
+            }
+            FilterOperator::Lt => {
+                self.conditions.push(format!(
+                    "({} #>> '{}')::numeric < {}",
+                    self.table, path_str, param
+                ));
+                match value.parse::<f64>() {
+                    Ok(n) => self.params.push(serde_json::json!(n)),
+                    Err(_) => self.params.push(serde_json::json!(0.0)),
+                }
+                self.param_idx += 1;
+            }
+            FilterOperator::Lte => {
+                self.conditions.push(format!(
+                    "({} #>> '{}')::numeric <= {}",
+                    self.table, path_str, param
+                ));
+                match value.parse::<f64>() {
+                    Ok(n) => self.params.push(serde_json::json!(n)),
+                    Err(_) => self.params.push(serde_json::json!(0.0)),
+                }
+                self.param_idx += 1;
+            }
+            FilterOperator::In => {
+                // Split value by comma for multiple values
+                let values: Vec<String> = value.split(',').map(|s| s.trim().to_string()).collect();
+                let placeholders: Vec<String> = (0..values.len())
+                    .map(|i| placeholder(self.driver, self.param_idx + i))
+                    .collect();
+                let param_list = placeholders.join(", ");
+                self.conditions.push(format!(
+                    "({} #>> '{}') IN ({})",
+                    self.table, path_str, param_list
+                ));
+                for v in &values {
+                    self.params.push(serde_json::Value::String(v.clone()));
+                }
+                self.param_idx += values.len();
+            }
+            FilterOperator::NotIn => {
+                let values: Vec<String> = value.split(',').map(|s| s.trim().to_string()).collect();
+                let placeholders: Vec<String> = (0..values.len())
+                    .map(|i| placeholder(self.driver, self.param_idx + i))
+                    .collect();
+                let param_list = placeholders.join(", ");
+                self.conditions.push(format!(
+                    "({} #>> '{}') NOT IN ({})",
+                    self.table, path_str, param_list
+                ));
+                for v in &values {
+                    self.params.push(serde_json::Value::String(v.clone()));
+                }
+                self.param_idx += values.len();
+            }
+            FilterOperator::Contains => {
+                // Uses the @> operator for JSONB containment
+                let json_value = serde_json::Value::String(value.to_string());
+                let json_str = serde_json::to_string(&json_value)
+                    .map_err(|e| AppError::Internal(format!("JSON serialization error: {e}")))?;
+                self.conditions
+                    .push(format!("{} @> {}::jsonb", self.table, json_str));
+                self.param_idx += 1;
+            }
+            FilterOperator::Exists => {
+                // Check if key exists using the ? operator
+                if let Some(last_key) = expr.path.last() {
+                    self.conditions
+                        .push(format!("{} ? '{}'", self.table, last_key));
+                } else {
+                    return Err(AppError::BadRequest(
+                        "Invalid path for exists operator".to_string(),
+                    ));
+                }
+            }
+            FilterOperator::StartsWith => {
+                self.conditions.push(format!(
+                    "({} #>> '{}') LIKE {}",
+                    self.table, path_str, param
+                ));
+                let prefix = format!("{}%", value);
+                self.params.push(serde_json::Value::String(prefix));
+                self.param_idx += 1;
+            }
+            FilterOperator::EndsWith => {
+                self.conditions.push(format!(
+                    "({} #>> '{}') LIKE {}",
+                    self.table, path_str, param
+                ));
+                let suffix = format!("%{}", value);
+                self.params.push(serde_json::Value::String(suffix));
+                self.param_idx += 1;
+            }
+            FilterOperator::Like => {
+                self.conditions.push(format!(
+                    "({} #>> '{}') LIKE {}",
+                    self.table, path_str, param
+                ));
+                self.params
+                    .push(serde_json::Value::String(value.to_string()));
+                self.param_idx += 1;
+            }
+            FilterOperator::ILike => {
+                self.conditions.push(format!(
+                    "({} #>> '{}') ILIKE {}",
+                    self.table, path_str, param
+                ));
+                self.params
+                    .push(serde_json::Value::String(value.to_string()));
+                self.param_idx += 1;
+            }
+        }
+        Ok(())
+    }
+
+    fn apply_mysql_filter(&mut self, expr: FilterExpression, value: &str) -> Result<(), AppError> {
+        let path_str = expr.path.join(".");
+        let param = placeholder(self.driver, self.param_idx);
+
+        match expr.operator {
+            FilterOperator::Eq => {
+                self.conditions.push(format!(
+                    "JSON_EXTRACT({}, '$.{}') = {}",
+                    self.table, path_str, param
+                ));
+                self.params
+                    .push(serde_json::Value::String(value.to_string()));
+                self.param_idx += 1;
+            }
+            FilterOperator::Ne => {
+                self.conditions.push(format!(
+                    "JSON_EXTRACT({}, '$.{}') != {}",
+                    self.table, path_str, param
+                ));
+                self.params
+                    .push(serde_json::Value::String(value.to_string()));
+                self.param_idx += 1;
+            }
+            FilterOperator::Gt => {
+                self.conditions.push(format!(
+                    "JSON_EXTRACT({}, '$.{}') > {}",
+                    self.table, path_str, param
+                ));
+                let num = value.parse::<f64>().unwrap_or(0.0);
+                if let Some(n) = serde_json::Number::from_f64(num) {
+                    self.params.push(serde_json::Value::Number(n));
+                } else {
+                    self.params.push(serde_json::json!(0.0));
+                }
+                self.param_idx += 1;
+            }
+            FilterOperator::Gte => {
+                self.conditions.push(format!(
+                    "JSON_EXTRACT({}, '$.{}') >= {}",
+                    self.table, path_str, param
+                ));
+                let num = value.parse::<f64>().unwrap_or(0.0);
+                if let Some(n) = serde_json::Number::from_f64(num) {
+                    self.params.push(serde_json::Value::Number(n));
+                } else {
+                    self.params.push(serde_json::json!(0.0));
+                }
+                self.param_idx += 1;
+            }
+            FilterOperator::Lt => {
+                self.conditions.push(format!(
+                    "JSON_EXTRACT({}, '$.{}') < {}",
+                    self.table, path_str, param
+                ));
+                let num = value.parse::<f64>().unwrap_or(0.0);
+                if let Some(n) = serde_json::Number::from_f64(num) {
+                    self.params.push(serde_json::Value::Number(n));
+                } else {
+                    self.params.push(serde_json::json!(0.0));
+                }
+                self.param_idx += 1;
+            }
+            FilterOperator::Lte => {
+                self.conditions.push(format!(
+                    "JSON_EXTRACT({}, '$.{}') <= {}",
+                    self.table, path_str, param
+                ));
+                let num = value.parse::<f64>().unwrap_or(0.0);
+                if let Some(n) = serde_json::Number::from_f64(num) {
+                    self.params.push(serde_json::Value::Number(n));
+                } else {
+                    self.params.push(serde_json::json!(0.0));
+                }
+                self.param_idx += 1;
+            }
+            FilterOperator::In => {
+                let values: Vec<String> = value.split(',').map(|s| s.trim().to_string()).collect();
+                let placeholders: Vec<String> = (0..values.len())
+                    .map(|i| placeholder(self.driver, self.param_idx + i))
+                    .collect();
+                let param_list = placeholders.join(", ");
+                self.conditions.push(format!(
+                    "JSON_EXTRACT({}, '$.{}') IN ({})",
+                    self.table, path_str, param_list
+                ));
+                for v in &values {
+                    self.params.push(serde_json::Value::String(v.clone()));
+                }
+                self.param_idx += values.len();
+            }
+            FilterOperator::NotIn => {
+                let values: Vec<String> = value.split(',').map(|s| s.trim().to_string()).collect();
+                let placeholders: Vec<String> = (0..values.len())
+                    .map(|i| placeholder(self.driver, self.param_idx + i))
+                    .collect();
+                let param_list = placeholders.join(", ");
+                self.conditions.push(format!(
+                    "JSON_EXTRACT({}, '$.{}') NOT IN ({})",
+                    self.table, path_str, param_list
+                ));
+                for v in &values {
+                    self.params.push(serde_json::Value::String(v.clone()));
+                }
+                self.param_idx += values.len();
+            }
+            FilterOperator::Contains => {
+                let json_value = serde_json::Value::String(value.to_string());
+                let json_str = serde_json::to_string(&json_value)
+                    .map_err(|e| AppError::Internal(format!("JSON serialization error: {e}")))?;
+                self.conditions.push(format!(
+                    "JSON_CONTAINS({}, {}, '$.{}')",
+                    self.table, json_str, path_str
+                ));
+                self.param_idx += 1;
+            }
+            FilterOperator::Exists => {
+                if let Some(last_key) = expr.path.last() {
+                    self.conditions.push(format!(
+                        "JSON_EXTRACT({}, '$.{}') IS NOT NULL",
+                        self.table, last_key
+                    ));
+                } else {
+                    return Err(AppError::BadRequest(
+                        "Invalid path for exists operator".to_string(),
+                    ));
+                }
+            }
+            FilterOperator::StartsWith => {
+                self.conditions.push(format!(
+                    "JSON_EXTRACT({}, '$.{}') LIKE {}",
+                    self.table, path_str, param
+                ));
+                let prefix = format!("{}%", value);
+                self.params.push(serde_json::Value::String(prefix));
+                self.param_idx += 1;
+            }
+            FilterOperator::EndsWith => {
+                self.conditions.push(format!(
+                    "JSON_EXTRACT({}, '$.{}') LIKE {}",
+                    self.table, path_str, param
+                ));
+                let suffix = format!("%{}", value);
+                self.params.push(serde_json::Value::String(suffix));
+                self.param_idx += 1;
+            }
+            FilterOperator::Like => {
+                self.conditions.push(format!(
+                    "JSON_EXTRACT({}, '$.{}') LIKE {}",
+                    self.table, path_str, param
+                ));
+                self.params
+                    .push(serde_json::Value::String(value.to_string()));
+                self.param_idx += 1;
+            }
+            FilterOperator::ILike => {
+                self.conditions.push(format!(
+                    "LOWER(JSON_EXTRACT({}, '$.{}')) LIKE LOWER({})",
+                    self.table, path_str, param
+                ));
+                self.params
+                    .push(serde_json::Value::String(format!("%{}%", value)));
+                self.param_idx += 1;
+            }
+        }
+        Ok(())
+    }
+
+    fn apply_sqlite_filter(&mut self, expr: FilterExpression, value: &str) -> Result<(), AppError> {
+        let path_str = expr.path.join(".");
+        let param = placeholder(self.driver, self.param_idx);
+
+        match expr.operator {
+            FilterOperator::Eq => {
+                self.conditions.push(format!(
+                    "json_extract({}, '$.{}') = {}",
+                    self.table, path_str, param
+                ));
+                self.params
+                    .push(serde_json::Value::String(value.to_string()));
+                self.param_idx += 1;
+            }
+            FilterOperator::Ne => {
+                self.conditions.push(format!(
+                    "json_extract({}, '$.{}') != {}",
+                    self.table, path_str, param
+                ));
+                self.params
+                    .push(serde_json::Value::String(value.to_string()));
+                self.param_idx += 1;
+            }
+            FilterOperator::Gt => {
+                self.conditions.push(format!(
+                    "json_extract({}, '$.{}') > {}",
+                    self.table, path_str, param
+                ));
+                let num = value.parse::<f64>().unwrap_or(0.0);
+                if let Some(n) = serde_json::Number::from_f64(num) {
+                    self.params.push(serde_json::Value::Number(n));
+                } else {
+                    self.params.push(serde_json::json!(0.0));
+                }
+                self.param_idx += 1;
+            }
+            FilterOperator::Gte => {
+                self.conditions.push(format!(
+                    "json_extract({}, '$.{}') >= {}",
+                    self.table, path_str, param
+                ));
+                let num = value.parse::<f64>().unwrap_or(0.0);
+                if let Some(n) = serde_json::Number::from_f64(num) {
+                    self.params.push(serde_json::Value::Number(n));
+                } else {
+                    self.params.push(serde_json::json!(0.0));
+                }
+                self.param_idx += 1;
+            }
+            FilterOperator::Lt => {
+                self.conditions.push(format!(
+                    "json_extract({}, '$.{}') < {}",
+                    self.table, path_str, param
+                ));
+                let num = value.parse::<f64>().unwrap_or(0.0);
+                if let Some(n) = serde_json::Number::from_f64(num) {
+                    self.params.push(serde_json::Value::Number(n));
+                } else {
+                    self.params.push(serde_json::json!(0.0));
+                }
+                self.param_idx += 1;
+            }
+            FilterOperator::Lte => {
+                self.conditions.push(format!(
+                    "json_extract({}, '$.{}') <= {}",
+                    self.table, path_str, param
+                ));
+                let num = value.parse::<f64>().unwrap_or(0.0);
+                if let Some(n) = serde_json::Number::from_f64(num) {
+                    self.params.push(serde_json::Value::Number(n));
+                } else {
+                    self.params.push(serde_json::json!(0.0));
+                }
+                self.param_idx += 1;
+            }
+            FilterOperator::In => {
+                let values: Vec<String> = value.split(',').map(|s| s.trim().to_string()).collect();
+                let placeholders: Vec<String> = (0..values.len())
+                    .map(|i| placeholder(self.driver, self.param_idx + i))
+                    .collect();
+                let param_list = placeholders.join(", ");
+                self.conditions.push(format!(
+                    "json_extract({}, '$.{}') IN ({})",
+                    self.table, path_str, param_list
+                ));
+                for v in &values {
+                    self.params.push(serde_json::Value::String(v.clone()));
+                }
+                self.param_idx += values.len();
+            }
+            FilterOperator::NotIn => {
+                let values: Vec<String> = value.split(',').map(|s| s.trim().to_string()).collect();
+                let placeholders: Vec<String> = (0..values.len())
+                    .map(|i| placeholder(self.driver, self.param_idx + i))
+                    .collect();
+                let param_list = placeholders.join(", ");
+                self.conditions.push(format!(
+                    "json_extract({}, '$.{}') NOT IN ({})",
+                    self.table, path_str, param_list
+                ));
+                for v in &values {
+                    self.params.push(serde_json::Value::String(v.clone()));
+                }
+                self.param_idx += values.len();
+            }
+            FilterOperator::Contains => {
+                // For arrays, use json_each to check if value exists in array
+                self.conditions.push(format!(
+                    "EXISTS (SELECT 1 FROM json_each({}, '$.{}') WHERE value = {})",
+                    self.table, path_str, param
+                ));
+                self.params
+                    .push(serde_json::Value::String(value.to_string()));
+                self.param_idx += 1;
+            }
+            FilterOperator::Exists => {
+                if let Some(last_key) = expr.path.last() {
+                    self.conditions.push(format!(
+                        "json_extract({}, '$.{}') IS NOT NULL",
+                        self.table, last_key
+                    ));
+                } else {
+                    return Err(AppError::BadRequest(
+                        "Invalid path for exists operator".to_string(),
+                    ));
+                }
+            }
+            FilterOperator::StartsWith => {
+                self.conditions.push(format!(
+                    "json_extract({}, '$.{}') LIKE {}",
+                    self.table, path_str, param
+                ));
+                let prefix = format!("{}%", value);
+                self.params.push(serde_json::Value::String(prefix));
+                self.param_idx += 1;
+            }
+            FilterOperator::EndsWith => {
+                self.conditions.push(format!(
+                    "json_extract({}, '$.{}') LIKE {}",
+                    self.table, path_str, param
+                ));
+                let suffix = format!("%{}", value);
+                self.params.push(serde_json::Value::String(suffix));
+                self.param_idx += 1;
+            }
+            FilterOperator::Like => {
+                self.conditions.push(format!(
+                    "json_extract({}, '$.{}') LIKE {}",
+                    self.table, path_str, param
+                ));
+                self.params
+                    .push(serde_json::Value::String(value.to_string()));
+                self.param_idx += 1;
+            }
+            FilterOperator::ILike => {
+                self.conditions.push(format!(
+                    "LOWER(json_extract({}, '$.{}')) LIKE LOWER({})",
+                    self.table, path_str, param
+                ));
+                self.params
+                    .push(serde_json::Value::String(format!("%{}%", value)));
+                self.param_idx += 1;
+            }
         }
         Ok(())
     }
@@ -739,7 +1303,7 @@ fn is_valid_identifier(s: &str) -> bool {
 }
 
 /// Validate that a string is a safe SQL expression (for JSONB computed fields).
-/// 
+///
 /// This function supports:
 /// 1. Formal JSONPath syntax (via the `jsonb` crate).
 /// 2. Standard SQL/PostgreSQL JSONB operators (e.g., `->`, `->>`, `#>`, `#>>`).
@@ -761,7 +1325,7 @@ fn is_valid_expression(s: &str) -> bool {
     }
 
     // 3. Fallback: Heuristic check for standard SQL/PostgreSQL JSONB expressions.
-    
+
     // Check for balanced parentheses.
     let mut paren_depth = 0;
     for c in s.chars() {
@@ -912,7 +1476,7 @@ mod tests {
             &RequestContext::new(),
         )
         .unwrap();
-        
+
         assert_eq!(
             q.sql,
             "SELECT id, title, author FROM posts WHERE $.metadata.role = ? ORDER BY id ASC LIMIT ? OFFSET ?"
@@ -947,7 +1511,7 @@ mod tests {
             &RequestContext::new(),
         )
         .unwrap();
-        
+
         assert_eq!(
             q.sql,
             "SELECT id, title, author FROM posts WHERE metadata->>'role' = $1 ORDER BY id ASC LIMIT $2 OFFSET $3"
