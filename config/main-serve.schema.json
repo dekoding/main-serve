@@ -575,11 +575,11 @@
                 },
                 "filtering": {
                     "$ref": "#/definitions/Filtering",
-                    "description": "Enable filtering on GET list endpoints (query parameters become WHERE clauses).\n# JSONB path syntax is supported for filtering on JSON/JSONB columns (e.g. ?metadata->>role=admin)."
+                    "description": "Enable filtering on GET list endpoints (query parameters become WHERE clauses).\nIf filtering is enabled on a JSONB column, the API supports dot-notation and LHS brackets syntax for filtering on nested fields.\nDot-notation example: ?metadata.role=admin\nLHS brackets example: ?metadata[role]=admin"
                 },
                 "sorting": {
                     "$ref": "#/definitions/Sorting",
-                    "description": "Enable sorting on GET list endpoints (?sort=field&order=asc).\nJSONB path syntax is supported for sorting on JSON/JSONB columns (e.g. ?sort=metadata->>role)."
+                    "description": "Enable sorting on GET list endpoints (?sort=field&order=asc).\nIf sorting is enabled on a JSONB column, the API supports dot-notation and LHS brackets syntax for sorting on nested fields.\nDot-notation example: ?sort=metadata.role&order=asc\nLHS brackets example: ?sort=metadata[role]&order=asc"
                 },
                 "where_clause": {
                     "type": [ "string", "null" ],

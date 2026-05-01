@@ -570,7 +570,9 @@ endpoints:
         max_page_size: 100
 
       # Enable filtering on GET list endpoints (query parameters become WHERE clauses).
-      # JSONB path syntax is supported for filtering on JSON/JSONB columns (e.g. ?metadata->>role=admin).
+      # If filtering is enabled on a JSONB column, the API supports dot-notation and LHS brackets syntax for filtering on nested fields.
+      # Dot-notation example: ?metadata.role=admin
+      # LHS brackets example: ?metadata[role]=admin
       # Type: object (optional)
       filtering:
         # Whether filtering is enabled.
@@ -587,7 +589,9 @@ endpoints:
           - "created_at"
 
       # Enable sorting on GET list endpoints (?sort=field&order=asc).
-      # JSONB path syntax is supported for sorting on JSON/JSONB columns (e.g. ?sort=metadata->>role).
+      # If sorting is enabled on a JSONB column, the API supports dot-notation and LHS brackets syntax for sorting on nested fields.
+      # Dot-notation example: ?sort=metadata.role&order=asc
+      # LHS brackets example: ?sort=metadata[role]&order=asc
       # Type: object (optional)
       sorting:
         # Whether sorting is enabled.
