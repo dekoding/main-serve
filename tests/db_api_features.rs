@@ -684,7 +684,8 @@ endpoints:
         default_field: "id"
         default_order: "asc"
     auth: "none"
-"#.to_string();
+"#
+        .to_string();
 
         let app = test_db.setup_app(&template, "jsonb_sort.yaml").await;
 
