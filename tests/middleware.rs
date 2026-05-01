@@ -442,6 +442,7 @@ endpoints:
     crud:
       table: items
       database: main
+      writable_fields: ["title"]
     auth: none
 "#,
         db_path = db_path.display()
@@ -530,6 +531,7 @@ endpoints:
     crud:
       table: items
       database: main
+      writable_fields: ["title"]
     auth: none
 "#,
         db_path = db_path.display()

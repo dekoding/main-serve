@@ -48,7 +48,6 @@ pub async fn body_logging_middleware(
             .await
             .map(http_body_util::Collected::to_bytes)
             .unwrap_or_default();
-
         log_body(
             "request",
             &parts.uri.to_string(),

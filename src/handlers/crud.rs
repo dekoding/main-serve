@@ -14,9 +14,10 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 
 use crate::config::types::{EndpointConfig, SortOrder};
-use crate::db::query::{
-    QueryParams, build_delete, build_insert, build_select_list, build_select_one, build_update,
+use crate::db::query::builders::{
+    build_delete, build_insert, build_select_list, build_select_one, build_update,
 };
+use crate::db::query::types::QueryParams;
 use crate::error::AppError;
 use crate::server::state::AppState;
 
@@ -65,8 +66,27 @@ pub async fn handle_crud(
         // GET /resources -> list
         ("GET", None) => {
             let qp = extract_query_params(&query_string);
-            let built = build_select_list(&crud.table, table_config, crud, &qp, driver, &context)?;
-            let rows = pool.fetch_all_json(&built.sql, &built.params).await?;
+            let built =
+                match build_select_list(&crud.table, table_config, crud, &qp, driver, &context) {
+                    Ok(q) => q,
+                    Err(e) => {
+                        tracing::error!("build_select_list failed: {:?}", e);
+                        return Err(e);
+                    }
+                };
+
+            let rows = match pool.fetch_all_json(&built.sql, &built.params).await {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::error!(
+                        "Database error - SQL: {}, params: {:?}, error: {}",
+                        built.sql,
+                        built.params,
+                        e
+                    );
+                    return Err(e);
+                }
+            };
             Ok((StatusCode::OK, Json(serde_json::json!({ "data": rows }))).into_response())
         }
 
@@ -87,9 +107,14 @@ pub async fn handle_crud(
             let body = body
                 .ok_or_else(|| AppError::BadRequest("Request body required".to_string()))?
                 .0;
-            let built = build_insert(&crud.table, table_config, crud, &body, driver, &context)?;
+            let built = match build_insert(&crud.table, table_config, crud, &body, driver, &context)
+            {
+                Ok(q) => q,
+                Err(e) => {
+                    return Err(e);
+                }
+            };
 
-            // For Postgres, fetch_optional_json to get RETURNING; for others, execute.
             if built.sql.contains("RETURNING") {
                 let row = pool.fetch_optional_json(&built.sql, &built.params).await?;
                 Ok((

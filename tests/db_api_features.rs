@@ -243,6 +243,7 @@ endpoints:
     crud:
       table: "{authors_table}"
       database: "main"
+      writable_fields: ["*"]
 
   - path: "/api/posts"
     methods: ["get", "post"]
@@ -628,6 +629,155 @@ async fn test_sql_injection_prevention() {
             data.len(),
             1,
             "backend: {backend} - Table should still have original data after injection attempts"
+        );
+    }
+}
+
+// =============================================================================
+// JSONB Sorting Tests
+// =============================================================================
+
+#[tokio::test]
+async fn test_crud_sort_jsonb_across_backends() {
+    for backend in enabled_backends() {
+        let test_db = TestDatabase::new(backend, "api_sort_jsonb");
+
+        let template = format!(
+            r#"
+server:
+  port: 0
+
+databases:
+  main:
+    driver: "__DB_DRIVER__"
+    url: "__DB_URL__"
+    auto_migrate: true
+
+tables:
+  __TABLE_NAME__:
+    database: "main"
+    columns:
+      - name: "id"
+        type: "serial"
+        primary_key: true
+      - name: "title"
+        type: "text"
+        nullable: false
+      - name: "metadata"
+        type: "jsonb"
+        nullable: true
+
+endpoints:
+  - path: "/api/posts"
+    methods: ["get", "post"]
+    action: "crud"
+    crud:
+      table: "__TABLE_NAME__"
+      database: "main"
+      fields: ["id", "title", "metadata"]
+      writable_fields: ["title", "metadata"]
+      filtering:
+        enabled: true
+        allowed_fields: ["metadata.role"]
+      sorting:
+        enabled: true
+        allowed_fields: ["metadata.role"]
+        default_field: "id"
+        default_order: "asc"
+    auth: "none"
+"#
+        );
+
+        let app = test_db.setup_app(&template, "jsonb_sort.yaml").await;
+
+        // Seed posts with JSONB metadata containing role field
+        let seed_data = vec![
+            (serde_json::json!({"title": "Post C", "metadata": serde_json::json!({"role": "gamma"})})),
+            (serde_json::json!({"title": "Post A", "metadata": serde_json::json!({"role": "alpha"})})),
+            (serde_json::json!({"title": "Post B", "metadata": serde_json::json!({"role": "beta"})})),
+        ];
+        for data in &seed_data {
+            let req = Request::builder()
+                .method("POST")
+                .uri("/api/posts")
+                .header("content-type", "application/json")
+                .body(Body::from(data.to_string()))
+                .unwrap();
+            let _response = app.clone().oneshot(req).await.unwrap();
+        }
+
+        // Test ascending sort on JSONB nested field
+        let req = Request::builder()
+            .uri("/api/posts?sort=metadata.role&order=asc&page_size=10")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "JSONB sort ascending failed for {backend}"
+        );
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(
+            data[0]["title"], "Post A",
+            "alpha should be first for {backend}"
+        );
+        assert_eq!(
+            data[1]["title"], "Post B",
+            "beta should be second for {backend}"
+        );
+        assert_eq!(
+            data[2]["title"], "Post C",
+            "gamma should be third for {backend}"
+        );
+
+        // Test descending sort on JSONB nested field
+        let req = Request::builder()
+            .uri("/api/posts?sort=metadata.role&order=desc&page_size=10")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "JSONB sort descending failed for {backend}"
+        );
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(
+            data[0]["title"], "Post C",
+            "gamma should be first for {backend}"
+        );
+        assert_eq!(
+            data[1]["title"], "Post B",
+            "beta should be second for {backend}"
+        );
+        assert_eq!(
+            data[2]["title"], "Post A",
+            "alpha should be third for {backend}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_crud_sort_jsonb_disallowed_field_rejected() {
+    for backend in enabled_backends() {
+        let test_db = TestDatabase::new(backend, "api_sort_jsonb_reject");
+        let app = test_db
+            .setup_app(CRUD_FEATURES_CONFIG, "crud_features.yaml")
+            .await;
+
+        // metadata.tags is not in sorting.allowed_fields
+        let req = Request::builder()
+            .uri("/api/posts?sort=metadata.tags")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "sorting on disallowed JSONB field should be rejected for {backend}"
         );
     }
 }
