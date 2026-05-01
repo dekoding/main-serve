@@ -642,8 +642,7 @@ async fn test_crud_sort_jsonb_across_backends() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "api_sort_jsonb");
 
-        let template = format!(
-            r#"
+        let template = r#"
 server:
   port: 0
 
@@ -685,8 +684,7 @@ endpoints:
         default_field: "id"
         default_order: "asc"
     auth: "none"
-"#
-        );
+"#.to_string();
 
         let app = test_db.setup_app(&template, "jsonb_sort.yaml").await;
 
