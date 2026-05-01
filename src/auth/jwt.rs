@@ -66,21 +66,17 @@ pub fn validate_token(token: &str, config: &JwtConfig) -> Result<Claims, AppErro
         .and_then(|v| v.as_str())
         .map(ToString::to_string);
 
-    let sub = if claims_value
+    let sub = claims_value
         .get("sub")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::Auth("JWT 'sub' claim is missing".to_string()))?
-        .trim()
-        .is_empty()
-    {
-        Err(AppError::Auth("JWT 'sub' claim is empty".to_string()))
-    } else {
-        Ok(claims_value
-            .get("sub")
-            .and_then(|v| v.as_str())
-            .unwrap()
-            .to_string())
-    }?;
+        .ok_or_else(|| AppError::Auth("JWT 'sub' claim is missing".to_string()))
+        .and_then(|s| {
+            if s.trim().is_empty() {
+                Err(AppError::Auth("JWT 'sub' claim is empty".to_string()))
+            } else {
+                Ok(s.to_string())
+            }
+        })?;
 
     let exp = claims_value
         .get("exp")

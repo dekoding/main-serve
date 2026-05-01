@@ -159,11 +159,11 @@ pub async fn handle_oauth2_authorize(State(state): State<AppState>) -> Result<Re
     drop(pending);
     drop(config);
 
-    Ok(axum::http::Response::builder()
+    axum::http::Response::builder()
         .status(axum::http::StatusCode::FOUND)
         .header("location", url.as_str())
         .body(axum::body::Body::empty())
-        .unwrap())
+        .map_err(|e| AppError::Internal(format!("Failed to build redirect response: {e}")))
 }
 
 /// Handle `GET /_main-serve/oauth2/callback`.
@@ -277,12 +277,12 @@ pub async fn handle_oauth2_callback(
         cookie_value.push_str("; Secure");
     }
 
-    Ok(axum::http::Response::builder()
+    axum::http::Response::builder()
         .status(axum::http::StatusCode::FOUND)
         .header("location", &success_url)
         .header("set-cookie", &cookie_value)
         .body(axum::body::Body::empty())
-        .unwrap())
+        .map_err(|e| AppError::Internal(format!("Failed to build redirect response: {e}")))
 }
 
 /// Exchange an authorization code for tokens at the `IdP`'s token endpoint.
