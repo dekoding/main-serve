@@ -35,8 +35,9 @@ pub trait FilterBehavior {
 pub struct PostgresFilter;
 
 impl FilterBehavior for PostgresFilter {
-    fn json_extract_path(&self, table: &str, path: &str) -> String {
-        format!("({} #>> '{}')", table, path)
+    fn json_extract_path(&self, column: &str, path: &str) -> String {
+        let array_syntax: String = path.split('.').collect::<Vec<&str>>().join(",");
+        format!("({column} #>> '{{{array_syntax}}}')")
     }
 
     fn eq_op(&self) -> &'static str {

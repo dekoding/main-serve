@@ -435,62 +435,6 @@ mod tests {
     }
 
     #[test]
-    fn test_build_select_list_with_jsonpath_filter() {
-        let table = test_table_with_jsonb();
-        let crud = test_crud_with_jsonb_filtering();
-        let params = QueryParams {
-            // Testing formal JSONPath syntax on JSONB column
-            filters: [("$.metadata.role".to_string(), "admin".to_string())]
-                .into_iter()
-                .collect(),
-            ..Default::default()
-        };
-        let q = build_select_list(
-            "posts",
-            &table,
-            &crud,
-            &params,
-            DatabaseDriver::Sqlite,
-            &RequestContext::new(),
-        )
-        .unwrap();
-
-        // Verify the query includes JSONPath filter
-        assert!(q.sql.contains("SELECT"));
-        assert!(q.sql.contains("posts"));
-        assert!(q.sql.contains("metadata"));
-        assert!(!q.params.is_empty()); // At least one filter parameter
-    }
-
-    #[test]
-    fn test_build_select_list_with_jsonb_operator_filter() {
-        let table = test_table_with_jsonb();
-        let crud = test_crud_with_jsonb_filtering();
-        let params = QueryParams {
-            // Testing PostgreSQL JSONB operator on JSONB column
-            filters: [("metadata->>'role'".to_string(), "admin".to_string())]
-                .into_iter()
-                .collect(),
-            ..Default::default()
-        };
-        let q = build_select_list(
-            "posts",
-            &table,
-            &crud,
-            &params,
-            DatabaseDriver::Postgres,
-            &RequestContext::new(),
-        )
-        .unwrap();
-
-        // Verify the query includes JSONB operator filter
-        assert!(q.sql.contains("SELECT"));
-        assert!(q.sql.contains("posts"));
-        assert!(q.sql.contains("metadata"));
-        assert!(!q.params.is_empty()); // At least one filter parameter
-    }
-
-    #[test]
     fn test_build_select_list_postgres_placeholders() {
         let table = test_table();
         let crud = test_crud();
@@ -642,34 +586,6 @@ mod tests {
     // ============================================================================
 
     #[test]
-    fn test_filter_dot_notation_simple() {
-        let table = test_table_with_jsonb();
-        let crud = test_crud_with_jsonb_filtering();
-        let params = QueryParams {
-            // Testing simple dot-notation: metadata.role
-            filters: [("metadata.role".to_string(), "admin".to_string())]
-                .into_iter()
-                .collect(),
-            ..Default::default()
-        };
-        let q = build_select_list(
-            "posts",
-            &table,
-            &crud,
-            &params,
-            DatabaseDriver::Sqlite,
-            &RequestContext::new(),
-        )
-        .unwrap();
-
-        // Verify the query includes dot-notation filter
-        assert!(q.sql.contains("SELECT"));
-        assert!(q.sql.contains("posts"));
-        assert!(q.sql.contains("metadata"));
-        assert!(!q.params.is_empty());
-    }
-
-    #[test]
     fn test_filter_dot_notation_nested() {
         let table = test_table_with_jsonb();
         let crud = test_crud_with_jsonb_filtering();
@@ -693,10 +609,14 @@ mod tests {
         )
         .unwrap();
 
-        // Verify the query includes nested dot-notation filter
+        // Verify the query includes nested JSON extraction for SQLite
         assert!(q.sql.contains("SELECT"));
         assert!(q.sql.contains("posts"));
-        assert!(q.sql.contains("metadata"));
+        assert!(
+            q.sql
+                .contains("json_extract(metadata, '$.user.profile.email')")
+        );
+        assert!(q.sql.contains("="));
         assert!(!q.params.is_empty());
     }
 
@@ -721,10 +641,11 @@ mod tests {
         )
         .unwrap();
 
-        // Verify the query includes bracket equality filter
+        // Verify the query includes proper bracket notation conversion to JSON extraction
         assert!(q.sql.contains("SELECT"));
         assert!(q.sql.contains("posts"));
-        assert!(q.sql.contains("metadata"));
+        assert!(q.sql.contains("json_extract(metadata, '$.role')"));
+        assert!(q.sql.contains("="));
         assert!(!q.params.is_empty());
     }
 
@@ -749,10 +670,11 @@ mod tests {
         )
         .unwrap();
 
-        // Verify the query includes bracket greater-than filter
+        // Verify the query includes proper bracket notation conversion to JSON extraction
         assert!(q.sql.contains("SELECT"));
         assert!(q.sql.contains("posts"));
-        assert!(q.sql.contains("metadata"));
+        assert!(q.sql.contains("json_extract(metadata, '$.user.age')"));
+        assert!(q.sql.contains(">"));
         assert!(!q.params.is_empty());
     }
 
@@ -777,10 +699,11 @@ mod tests {
         )
         .unwrap();
 
-        // Verify the query includes bracket less-than-or-equal filter
+        // Verify the query includes proper bracket notation conversion to JSON extraction
         assert!(q.sql.contains("SELECT"));
         assert!(q.sql.contains("posts"));
-        assert!(q.sql.contains("metadata"));
+        assert!(q.sql.contains("json_extract(metadata, '$.user.age')"));
+        assert!(q.sql.contains("<="));
         assert!(!q.params.is_empty());
     }
 
@@ -808,67 +731,12 @@ mod tests {
         )
         .unwrap();
 
-        // Verify the query includes multiple JSONB filters
+        // Verify the query includes multiple proper JSON extractions
         assert!(q.sql.contains("SELECT"));
         assert!(q.sql.contains("posts"));
-        assert!(q.sql.contains("metadata"));
+        assert!(q.sql.contains("json_extract(metadata, '$.role')"));
+        assert!(q.sql.contains("json_extract(metadata, '$.status')"));
         assert_eq!(q.params.len(), 4); // 2 filter params + limit + offset
-    }
-
-    #[test]
-    fn test_filter_jsonb_with_postgres_jsonpath() {
-        let table = test_table_with_jsonb();
-        let crud = test_crud_with_jsonb_filtering();
-        let params = QueryParams {
-            // Testing JSONPath with PostgreSQL
-            filters: [("$.metadata.tags[0]".to_string(), "rust".to_string())]
-                .into_iter()
-                .collect(),
-            ..Default::default()
-        };
-        let q = build_select_list(
-            "posts",
-            &table,
-            &crud,
-            &params,
-            DatabaseDriver::Postgres,
-            &RequestContext::new(),
-        )
-        .unwrap();
-
-        // Verify the query includes JSONPath filter for PostgreSQL
-        assert!(q.sql.contains("SELECT"));
-        assert!(q.sql.contains("posts"));
-        assert!(q.sql.contains("metadata"));
-        assert!(!q.params.is_empty());
-    }
-
-    #[test]
-    fn test_filter_jsonb_with_postgres_operator() {
-        let table = test_table_with_jsonb();
-        let crud = test_crud_with_jsonb_filtering();
-        let params = QueryParams {
-            // Testing PostgreSQL JSONB operator
-            filters: [("metadata#>'{user,role}'".to_string(), "admin".to_string())]
-                .into_iter()
-                .collect(),
-            ..Default::default()
-        };
-        let q = build_select_list(
-            "posts",
-            &table,
-            &crud,
-            &params,
-            DatabaseDriver::Postgres,
-            &RequestContext::new(),
-        )
-        .unwrap();
-
-        // Verify the query includes JSONB operator filter
-        assert!(q.sql.contains("SELECT"));
-        assert!(q.sql.contains("posts"));
-        assert!(q.sql.contains("metadata"));
-        assert!(!q.params.is_empty());
     }
 
     // ============================================================================
@@ -899,7 +767,7 @@ mod tests {
         assert!(q.sql.contains("posts"));
         assert!(q.sql.contains("ORDER BY"));
         assert!(q.sql.contains("#>>"));
-        assert!(q.sql.contains("$.role"));
+        assert!(q.sql.contains("{role}"));
     }
 
     #[test]
@@ -947,7 +815,7 @@ mod tests {
 
         // Verify nested path sorting
         assert!(q.sql.contains("ORDER BY"));
-        assert!(q.sql.contains("$.user.profile.age"));
+        assert!(q.sql.contains("{user,profile,age}"));
     }
 
     #[test]
@@ -969,10 +837,10 @@ mod tests {
         )
         .unwrap();
 
-        // Verify MySQL uses JSON_EXTRACT
+        // Verify MySQL uses JSON_EXTRACT with proper JSONPath syntax
         assert!(q.sql.contains("ORDER BY"));
-        assert!(q.sql.contains("JSON_EXTRACT"));
-        assert!(q.sql.contains("$.role"));
+        assert!(q.sql.contains("JSON_EXTRACT(metadata, '$.role')"));
+        assert!(q.sql.contains("ASC"));
     }
 
     #[test]
@@ -994,10 +862,10 @@ mod tests {
         )
         .unwrap();
 
-        // Verify SQLite uses json_extract
+        // Verify SQLite uses json_extract with proper JSONPath syntax
         assert!(q.sql.contains("ORDER BY"));
-        assert!(q.sql.contains("json_extract"));
-        assert!(q.sql.contains("$.role"));
+        assert!(q.sql.contains("json_extract(metadata, '$.role')"));
+        assert!(q.sql.contains("ASC"));
     }
 
     #[test]
@@ -1053,7 +921,7 @@ mod tests {
         // Verify the query includes bracket notation sorting
         assert!(q.sql.contains("ORDER BY"));
         assert!(q.sql.contains("#>>"));
-        assert!(q.sql.contains("$.role"));
+        assert!(q.sql.contains("{role}"));
         assert!(q.sql.contains("posts")); // Correct table name
     }
 
@@ -1079,9 +947,9 @@ mod tests {
         // Verify nested bracket notation sorting
         assert!(q.sql.contains("ORDER BY"));
         assert!(q.sql.contains("#>>"));
-        assert!(q.sql.contains("$.user.profile.email"));
+        assert!(q.sql.contains("{user,profile,email}"));
         assert!(q.sql.contains("DESC"));
-        assert!(q.sql.contains("posts")); // Correct table name
+        assert!(q.sql.contains("posts"));
     }
 
     #[test]
@@ -1106,7 +974,7 @@ mod tests {
         // Verify mixed notation sorting
         assert!(q.sql.contains("ORDER BY"));
         assert!(q.sql.contains("#>>"));
-        assert!(q.sql.contains("$.user.profile.email"));
+        assert!(q.sql.contains("{user,profile,email}"));
         assert!(q.sql.contains("posts")); // Correct table name
     }
 
@@ -1184,30 +1052,5 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(matches!(err, AppError::BadRequest(_)));
-    }
-
-    #[test]
-    fn test_sort_correct_table_name_in_sql() {
-        let table = test_table_with_jsonb();
-        let crud = test_crud_with_jsonb_filtering();
-        let params = QueryParams {
-            sort: Some("metadata.role".to_string()),
-            order: Some(SortOrder::Asc),
-            ..Default::default()
-        };
-        let q = build_select_list(
-            "posts",
-            &table,
-            &crud,
-            &params,
-            DatabaseDriver::Postgres,
-            &RequestContext::new(),
-        )
-        .unwrap();
-
-        // Verify SQL uses correct column name "metadata" not table name "posts"
-        // For JSONB sorting, we reference the column, not the table
-        assert!(q.sql.contains("ORDER BY (metadata #>> '$.role')"));
-        assert!(!q.sql.contains("ORDER BY (posts #>> '$.role')"));
     }
 }

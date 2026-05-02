@@ -371,9 +371,18 @@ impl SelectBuilder {
         behavior: &dyn FilterBehavior,
     ) -> String {
         if is_jsonb {
+            // For JSONB, extract the column name and the nested path
+            // path_str is "metadata.role", we need column="metadata", nested_path="role"
+            let parts: Vec<&str> = path_str.split('.').collect();
+            let column_name = parts.first().unwrap_or(&base_column);
+            let nested_path = if parts.len() > 1 {
+                parts[1..].join(".")
+            } else {
+                String::new()
+            };
             format!(
                 "{} {} {}",
-                behavior.json_extract_path(&self.table, path_str),
+                behavior.json_extract_path(column_name, &nested_path),
                 operator,
                 param
             )
@@ -392,9 +401,11 @@ impl SelectBuilder {
         behavior: &dyn FilterBehavior,
     ) -> String {
         if is_jsonb {
+            // Extract the column name from the path (e.g., "metadata" from "metadata.role")
+            let column_name = path_str.split('.').next().unwrap_or(&base_column);
             format!(
                 "{} IN ({})",
-                behavior.json_extract_path(&self.table, path_str),
+                behavior.json_extract_path(column_name, path_str),
                 param_list
             )
         } else {
@@ -420,9 +431,10 @@ impl SelectBuilder {
                 Ok(format!("{} @> {}::jsonb", self.table, json_str))
             } else {
                 // MySQL JSON_CONTAINS or SQLite json_each
+                let column_name = path_str.split('.').next().unwrap_or("metadata");
                 Ok(format!(
                     "EXISTS (SELECT 1 FROM json_each({}, '$.{}') WHERE value = {})",
-                    self.table, path_str, param
+                    column_name, path_str, param
                 ))
             }
         } else {
@@ -438,9 +450,11 @@ impl SelectBuilder {
         behavior: &dyn FilterBehavior,
     ) -> String {
         if is_jsonb {
+            // Extract the column name from the path (e.g., "metadata" from "metadata.role")
+            let column_name = path_str.split('.').next().unwrap_or("metadata");
             format!(
                 "{} IS NOT NULL",
-                behavior.json_extract_path(&self.table, path_str)
+                behavior.json_extract_path(column_name, path_str)
             )
         } else {
             // For non-JSONB, we'd need the actual column name here
@@ -459,9 +473,11 @@ impl SelectBuilder {
         behavior: &dyn FilterBehavior,
     ) -> String {
         if is_jsonb {
+            // Extract the column name from the path (e.g., "metadata" from "metadata.role")
+            let column_name = path_str.split('.').next().unwrap_or(&base_column);
             format!(
                 "{} {} {}",
-                behavior.json_extract_path(&self.table, path_str),
+                behavior.json_extract_path(column_name, path_str),
                 behavior.like_op(),
                 param
             )
@@ -487,9 +503,11 @@ impl SelectBuilder {
     ) -> String {
         let param = format!("%{}%", value);
         if is_jsonb {
+            // Extract the column name from the path (e.g., "metadata" from "metadata.role")
+            let column_name = path_str.split('.').next().unwrap_or(&base_column);
             format!(
                 "LOWER({}) {} LOWER({})",
-                behavior.json_extract_path(&self.table, path_str),
+                behavior.json_extract_path(column_name, path_str),
                 behavior.ilike_op(),
                 param
             )
@@ -570,7 +588,12 @@ impl SelectBuilder {
                 let path_str = extract_jsonb_sort_path(sort_field);
                 let jsonb_expr = match self.driver {
                     DatabaseDriver::Postgres => {
-                        format!("({} #>> '{}')", base_col, path_str)
+                        // PostgreSQL #>> operator expects text array syntax {a,b}, not JSONPath $.a.b
+                        // Convert $.role to {role} or $.user.profile to {user,profile}
+                        let pg_path = path_str.strip_prefix("$.").unwrap_or(&path_str);
+                        let array_syntax: String =
+                            pg_path.split('.').collect::<Vec<&str>>().join(",");
+                        format!("({} #>> '{{{}}}')", base_col, array_syntax)
                     }
                     DatabaseDriver::Mysql => {
                         format!("JSON_EXTRACT({}, '{}')", base_col, path_str)

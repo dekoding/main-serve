@@ -750,7 +750,7 @@ async fn test_auth_public_health_check_needs_no_auth() {
 
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "rw_auth_health");
-        let app = test_db.setup_app(&yaml, "auth_all.yaml").await;
+        let (app, _state, _pool) = test_db.setup_app(&yaml, "auth_all.yaml").await;
 
         let resp = app
             .oneshot(
@@ -774,7 +774,7 @@ async fn test_auth_jwt_crud_read_any_role() {
 
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "rw_auth_jwt_read");
-        let app = test_db.setup_app(&yaml, "auth_jwt.yaml").await;
+        let (app, _state, _pool) = test_db.setup_app(&yaml, "auth_jwt.yaml").await;
 
         // No token -> 401
         let resp = app
@@ -840,7 +840,7 @@ async fn test_auth_jwt_crud_admin_only_endpoint() {
 
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "rw_auth_jwt_admin");
-        let app = test_db.setup_app(&yaml, "auth_admin.yaml").await;
+        let (app, _state, _pool) = test_db.setup_app(&yaml, "auth_admin.yaml").await;
 
         // First create an article via the list endpoint (no role restriction)
         let admin_token = create_token("admin1", Some("admin"), &jwt_config()).unwrap();
@@ -917,7 +917,7 @@ async fn test_auth_api_key_role_based_access() {
 
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "rw_auth_apikey");
-        let app = test_db.setup_app(&yaml, "auth_apikey.yaml").await;
+        let (app, _state, _pool) = test_db.setup_app(&yaml, "auth_apikey.yaml").await;
 
         // No key -> 401
         let resp = app
@@ -1034,7 +1034,7 @@ async fn test_auth_basic_admin_endpoint() {
 
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "rw_auth_basic");
-        let app = test_db.setup_app(&yaml, "auth_basic.yaml").await;
+        let (app, _state, _pool) = test_db.setup_app(&yaml, "auth_basic.yaml").await;
 
         // No auth -> 401
         let resp = app
@@ -1996,7 +1996,7 @@ async fn test_crud_api_author_lifecycle() {
 
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "rw_crud_api_author");
-        let app = test_db.setup_app(yaml, "crud_api.yaml").await;
+        let (app, _state, _pool) = test_db.setup_app(yaml, "crud_api.yaml").await;
 
         // Create author (public endpoint)
         let resp = app
@@ -2080,7 +2080,7 @@ async fn test_crud_api_articles_with_joins_and_computed_fields() {
 
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "rw_crud_api_joins");
-        let app = test_db.setup_app(yaml, "crud_api.yaml").await;
+        let (app, _state, _pool) = test_db.setup_app(yaml, "crud_api.yaml").await;
 
         // Seed: create an author
         let resp = app
@@ -2214,7 +2214,7 @@ async fn test_crud_api_article_without_category_left_join() {
 
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "rw_crud_api_left");
-        let app = test_db.setup_app(yaml, "crud_api.yaml").await;
+        let (app, _state, _pool) = test_db.setup_app(yaml, "crud_api.yaml").await;
 
         // Seed author
         let resp = app
@@ -2289,7 +2289,7 @@ async fn test_crud_api_rbac_admin_only_delete() {
 
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "rw_crud_api_rbac");
-        let app = test_db.setup_app(yaml, "crud_api.yaml").await;
+        let (app, _state, _pool) = test_db.setup_app(yaml, "crud_api.yaml").await;
 
         // Seed author + article
         app.clone()

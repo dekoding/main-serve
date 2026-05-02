@@ -14,37 +14,9 @@ use std::io::Write;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
-use tower::ServiceExt;
-
-use main_serve::config::load_config;
-use main_serve::db::migration::run_migrations;
-use main_serve::db::pool::create_pools;
-use main_serve::server::{AppState, build_router};
 use support::db::{TestDatabase, enabled_backends};
 use support::setup_server;
-
-async fn setup_server_with_db(
-    test_db: &TestDatabase,
-    yaml: &str,
-    file_name: &str,
-) -> (axum::Router, AppState, std::path::PathBuf) {
-    let config_path = test_db.write_config(yaml, file_name);
-    let config = load_config(&config_path).expect("load config");
-    let pools = create_pools(&config.databases).await.expect("create pools");
-    run_migrations(&config.tables, &pools, &config.databases)
-        .await
-        .expect("run migrations");
-
-    let state = AppState::new(config, config_path.clone(), "test-token".to_string());
-    {
-        let mut pool_lock = state.db_pools.write().await;
-        *pool_lock = pools;
-    }
-    let config_guard = state.config.read().await;
-    let app = build_router(&config_guard, state.clone());
-    drop(config_guard);
-    (app, state, config_path)
-}
+use tower::ServiceExt;
 
 const MINIMAL_CONFIG: &str = r#"
 server:
@@ -454,11 +426,9 @@ async fn test_nonexistent_route_returns_404() {
 async fn test_reload_adds_column_on_db_backed_config_across_backends() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "reload_add_column");
-        let (app, state, config_path) =
-            setup_server_with_db(&test_db, RELOAD_DB_V1, "reload_v1.yaml").await;
-
+        let (app, state, pools) = test_db.setup_app(RELOAD_DB_V1, "reload_v1.yaml").await;
+        let config_path = test_db.root_dir.path().join("reload_v1.yaml");
         {
-            let pools = state.db_pools.read().await;
             let pool = pools.get("main").unwrap();
             let insert_sql = format!(
                 "INSERT INTO {} (title) VALUES ({})",
@@ -501,8 +471,10 @@ async fn test_reload_adds_column_on_db_backed_config_across_backends() {
 async fn test_reload_drops_column_with_allow_destructive_across_backends() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "reload_drop_column");
-        let (app, state, config_path) =
-            setup_server_with_db(&test_db, RELOAD_DB_V1_DROP, "reload_drop_v1.yaml").await;
+        let (app, _state, pools) = test_db
+            .setup_app(RELOAD_DB_V1_DROP, "reload_drop_v1.yaml")
+            .await;
+        let config_path = test_db.root_dir.path().join("reload_drop_v1.yaml");
 
         std::fs::write(&config_path, test_db.render_yaml(RELOAD_DB_V2_DROP)).unwrap();
 
@@ -515,7 +487,6 @@ async fn test_reload_drops_column_with_allow_destructive_across_backends() {
         let response = app.oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK, "backend: {backend}");
 
-        let pools = state.db_pools.read().await;
         let select_sql = format!("SELECT body FROM {} LIMIT 1", test_db.table_name);
         let select_result = pools
             .get("main")

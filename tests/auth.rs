@@ -13,9 +13,11 @@ use tower::ServiceExt;
 use main_serve::auth::jwt::create_token;
 use main_serve::config::load_config;
 use main_serve::config::types::JwtConfig;
-use main_serve::server::{AppState, build_router};
+
 use support::db::{TestDatabase, enabled_backends};
 use support::{json_body, setup_server, start_mock_idp};
+
+use crate::support::db::TestBackend;
 
 fn jwt_config() -> JwtConfig {
     JwtConfig {
@@ -488,68 +490,8 @@ endpoints:
 
 #[tokio::test]
 async fn test_jwt_auth_on_crud_endpoint() {
-    let dir = tempfile::TempDir::new().expect("tempdir");
-    let db_path = dir.path().join("test.db");
-
-    let yaml = format!(
-        r#"
-server:
-  port: 0
-
-auth:
-  jwt:
-    secret: "test-jwt-secret-key-long-enough"
-    algorithm: "HS256"
-    issuer: "test-issuer"
-    audience: "test-audience"
-
-databases:
-  main:
-    driver: "sqlite"
-    url: "sqlite://{}?mode=rwc"
-
-tables:
-  items:
-    database: "main"
-    columns:
-      - name: "id"
-        type: "integer"
-        primary_key: true
-      - name: "name"
-        type: "text"
-
-endpoints:
-  - path: "/api/items"
-    methods: ["get"]
-    action: "crud"
-    crud:
-      table: "items"
-      database: "main"
-    auth: "jwt"
-"#,
-        db_path.display()
-    );
-
-    let config_file = dir.path().join("config.yaml");
-    std::fs::write(&config_file, &yaml).unwrap();
-    let config = load_config(&config_file).expect("load config");
-
-    // Create pools and run migrations.
-    let pools = main_serve::db::pool::create_pools(&config.databases)
-        .await
-        .expect("create pools");
-    main_serve::db::migration::run_migrations(&config.tables, &pools, &config.databases)
-        .await
-        .expect("migrations");
-
-    let state = AppState::new(config, config_file, "test-token".to_string());
-    {
-        let mut pool_lock = state.db_pools.write().await;
-        *pool_lock = pools;
-    }
-    let config_guard = state.config.read().await;
-    let app = build_router(&config_guard, state.clone());
-    drop(config_guard);
+    let test_db = TestDatabase::new(TestBackend::Sqlite, "auth_jwt_crud");
+    let (app, _state, _pools) = test_db.setup_app(JWT_CRUD_CONFIG, "jwt_crud.yaml").await;
 
     // Without token -> 401.
     let req = Request::builder()
@@ -574,7 +516,7 @@ endpoints:
 async fn test_jwt_auth_on_crud_endpoint_across_backends() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "auth_jwt_crud");
-        let app = test_db.setup_app(JWT_CRUD_CONFIG, "jwt_crud.yaml").await;
+        let (app, _state, pools) = test_db.setup_app(JWT_CRUD_CONFIG, "jwt_crud.yaml").await;
 
         let req = Request::builder()
             .uri("/api/items")
@@ -595,6 +537,9 @@ async fn test_jwt_auth_on_crud_endpoint_across_backends() {
             .unwrap();
         let response = app.oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK, "backend: {backend}");
+
+        // Clean up tables for non-SQLite backends
+        test_db.cleanup(&pools).await;
     }
 }
 
@@ -602,7 +547,7 @@ async fn test_jwt_auth_on_crud_endpoint_across_backends() {
 async fn test_api_key_auth_on_crud_endpoint_across_backends() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "auth_api_key_crud");
-        let app = test_db
+        let (app, _state, pools) = test_db
             .setup_app(API_KEY_CRUD_CONFIG, "api_key_crud.yaml")
             .await;
 
@@ -624,6 +569,9 @@ async fn test_api_key_auth_on_crud_endpoint_across_backends() {
             .unwrap();
         let response = app.oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK, "backend: {backend}");
+
+        // Clean up tables for non-SQLite backends
+        test_db.cleanup(&pools).await;
     }
 }
 
@@ -759,13 +707,7 @@ async fn test_oauth2_full_code_flow() {
     let (idp_url, shutdown) = start_mock_idp().await;
     let yaml = oauth2_config_yaml(&idp_url);
 
-    let mut f = tempfile::NamedTempFile::new().expect("tempfile");
-    f.write_all(yaml.as_bytes()).expect("write");
-    let config = load_config(f.path()).expect("load config");
-    let state = AppState::new(config, f.path().to_path_buf(), "test-token".to_string());
-    let config_guard = state.config.read().await;
-    let app = build_router(&config_guard, state.clone());
-    drop(config_guard);
+    let (app, _f) = setup_server(&yaml).await;
 
     // Step 1: Hit /authorize to get the redirect URL.
     let req = Request::builder()
@@ -864,13 +806,7 @@ async fn test_oauth2_state_is_one_time_use() {
     let (idp_url, shutdown) = start_mock_idp().await;
     let yaml = oauth2_config_yaml(&idp_url);
 
-    let mut f = tempfile::NamedTempFile::new().expect("tempfile");
-    f.write_all(yaml.as_bytes()).expect("write");
-    let config = load_config(f.path()).expect("load config");
-    let state = AppState::new(config, f.path().to_path_buf(), "test-token".to_string());
-    let config_guard = state.config.read().await;
-    let app = build_router(&config_guard, state.clone());
-    drop(config_guard);
+    let (app, _f) = setup_server(&yaml).await;
 
     // Get a valid state from /authorize.
     let req = Request::builder()
