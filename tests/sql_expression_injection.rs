@@ -76,8 +76,8 @@ endpoints:
 
 async fn seed_jsonb_posts(app: &axum::Router, posts: &[(&str, &str, &str)]) {
     for (title, author, metadata_json) in posts {
-        let metadata_value: serde_json::Value = serde_json::from_str(metadata_json)
-            .unwrap_or_else(|e| {
+        let metadata_value: serde_json::Value =
+            serde_json::from_str(metadata_json).unwrap_or_else(|e| {
                 panic!(
                     "Failed to parse metadata JSON for post '{}': {}\nJSON input: {}",
                     title, e, metadata_json
@@ -116,24 +116,33 @@ async fn seed_jsonb_posts(app: &axum::Router, posts: &[(&str, &str, &str)]) {
 async fn test_sql_comment_injection_in_sort() {
     for backend in enabled_backends() {
         let test_db = support::db::TestDatabase::new(backend, "sql_comment_injection");
-        let (app, _state, _pool) = test_db.setup_app(JSONB_EXPRESSIONS_CONFIG, "comment_test.yaml").await;
+        let (app, _state, _pool) = test_db
+            .setup_app(JSONB_EXPRESSIONS_CONFIG, "comment_test.yaml")
+            .await;
 
-        seed_jsonb_posts(&app, &[
-            ("Post 1", "Alice", r#"{"role": "admin"}"#),
-            ("Post 2", "Bob", r#"{"role": "user"}"#),
-            ("Post 3", "Charlie", r#"{"role": "guest"}"#),
-        ]).await;
+        seed_jsonb_posts(
+            &app,
+            &[
+                ("Post 1", "Alice", r#"{"role": "admin"}"#),
+                ("Post 2", "Bob", r#"{"role": "user"}"#),
+                ("Post 3", "Charlie", r#"{"role": "guest"}"#),
+            ],
+        )
+        .await;
 
         // Test: SQL comment injection attempt
         // The expression "title" should be safe, but we're testing if "UPPER(title) --" passes
         let malicious_sort = "UPPER(title) --";
         let req = Request::builder()
-            .uri(format!("/api/posts?sort={}&order=asc", urlencoding_encode(malicious_sort)))
+            .uri(format!(
+                "/api/posts?sort={}&order=asc",
+                urlencoding_encode(malicious_sort)
+            ))
             .body(Body::empty())
             .unwrap();
-        
+
         let response = app.clone().oneshot(req).await.unwrap();
-        
+
         // This should be rejected because it contains SQL comment syntax
         assert_eq!(
             response.status(),
@@ -151,22 +160,28 @@ async fn test_sql_comment_injection_in_sort() {
 async fn test_sql_keyword_injection_in_sort() {
     for backend in enabled_backends() {
         let test_db = support::db::TestDatabase::new(backend, "sql_keyword_injection");
-        let (app, _state, _pool) = test_db.setup_app(JSONB_EXPRESSIONS_CONFIG, "keyword_test.yaml").await;
+        let (app, _state, _pool) = test_db
+            .setup_app(JSONB_EXPRESSIONS_CONFIG, "keyword_test.yaml")
+            .await;
 
-        seed_jsonb_posts(&app, &[
-            ("Post 1", "Alice", r#"{}"#),
-            ("Post 2", "Bob", r#"{}"#),
-        ]).await;
+        seed_jsonb_posts(
+            &app,
+            &[("Post 1", "Alice", r#"{}"#), ("Post 2", "Bob", r#"{}"#)],
+        )
+        .await;
 
         // Test: UNION keyword injection
         let malicious_sort = "title UNION SELECT * FROM posts";
         let req = Request::builder()
-            .uri(format!("/api/posts?sort={}&order=asc", urlencoding_encode(malicious_sort)))
+            .uri(format!(
+                "/api/posts?sort={}&order=asc",
+                urlencoding_encode(malicious_sort)
+            ))
             .body(Body::empty())
             .unwrap();
-        
+
         let response = app.clone().oneshot(req).await.unwrap();
-        
+
         // This should be rejected because it contains UNION keyword
         assert_eq!(
             response.status(),
@@ -184,23 +199,29 @@ async fn test_sql_keyword_injection_in_sort() {
 async fn test_function_call_abuse_in_sort() {
     for backend in enabled_backends() {
         let test_db = support::db::TestDatabase::new(backend, "function_abuse");
-        let (app, _state, _pool) = test_db.setup_app(JSONB_EXPRESSIONS_CONFIG, "function_test.yaml").await;
+        let (app, _state, _pool) = test_db
+            .setup_app(JSONB_EXPRESSIONS_CONFIG, "function_test.yaml")
+            .await;
 
-        seed_jsonb_posts(&app, &[
-            ("Post 1", "Alice", r#"{}"#),
-            ("Post 2", "Bob", r#"{}"#),
-        ]).await;
+        seed_jsonb_posts(
+            &app,
+            &[("Post 1", "Alice", r#"{}"#), ("Post 2", "Bob", r#"{}"#)],
+        )
+        .await;
 
         // Test: pg_sleep function injection (time-based blind SQL injection)
         // This shouldn't be accepted as a valid sort field
         let malicious_sort = "pg_sleep(10)";
         let req = Request::builder()
-            .uri(format!("/api/posts?sort={}&order=asc", urlencoding_encode(malicious_sort)))
+            .uri(format!(
+                "/api/posts?sort={}&order=asc",
+                urlencoding_encode(malicious_sort)
+            ))
             .body(Body::empty())
             .unwrap();
-        
+
         let response = app.clone().oneshot(req).await.unwrap();
-        
+
         // This should be rejected - pg_sleep is not a valid sort expression
         assert_eq!(
             response.status(),
@@ -218,22 +239,28 @@ async fn test_function_call_abuse_in_sort() {
 async fn test_operator_chaining_in_sort() {
     for backend in enabled_backends() {
         let test_db = support::db::TestDatabase::new(backend, "operator_chaining");
-        let (app, _state, _pool) = test_db.setup_app(JSONB_EXPRESSIONS_CONFIG, "operator_test.yaml").await;
+        let (app, _state, _pool) = test_db
+            .setup_app(JSONB_EXPRESSIONS_CONFIG, "operator_test.yaml")
+            .await;
 
-        seed_jsonb_posts(&app, &[
-            ("Post 1", "Alice", r#"{}"#),
-            ("Post 2", "Bob", r#"{}"#),
-        ]).await;
+        seed_jsonb_posts(
+            &app,
+            &[("Post 1", "Alice", r#"{}"#), ("Post 2", "Bob", r#"{}"#)],
+        )
+        .await;
 
         // Test: OR/AND operator chaining
         let malicious_sort = "title = 'a' AND 1=1";
         let req = Request::builder()
-            .uri(format!("/api/posts?sort={}&order=asc", urlencoding_encode(malicious_sort)))
+            .uri(format!(
+                "/api/posts?sort={}&order=asc",
+                urlencoding_encode(malicious_sort)
+            ))
             .body(Body::empty())
             .unwrap();
-        
+
         let response = app.clone().oneshot(req).await.unwrap();
-        
+
         // This should be rejected - it's not a valid sort field
         assert_eq!(
             response.status(),
@@ -251,22 +278,31 @@ async fn test_operator_chaining_in_sort() {
 async fn test_jsonpath_parser_bypass() {
     for backend in enabled_backends() {
         let test_db = support::db::TestDatabase::new(backend, "jsonpath_bypass");
-        let (app, _state, _pool) = test_db.setup_app(JSONB_EXPRESSIONS_CONFIG, "jsonpath_test.yaml").await;
+        let (app, _state, _pool) = test_db
+            .setup_app(JSONB_EXPRESSIONS_CONFIG, "jsonpath_test.yaml")
+            .await;
 
-        seed_jsonb_posts(&app, &[
-            ("Post 1", "Alice", r#"{"role": "admin"}"#),
-            ("Post 2", "Bob", r#"{"role": "user"}"#),
-        ]).await;
+        seed_jsonb_posts(
+            &app,
+            &[
+                ("Post 1", "Alice", r#"{"role": "admin"}"#),
+                ("Post 2", "Bob", r#"{"role": "user"}"#),
+            ],
+        )
+        .await;
 
         // Test: Complex JSONPath that might bypass validation
         let malicious_jsonpath = "$.metadata.role[*]";
         let req = Request::builder()
-            .uri(format!("/api/posts?sort={}&order=asc", urlencoding_encode(malicious_jsonpath)))
+            .uri(format!(
+                "/api/posts?sort={}&order=asc",
+                urlencoding_encode(malicious_jsonpath)
+            ))
             .body(Body::empty())
             .unwrap();
-        
+
         let response = app.clone().oneshot(req).await.unwrap();
-        
+
         // This should either be rejected or handled safely
         // It should NOT result in SQL injection
         if response.status() == StatusCode::OK {
@@ -290,23 +326,29 @@ async fn test_jsonpath_parser_bypass() {
 async fn test_whitespace_obfuscated_injection() {
     for backend in enabled_backends() {
         let test_db = support::db::TestDatabase::new(backend, "whitespace_obfuscation");
-        let (app, _state, _pool) = test_db.setup_app(JSONB_EXPRESSIONS_CONFIG, "whitespace_test.yaml").await;
+        let (app, _state, _pool) = test_db
+            .setup_app(JSONB_EXPRESSIONS_CONFIG, "whitespace_test.yaml")
+            .await;
 
-        seed_jsonb_posts(&app, &[
-            ("Post 1", "Alice", r#"{}"#),
-            ("Post 2", "Bob", r#"{}"#),
-        ]).await;
+        seed_jsonb_posts(
+            &app,
+            &[("Post 1", "Alice", r#"{}"#), ("Post 2", "Bob", r#"{}"#)],
+        )
+        .await;
 
         // Test: Multi-line SQL injection attempt
         // This would be encoded as: title%0A%3B%20DROP%20TABLE%20posts
         let malicious_sort = "title\n;\nDROP TABLE posts";
         let req = Request::builder()
-            .uri(format!("/api/posts?sort={}&order=asc", urlencoding_encode(malicious_sort)))
+            .uri(format!(
+                "/api/posts?sort={}&order=asc",
+                urlencoding_encode(malicious_sort)
+            ))
             .body(Body::empty())
             .unwrap();
-        
+
         let response = app.clone().oneshot(req).await.unwrap();
-        
+
         // This should be rejected - newline characters are not allowed
         assert_eq!(
             response.status(),
@@ -324,22 +366,39 @@ async fn test_whitespace_obfuscated_injection() {
 async fn test_postgres_jsonb_operator_abuse() {
     for backend in enabled_backends() {
         let test_db = support::db::TestDatabase::new(backend, "jsonb_operator_abuse");
-        let (app, _state, _pool) = test_db.setup_app(JSONB_EXPRESSIONS_CONFIG, "jsonb_operator_test.yaml").await;
+        let (app, _state, _pool) = test_db
+            .setup_app(JSONB_EXPRESSIONS_CONFIG, "jsonb_operator_test.yaml")
+            .await;
 
-        seed_jsonb_posts(&app, &[
-            ("Post 1", "Alice", r#"{"role": "admin", "secret": "sensitive"}"#),
-            ("Post 2", "Bob", r#"{"role": "user", "secret": "also_sensitive"}"#),
-        ]).await;
+        seed_jsonb_posts(
+            &app,
+            &[
+                (
+                    "Post 1",
+                    "Alice",
+                    r#"{"role": "admin", "secret": "sensitive"}"#,
+                ),
+                (
+                    "Post 2",
+                    "Bob",
+                    r#"{"role": "user", "secret": "also_sensitive"}"#,
+                ),
+            ],
+        )
+        .await;
 
         // Test: Attempt to abuse #>> operator
         let malicious_sort = "metadata#>>'{secret}'";
         let req = Request::builder()
-            .uri(format!("/api/posts?sort={}&order=asc", urlencoding_encode(malicious_sort)))
+            .uri(format!(
+                "/api/posts?sort={}&order=asc",
+                urlencoding_encode(malicious_sort)
+            ))
             .body(Body::empty())
             .unwrap();
-        
+
         let response = app.clone().oneshot(req).await.unwrap();
-        
+
         // If metadata.secret is not in allowed_fields, this should be rejected
         // If it is, it should work but only expose what's allowed
         assert!(
@@ -357,22 +416,28 @@ async fn test_postgres_jsonb_operator_abuse() {
 async fn test_context_keyword_injection() {
     for backend in enabled_backends() {
         let test_db = support::db::TestDatabase::new(backend, "context_keyword");
-        let (app, _state, _pool) = test_db.setup_app(JSONB_EXPRESSIONS_CONFIG, "context_test.yaml").await;
+        let (app, _state, _pool) = test_db
+            .setup_app(JSONB_EXPRESSIONS_CONFIG, "context_test.yaml")
+            .await;
 
-        seed_jsonb_posts(&app, &[
-            ("Post 1", "Alice", r#"{}"#),
-            ("Post 2", "Bob", r#"{}"#),
-        ]).await;
+        seed_jsonb_posts(
+            &app,
+            &[("Post 1", "Alice", r#"{}"#), ("Post 2", "Bob", r#"{}"#)],
+        )
+        .await;
 
         // Test: PostgreSQL system functions
         let malicious_sort = "current_user";
         let req = Request::builder()
-            .uri(format!("/api/posts?sort={}&order=asc", urlencoding_encode(malicious_sort)))
+            .uri(format!(
+                "/api/posts?sort={}&order=asc",
+                urlencoding_encode(malicious_sort)
+            ))
             .body(Body::empty())
             .unwrap();
-        
+
         let response = app.clone().oneshot(req).await.unwrap();
-        
+
         // This should be rejected - not a valid column name
         assert_eq!(
             response.status(),
@@ -390,22 +455,28 @@ async fn test_context_keyword_injection() {
 async fn test_quote_imbalance_exploitation() {
     for backend in enabled_backends() {
         let test_db = support::db::TestDatabase::new(backend, "quote_imbalance");
-        let (app, _state, _pool) = test_db.setup_app(JSONB_EXPRESSIONS_CONFIG, "quote_test.yaml").await;
+        let (app, _state, _pool) = test_db
+            .setup_app(JSONB_EXPRESSIONS_CONFIG, "quote_test.yaml")
+            .await;
 
-        seed_jsonb_posts(&app, &[
-            ("Post 1", "Alice", r#"{}"#),
-            ("Post 2", "Bob", r#"{}"#),
-        ]).await;
+        seed_jsonb_posts(
+            &app,
+            &[("Post 1", "Alice", r#"{}"#), ("Post 2", "Bob", r#"{}"#)],
+        )
+        .await;
 
         // Test: Quote manipulation
         let malicious_sort = "' OR '1'='1";
         let req = Request::builder()
-            .uri(format!("/api/posts?sort={}&order=asc", urlencoding_encode(malicious_sort)))
+            .uri(format!(
+                "/api/posts?sort={}&order=asc",
+                urlencoding_encode(malicious_sort)
+            ))
             .body(Body::empty())
             .unwrap();
-        
+
         let response = app.clone().oneshot(req).await.unwrap();
-        
+
         // This should be rejected - malformed quote handling
         assert_eq!(
             response.status(),
@@ -423,22 +494,28 @@ async fn test_quote_imbalance_exploitation() {
 async fn test_nested_comment_injection() {
     for backend in enabled_backends() {
         let test_db = support::db::TestDatabase::new(backend, "nested_comment");
-        let (app, _state, _pool) = test_db.setup_app(JSONB_EXPRESSIONS_CONFIG, "nested_comment_test.yaml").await;
+        let (app, _state, _pool) = test_db
+            .setup_app(JSONB_EXPRESSIONS_CONFIG, "nested_comment_test.yaml")
+            .await;
 
-        seed_jsonb_posts(&app, &[
-            ("Post 1", "Alice", r#"{}"#),
-            ("Post 2", "Bob", r#"{}"#),
-        ]).await;
+        seed_jsonb_posts(
+            &app,
+            &[("Post 1", "Alice", r#"{}"#), ("Post 2", "Bob", r#"{}"#)],
+        )
+        .await;
 
         // Test: Nested comment attempt
         let malicious_sort = "title/* comment */ desc";
         let req = Request::builder()
-            .uri(format!("/api/posts?sort={}&order=asc", urlencoding_encode(malicious_sort)))
+            .uri(format!(
+                "/api/posts?sort={}&order=asc",
+                urlencoding_encode(malicious_sort)
+            ))
             .body(Body::empty())
             .unwrap();
-        
+
         let response = app.clone().oneshot(req).await.unwrap();
-        
+
         // This should be rejected - contains /* */ comment syntax
         assert_eq!(
             response.status(),
