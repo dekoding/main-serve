@@ -2,6 +2,80 @@ use crate::config::types::DatabaseDriver;
 use crate::context::RequestContext;
 use crate::error::AppError;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FilterOperator {
+    Eq,
+    Ne,
+    Gt,
+    Gte,
+    Lt,
+    Lte,
+    In,
+    NotIn,
+    Contains,
+    Exists,
+    StartsWith,
+    EndsWith,
+    Like,
+    ILike,
+}
+
+#[derive(Debug)]
+pub struct FilterExpression {
+    pub path: Vec<String>,
+    pub operator: FilterOperator,
+}
+
+/// Parse a filter key like `metadata.user.age[gt]` into a `FilterExpression`.
+pub fn parse_filter_key(key: &str) -> Result<FilterExpression, AppError> {
+    use regex::Regex;
+    let re = Regex::new(r"^(.*)\[([a-z_]+)\]$")
+        .map_err(|e| AppError::Internal(format!("Invalid regex: {e}")))?;
+
+    let (path_str, operator_str) = if let Some(caps) = re.captures(key) {
+        (caps.get(1).unwrap().as_str(), caps.get(2).unwrap().as_str())
+    } else {
+        // Check if the key contains an unclosed bracket or invalid bracket notation
+        if key.contains('[') {
+            return Err(AppError::BadRequest(format!(
+                "Invalid filter key syntax: '{key}'. Bracket notation must be properly closed. Use format like 'field[operator]' where operator is one of: eq, ne, gt, gte, lt, lte, in, not_in, contains, exists, startswith, endswith, like, ilike"
+            )));
+        }
+        if key.contains(']') {
+            return Err(AppError::BadRequest(format!(
+                "Invalid filter key syntax: '{key}'. Unexpected closing bracket without opening bracket."
+            )));
+        }
+        (key, "eq")
+    };
+
+    let operator = match operator_str {
+        "eq" => FilterOperator::Eq,
+        "ne" => FilterOperator::Ne,
+        "gt" => FilterOperator::Gt,
+        "gte" => FilterOperator::Gte,
+        "lt" => FilterOperator::Lt,
+        "lte" => FilterOperator::Lte,
+        "in" => FilterOperator::In,
+        "not_in" => FilterOperator::NotIn,
+        "contains" => FilterOperator::Contains,
+        "exists" => FilterOperator::Exists,
+        "startswith" => FilterOperator::StartsWith,
+        "endswith" => FilterOperator::EndsWith,
+        "like" => FilterOperator::Like,
+        "ilike" => FilterOperator::ILike,
+        _ => {
+            return Err(AppError::BadRequest(format!(
+                "Unsupported operator: {operator_str}"
+            )));
+        }
+    };
+
+    let path: Vec<String> = path_str.split('.').map(|s| s.to_string()).collect();
+
+    Ok(FilterExpression { path, operator })
+}
+
 /// Helper to interpolate a string value.
 pub fn interpolate_value(
     value: &str,
@@ -155,6 +229,146 @@ pub fn coerce_pk_value(table: &crate::config::types::TableConfig, raw: &str) -> 
             |n| serde_json::json!(n),
         ),
         _ => serde_json::Value::String(raw.to_string()),
+    }
+}
+
+/// Coerce a filter value to the appropriate `serde_json::Value` based on type inference.
+///
+/// This function attempts to parse string filter values into their appropriate JSON types
+/// (number, boolean, null, or string) to avoid type mismatch errors in databases that
+/// expect specific types. For example, comparing a JSONB number column to a string value
+/// will fail in PostgreSQL without proper type coercion.
+///
+/// The coercion follows this priority order:
+/// 1. `null` literal -> `serde_json::Value::Null`
+/// 2. `true`/`false` -> `serde_json::Value::Bool`
+/// 3. Integer numbers (e.g., "123") -> `serde_json::Value::Number`
+/// 4. Floating point numbers (e.g., "123.45") -> `serde_json::Value::Number`
+/// 5. Everything else -> `serde_json::Value::String`
+///
+/// # Arguments
+///
+/// * `value` - The string value from the filter query parameter
+///
+/// # Returns
+///
+/// The value coerced to the most appropriate `serde_json::Value` type.
+pub fn coerce_filter_value(value: &str) -> serde_json::Value {
+    // Handle null explicitly
+    if value.to_lowercase() == "null" {
+        return serde_json::Value::Null;
+    }
+
+    // Handle booleans
+    if let Ok(bool_val) = value.parse::<bool>() {
+        return serde_json::Value::Bool(bool_val);
+    }
+
+    // Try parsing as integer first
+    if let Ok(int_val) = value.parse::<i64>() {
+        return serde_json::Value::Number(int_val.into());
+    }
+
+    // Try parsing as floating point
+    if let Ok(float_val) = value.parse::<f64>() {
+        return serde_json::Number::from_f64(float_val)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::String(value.to_string()));
+    }
+
+    // Default to string
+    serde_json::Value::String(value.to_string())
+}
+
+/// Coerce a filter value based on the column's declared type.
+///
+/// This function is similar to `coerce_filter_value` but also takes into account
+/// the column's declared type in the table schema. This is important for cases
+/// where the user explicitly wants to filter by a string that happens to look
+/// like a number (e.g., filtering a text column for the value "123").
+///
+/// # Arguments
+///
+/// * `value` - The string value from the filter query parameter
+/// * `column_type` - The declared type of the column being filtered
+///
+/// # Returns
+///
+/// The value coerced to the appropriate `serde_json::Value` type based on both
+/// the value itself and the column type.
+pub fn coerce_filter_value_by_type(
+    value: &str,
+    column_type: &crate::config::types::ColumnType,
+) -> serde_json::Value {
+    match column_type {
+        crate::config::types::ColumnType::Integer
+        | crate::config::types::ColumnType::Bigint
+        | crate::config::types::ColumnType::Smallint
+        | crate::config::types::ColumnType::Serial
+        | crate::config::types::ColumnType::Bigserial => {
+            // For integer columns, try to parse as integer first
+            value.parse::<i64>().map_or_else(
+                |_| serde_json::Value::String(value.to_string()),
+                |n| serde_json::json!(n),
+            )
+        }
+        crate::config::types::ColumnType::Float
+        | crate::config::types::ColumnType::Double
+        | crate::config::types::ColumnType::Decimal => {
+            // For float columns, try to parse as f64 first
+            value.parse::<f64>().map_or_else(
+                |_| serde_json::Value::String(value.to_string()),
+                |n| serde_json::json!(n),
+            )
+        }
+        crate::config::types::ColumnType::Boolean => {
+            // For boolean columns, try to parse as bool first
+            value.parse::<bool>().map_or_else(
+                |_| serde_json::Value::String(value.to_string()),
+                serde_json::Value::Bool,
+            )
+        }
+        crate::config::types::ColumnType::Json | crate::config::types::ColumnType::Jsonb => {
+            // For JSON/JSONB columns, try to parse as JSON first
+            // This allows filtering with proper JSON types like numbers, booleans, etc.
+            serde_json::from_str(value).unwrap_or_else(|_| {
+                // If the value isn't valid JSON, treat it as a string
+                serde_json::Value::String(value.to_string())
+            })
+        }
+        _ => {
+            // For other types (text, varchar, date, etc.), keep as string
+            // unless it's null
+            if value.to_lowercase() == "null" {
+                serde_json::Value::Null
+            } else {
+                serde_json::Value::String(value.to_string())
+            }
+        }
+    }
+}
+
+/// Coerce a filter value based on both JSON type inference and column type.
+///
+/// This function first attempts to infer the type from the value itself. If a
+/// column type is provided, it uses that for more precise coercion. This is
+/// the main entry point for filter value coercion and should be used in most cases.
+///
+/// # Arguments
+///
+/// * `value` - The string value from the filter query parameter
+/// * `column_type` - Optional column type from the table schema for precise coercion
+///
+/// # Returns
+///
+/// The value coerced to the appropriate `serde_json::Value` type.
+pub fn build_filter_param(
+    value: &str,
+    column_type: Option<&crate::config::types::ColumnType>,
+) -> serde_json::Value {
+    match column_type {
+        Some(ct) => coerce_filter_value_by_type(value, ct),
+        None => coerce_filter_value(value),
     }
 }
 

@@ -8,69 +8,6 @@ use crate::db::query::select::SelectBuilder;
 use crate::db::query::types::BuiltQuery;
 use crate::error::AppError;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FilterOperator {
-    Eq,
-    Ne,
-    Gt,
-    Gte,
-    Lt,
-    Lte,
-    In,
-    NotIn,
-    Contains,
-    Exists,
-    StartsWith,
-    EndsWith,
-    Like,
-    ILike,
-}
-
-#[derive(Debug)]
-pub struct FilterExpression {
-    pub path: Vec<String>,
-    pub operator: FilterOperator,
-}
-
-/// Parse a filter key like `metadata.user.age[gt]` into a `FilterExpression`.
-pub fn parse_filter_key(key: &str) -> Result<FilterExpression, AppError> {
-    use regex::Regex;
-    let re = Regex::new(r"^(.*)\[([a-z_]+)\]$")
-        .map_err(|e| AppError::Internal(format!("Invalid regex: {e}")))?;
-
-    let (path_str, operator_str) = if let Some(caps) = re.captures(key) {
-        (caps.get(1).unwrap().as_str(), caps.get(2).unwrap().as_str())
-    } else {
-        (key, "eq")
-    };
-
-    let operator = match operator_str {
-        "eq" => FilterOperator::Eq,
-        "ne" => FilterOperator::Ne,
-        "gt" => FilterOperator::Gt,
-        "gte" => FilterOperator::Gte,
-        "lt" => FilterOperator::Lt,
-        "lte" => FilterOperator::Lte,
-        "in" => FilterOperator::In,
-        "not_in" => FilterOperator::NotIn,
-        "contains" => FilterOperator::Contains,
-        "exists" => FilterOperator::Exists,
-        "startswith" => FilterOperator::StartsWith,
-        "endswith" => FilterOperator::EndsWith,
-        "like" => FilterOperator::Like,
-        "ilike" => FilterOperator::ILike,
-        _ => {
-            return Err(AppError::BadRequest(format!(
-                "Unsupported operator: {operator_str}"
-            )));
-        }
-    };
-
-    let path: Vec<String> = path_str.split('.').map(|s| s.to_string()).collect();
-
-    Ok(FilterExpression { path, operator })
-}
-
 // =============================================================================
 // CRUD Query Builders
 // =============================================================================

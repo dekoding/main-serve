@@ -7,10 +7,10 @@ use std::collections::HashMap;
 
 use crate::config::types::{CrudConfig, DatabaseDriver, SortOrder, TableConfig};
 use crate::context::RequestContext;
-use crate::db::query::builders::{FilterExpression, FilterOperator, parse_filter_key};
 use crate::db::query::helpers::{
-    extract_base_column, extract_jsonb_sort_path, is_bracket_notation, is_jsonb_column,
-    is_jsonb_path, is_valid_expression, is_valid_filter_column, is_valid_sort_field,
+    FilterExpression, FilterOperator, build_filter_param, extract_base_column,
+    extract_jsonb_sort_path, is_bracket_notation, is_jsonb_column, is_jsonb_path,
+    is_valid_expression, is_valid_filter_column, is_valid_sort_field, parse_filter_key,
     parse_sort_field, placeholder,
 };
 use crate::db::query::traits::{FilterBehavior, MysqlFilter, PostgresFilter, SqliteFilter};
@@ -229,9 +229,28 @@ impl SelectBuilder {
                 )));
             }
 
-            self.apply_filter_expression(expr, value)?;
+            // Get the column type for proper value coercion
+            let column_type = self.get_column_type_for_filter(key, &table_config.columns);
+            self.apply_filter_expression(expr, value, column_type)?;
         }
         Ok(())
+    }
+
+    /// Get the column type for a filter key.
+    ///
+    /// For JSONB/JSON columns with nested paths (e.g., `metadata.role`),
+    /// this returns the base column's type (Jsonb or Json).
+    /// For regular columns, it returns the column's declared type.
+    fn get_column_type_for_filter<'a>(
+        &self,
+        filter_key: &str,
+        columns: &'a [crate::config::types::ColumnConfig],
+    ) -> Option<&'a crate::config::types::ColumnType> {
+        let base = extract_base_column(filter_key);
+        columns
+            .iter()
+            .find(|c| c.name == base)
+            .map(|c| &c.column_type)
     }
 
     /// Applies a single filter expression to the query.
@@ -239,9 +258,10 @@ impl SelectBuilder {
         &mut self,
         expr: FilterExpression,
         value: &str,
+        column_type: Option<&crate::config::types::ColumnType>,
     ) -> Result<(), AppError> {
         let behavior = self.filter_behavior();
-        self.apply_filter_common(expr, value, &*behavior)
+        self.apply_filter_common(expr, value, column_type, &*behavior)
     }
 
     /// Unified filter logic using the FilterBehavior trait.
@@ -249,6 +269,7 @@ impl SelectBuilder {
         &mut self,
         expr: FilterExpression,
         value: &str,
+        column_type: Option<&crate::config::types::ColumnType>,
         behavior: &dyn FilterBehavior,
     ) -> Result<(), AppError> {
         let path_str = expr.path.join(".");
@@ -336,7 +357,7 @@ impl SelectBuilder {
             FilterOperator::Contains => {
                 self.build_contains(is_jsonb_field, &param, &path_str, value, behavior)?
             }
-            FilterOperator::Exists => self.build_exists(is_jsonb_field, &path_str, behavior),
+            FilterOperator::Exists => self.build_exists(is_jsonb_field, &path_str, behavior)?,
             FilterOperator::StartsWith => {
                 let param = format!("{}%", value);
                 self.build_like(&base_column, is_jsonb_field, &param, &path_str, behavior)
@@ -354,8 +375,9 @@ impl SelectBuilder {
         };
 
         self.conditions.push(condition);
-        self.params
-            .push(serde_json::Value::String(value.to_string()));
+        // Use proper type coercion based on column type
+        let param_value = build_filter_param(value, column_type);
+        self.params.push(param_value);
         self.param_idx += 1;
         Ok(())
     }
@@ -402,7 +424,7 @@ impl SelectBuilder {
     ) -> String {
         if is_jsonb {
             // Extract the column name from the path (e.g., "metadata" from "metadata.role")
-            let column_name = path_str.split('.').next().unwrap_or(&base_column);
+            let column_name = path_str.split('.').next().unwrap_or(base_column);
             format!(
                 "{} IN ({})",
                 behavior.json_extract_path(column_name, path_str),
@@ -430,8 +452,9 @@ impl SelectBuilder {
                 // PostgreSQL @> operator for JSONB containment
                 Ok(format!("{} @> {}::jsonb", self.table, json_str))
             } else {
-                // MySQL JSON_CONTAINS or SQLite json_each
-                let column_name = path_str.split('.').next().unwrap_or("metadata");
+                let column_name = path_str.split('.').next().ok_or_else(|| {
+                    AppError::Internal("Invalid JSONB path: empty path string".to_string())
+                })?;
                 Ok(format!(
                     "EXISTS (SELECT 1 FROM json_each({}, '$.{}') WHERE value = {})",
                     column_name, path_str, param
@@ -448,18 +471,20 @@ impl SelectBuilder {
         is_jsonb: bool,
         path_str: &str,
         behavior: &dyn FilterBehavior,
-    ) -> String {
+    ) -> Result<String, AppError> {
         if is_jsonb {
-            // Extract the column name from the path (e.g., "metadata" from "metadata.role")
-            let column_name = path_str.split('.').next().unwrap_or("metadata");
-            format!(
+            // Extract the column name from path_str (e.g., "metadata" from "metadata.role")
+            let column_name = path_str.split('.').next().ok_or_else(|| {
+                AppError::Internal("Invalid JSONB path: empty path string".to_string())
+            })?;
+            Ok(format!(
                 "{} IS NOT NULL",
                 behavior.json_extract_path(column_name, path_str)
-            )
+            ))
         } else {
             // For non-JSONB, we'd need the actual column name here
             // This is a fallback - in practice this should be validated
-            format!("{} IS NOT NULL", self.table)
+            Ok(format!("{} IS NOT NULL", self.table))
         }
     }
 
@@ -474,7 +499,7 @@ impl SelectBuilder {
     ) -> String {
         if is_jsonb {
             // Extract the column name from the path (e.g., "metadata" from "metadata.role")
-            let column_name = path_str.split('.').next().unwrap_or(&base_column);
+            let column_name = path_str.split('.').next().unwrap_or(base_column);
             format!(
                 "{} {} {}",
                 behavior.json_extract_path(column_name, path_str),
@@ -504,7 +529,7 @@ impl SelectBuilder {
         let param = format!("%{}%", value);
         if is_jsonb {
             // Extract the column name from the path (e.g., "metadata" from "metadata.role")
-            let column_name = path_str.split('.').next().unwrap_or(&base_column);
+            let column_name = path_str.split('.').next().unwrap_or(base_column);
             format!(
                 "LOWER({}) {} LOWER({})",
                 behavior.json_extract_path(column_name, path_str),

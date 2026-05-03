@@ -1,7 +1,7 @@
 /// Trait abstracting driver-specific SQL generation patterns for filtering.
 pub trait FilterBehavior {
     /// Generate JSON extraction for nested JSONB/JSON paths.
-    fn json_extract_path(&self, table: &str, path: &str) -> String;
+    fn json_extract_path(&self, column: &str, path: &str) -> String;
 
     /// Get the comparison operator for equality.
     fn eq_op(&self) -> &'static str;
@@ -73,8 +73,8 @@ impl FilterBehavior for PostgresFilter {
 pub struct MysqlFilter;
 
 impl FilterBehavior for MysqlFilter {
-    fn json_extract_path(&self, table: &str, path: &str) -> String {
-        format!("JSON_EXTRACT({}, '$.{}')", table, path)
+    fn json_extract_path(&self, column: &str, path: &str) -> String {
+        format!("JSON_EXTRACT({}, '$.{}')", column, path)
     }
 
     fn eq_op(&self) -> &'static str {
@@ -110,8 +110,8 @@ impl FilterBehavior for MysqlFilter {
 pub struct SqliteFilter;
 
 impl FilterBehavior for SqliteFilter {
-    fn json_extract_path(&self, table: &str, path: &str) -> String {
-        format!("json_extract({}, '$.{}')", table, path)
+    fn json_extract_path(&self, column: &str, path: &str) -> String {
+        format!("json_extract({}, '$.{}')", column, path)
     }
 
     fn eq_op(&self) -> &'static str {
