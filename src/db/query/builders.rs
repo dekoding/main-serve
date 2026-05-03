@@ -1,4 +1,4 @@
-use crate::config::types::{CrudConfig, DatabaseDriver, TableConfig};
+use crate::config::types::{ColumnType, CrudConfig, DatabaseDriver, TableConfig};
 use crate::context::RequestContext;
 use crate::db::query::helpers::{
     coerce_pk_value, find_pk_column, interpolate_value, is_valid_identifier, placeholder,
@@ -53,7 +53,22 @@ pub fn build_insert(
             value.clone()
         };
 
-        placeholders.push(placeholder(driver, param_idx));
+        let placeholder = if driver == DatabaseDriver::Postgres {
+            // Check if this column is a JSONB type
+            let is_jsonb = table_config
+                .columns
+                .iter()
+                .any(|c| c.name == *key && matches!(c.column_type, ColumnType::Jsonb));
+            if is_jsonb {
+                format!("{}::jsonb", placeholder(driver, param_idx))
+            } else {
+                placeholder(driver, param_idx)
+            }
+        } else {
+            placeholder(driver, param_idx)
+        };
+
+        placeholders.push(placeholder);
         params.push(final_value);
         param_idx += 1;
     }
