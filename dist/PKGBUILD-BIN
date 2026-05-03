@@ -11,7 +11,7 @@ source=(
     'main-serve::https://github.com/dekoding/main-serve/releases/download/v'$pkgver'/main-serve'
     "$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz"
 )
-sha256sums=('cad6aa684a74ef65155a91a9c84307a0cbee4f1952296cbbbce678e1a6317a22' 'SKIP')
+sha256sums=('b2318f0a510a409aa118011e15dfa27580142e9082f63cec229bd91499778c52' 'SKIP')
 
 package() {
     install -Dm755 "main-serve" "$pkgdir/usr/bin/main-serve"
