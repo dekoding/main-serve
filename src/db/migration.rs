@@ -307,10 +307,11 @@ async fn alter_existing_table(
 }
 
 /// Generate an ALTER TABLE ... ADD COLUMN statement for a single column.
+#[must_use]
 fn generate_add_column(table_name: &str, col: &ColumnConfig, driver: DatabaseDriver) -> String {
     let mut col_def = format!(
         "{} {}",
-        quote_ident(table_name, &col.name, driver),
+        quote_ident(&col.name, driver),
         column_type_to_sql(&col.column_type, driver),
     );
 
@@ -334,8 +335,9 @@ fn generate_add_column(table_name: &str, col: &ColumnConfig, driver: DatabaseDri
 }
 
 /// Generate an ALTER TABLE ... DROP COLUMN statement.
+#[must_use]
 fn generate_drop_column(table_name: &str, column_name: &str, driver: DatabaseDriver) -> String {
-    let col = quote_ident(table_name, column_name, driver);
+    let col = quote_ident(column_name, driver);
     format!(
         "ALTER TABLE {} DROP COLUMN {col}",
         quote_object_name(table_name, driver)
@@ -343,6 +345,7 @@ fn generate_drop_column(table_name: &str, column_name: &str, driver: DatabaseDri
 }
 
 /// Generate a CREATE TABLE IF NOT EXISTS statement.
+#[must_use]
 fn generate_create_table(table_name: &str, table: &TableConfig, driver: DatabaseDriver) -> String {
     let mut parts: Vec<String> = Vec::new();
     let mut pk_columns: Vec<String> = Vec::new();
@@ -350,9 +353,18 @@ fn generate_create_table(table_name: &str, table: &TableConfig, driver: Database
     for col in &table.columns {
         let mut col_def = format!(
             "  {} {}",
-            quote_ident(table_name, &col.name, driver),
+            quote_ident(&col.name, driver),
             column_type_to_sql(&col.column_type, driver)
         );
+
+        if col.primary_key && driver == DatabaseDriver::Sqlite {
+            if !col_def.contains("PRIMARY KEY") {
+                col_def.push_str(" PRIMARY KEY");
+            }
+            if !col_def.contains("AUTOINCREMENT") {
+                col_def.push_str(" AUTOINCREMENT");
+            }
+        }
 
         if !col.nullable || col.primary_key {
             col_def.push_str(" NOT NULL");
@@ -367,7 +379,7 @@ fn generate_create_table(table_name: &str, table: &TableConfig, driver: Database
         }
 
         if col.primary_key {
-            pk_columns.push(quote_ident(table_name, &col.name, driver));
+            pk_columns.push(quote_ident(&col.name, driver));
         }
 
         parts.push(col_def);
@@ -375,16 +387,27 @@ fn generate_create_table(table_name: &str, table: &TableConfig, driver: Database
 
     // Composite or single primary key constraint.
     if !pk_columns.is_empty() {
-        parts.push(format!("  PRIMARY KEY ({})", pk_columns.join(", ")));
+        let is_single_pk = pk_columns.len() == 1;
+        let should_add_constraint = if driver == DatabaseDriver::Sqlite {
+            // For SQLite, only add PRIMARY KEY constraint for composite keys
+            !is_single_pk
+        } else {
+            // For other drivers, always add the constraint
+            true
+        };
+
+        if should_add_constraint {
+            parts.push(format!("  PRIMARY KEY ({})", pk_columns.join(", ")));
+        }
     }
 
     // Foreign keys.
     for fk in &table.foreign_keys {
         parts.push(format!(
             "  FOREIGN KEY ({}) REFERENCES {} ({}) ON DELETE {} ON UPDATE {}",
-            quote_ident(table_name, &fk.column, driver),
+            quote_ident(&fk.column, driver),
             quote_object_name(&fk.references_table, driver),
-            quote_ident(&fk.references_table, &fk.references_column, driver),
+            quote_ident(&fk.references_column, driver),
             fk_action_to_sql(&fk.on_delete),
             fk_action_to_sql(&fk.on_update),
         ));
@@ -398,6 +421,7 @@ fn generate_create_table(table_name: &str, table: &TableConfig, driver: Database
 }
 
 /// Generate an index creation statement.
+#[must_use]
 fn generate_create_index(table_name: &str, column_name: &str, driver: DatabaseDriver) -> String {
     let idx_name = index_name(table_name, column_name);
     match driver {
@@ -405,13 +429,13 @@ fn generate_create_index(table_name: &str, column_name: &str, driver: DatabaseDr
             "CREATE INDEX {} ON {} ({})",
             quote_object_name(&idx_name, driver),
             quote_object_name(table_name, driver),
-            quote_ident(table_name, column_name, driver),
+            quote_ident(column_name, driver),
         ),
         DatabaseDriver::Sqlite | DatabaseDriver::Postgres => format!(
             "CREATE INDEX IF NOT EXISTS {} ON {} ({})",
             quote_object_name(&idx_name, driver),
             quote_object_name(table_name, driver),
-            quote_ident(table_name, column_name, driver),
+            quote_ident(column_name, driver),
         ),
     }
 }
@@ -421,6 +445,7 @@ fn index_name(table_name: &str, column_name: &str) -> String {
 }
 
 /// Quote an object name (table or index) for the current driver.
+#[must_use]
 fn quote_object_name(name: &str, driver: DatabaseDriver) -> String {
     match driver {
         DatabaseDriver::Mysql => format!("`{name}`"),
@@ -429,7 +454,8 @@ fn quote_object_name(name: &str, driver: DatabaseDriver) -> String {
 }
 
 /// Quote a column identifier for the current driver.
-fn quote_ident(_table: &str, name: &str, driver: DatabaseDriver) -> String {
+#[must_use]
+fn quote_ident(name: &str, driver: DatabaseDriver) -> String {
     quote_object_name(name, driver)
 }
 
@@ -444,7 +470,7 @@ fn column_type_to_sql(ct: &ColumnType, driver: DatabaseDriver) -> &'static str {
         (ColumnType::Serial, DatabaseDriver::Sqlite) => "INTEGER",
         (ColumnType::Serial, DatabaseDriver::Postgres) => "SERIAL",
         (ColumnType::Serial, DatabaseDriver::Mysql) => "INTEGER AUTO_INCREMENT",
-        (ColumnType::Bigserial, DatabaseDriver::Sqlite) => "INTEGER",
+        (ColumnType::Bigserial, DatabaseDriver::Sqlite) => "INTEGER PRIMARY KEY AUTOINCREMENT",
         (ColumnType::Bigserial, DatabaseDriver::Postgres) => "BIGSERIAL",
         (ColumnType::Bigserial, DatabaseDriver::Mysql) => "BIGINT AUTO_INCREMENT",
 
@@ -544,10 +570,10 @@ mod tests {
 
         let sql = generate_create_table("posts", &table, DatabaseDriver::Sqlite);
         assert!(sql.contains("CREATE TABLE IF NOT EXISTS \"posts\""));
-        assert!(sql.contains("\"id\" INTEGER NOT NULL"));
+        assert!(sql.contains("\"id\" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL"));
         assert!(sql.contains("\"title\" TEXT NOT NULL"));
         assert!(sql.contains("\"count\" INTEGER DEFAULT 0"));
-        assert!(sql.contains("PRIMARY KEY (\"id\")"));
+        assert!(sql.contains("PRIMARY KEY"));
     }
 
     #[test]

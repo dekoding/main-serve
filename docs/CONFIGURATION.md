@@ -701,6 +701,11 @@ When filtering is enabled, clients pass column names as query parameters:
 - `?role=admin` - filter where role = "admin"
 - `?published=true` - filter where published = true
 
+If filtering is enabled on a JSONB column, the API supports dot-notation and LHS brackets syntax for filtering on nested fields.
+
+- Dot-notation example: `?metadata.role=admin`
+- LHS brackets example: `?metadata[role]=admin`
+
 **Sorting:**
 
 | Field | Type | Default | Description |
@@ -713,6 +718,11 @@ When filtering is enabled, clients pass column names as query parameters:
 When sorting is enabled, clients use query parameters:
 - `?sort=created_at` - sort by column
 - `?order=desc` - sort direction
+
+If sorting is enabled on a JSONB column, the API supports dot-notation and LHS brackets syntax for sorting on nested fields.
+
+- Dot-notation example: `?sort=metadata.role&order=asc`
+- LHS brackets example: `?sort=metadata[role]&order=asc`
 
 **Advanced CRUD features:**
 

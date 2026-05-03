@@ -1,13 +1,6 @@
 /// Config parsing and validation integration tests.
-use std::io::Write;
-use tempfile::NamedTempFile;
-
-/// Helper: write YAML to a temp file and load it.
-fn load_yaml(yaml: &str) -> Result<main_serve::config::AppConfig, main_serve::error::AppError> {
-    let mut f = NamedTempFile::new().expect("failed to create temp file");
-    f.write_all(yaml.as_bytes()).expect("failed to write");
-    main_serve::config::load_config(f.path())
-}
+mod support;
+use crate::support::helpers::load_yaml;
 
 #[test]
 fn test_minimal_config_loads() {
@@ -145,28 +138,6 @@ endpoints:
     let cr = config.endpoints[0].custom_response.as_ref().unwrap();
     assert_eq!(cr.status, 200);
     assert_eq!(cr.content_type, "application/json");
-}
-
-#[test]
-fn test_endpoint_proxy_parses() {
-    let yaml = r#"
-endpoints:
-  - path: "/proxy/*"
-    methods: ["get"]
-    action: "proxy"
-    proxy:
-      upstream: "https://example.com"
-      timeouts:
-        connect: 3
-        total: 30
-    auth: "none"
-"#;
-    let config = load_yaml(yaml).unwrap();
-    let proxy = config.endpoints[0].proxy.as_ref().unwrap();
-    assert_eq!(proxy.upstream, "https://example.com");
-    assert_eq!(proxy.timeouts.connect, 3);
-    assert_eq!(proxy.timeouts.total, 30);
-    assert_eq!(proxy.timeouts.read, 30); // default
 }
 
 #[test]

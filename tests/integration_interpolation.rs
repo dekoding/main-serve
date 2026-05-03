@@ -11,8 +11,8 @@ use main_serve::config::types::CrudConfig;
 use main_serve::config::types::DatabaseDriver;
 use main_serve::config::types::TableConfig;
 use main_serve::context::RequestContext;
-use main_serve::db::query::QueryParams;
-use main_serve::db::query::*;
+use main_serve::db::query::builders::{build_insert, build_select_list, build_update};
+use main_serve::db::query::types::QueryParams;
 
 // =============================================================================
 // Test Environment Setup

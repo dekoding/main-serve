@@ -7,6 +7,8 @@ use tower::ServiceExt;
 use support::db::{TestDatabase, enabled_backends};
 use support::json_body;
 
+use crate::support::CRUD_CONFIG;
+
 const CRUD_FEATURES_CONFIG: &str = r#"
 server:
   host: "127.0.0.1"
@@ -84,7 +86,7 @@ async fn seed_posts(app: &axum::Router, posts: &[(&str, &str)]) {
 async fn test_crud_pagination_across_backends() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "api_pagination");
-        let app = test_db
+        let (app, _state, _pool) = test_db
             .setup_app(CRUD_FEATURES_CONFIG, "crud_features.yaml")
             .await;
 
@@ -132,7 +134,7 @@ async fn test_crud_pagination_across_backends() {
 async fn test_crud_filtering_across_backends() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "api_filtering");
-        let app = test_db
+        let (app, _state, _pool) = test_db
             .setup_app(CRUD_FEATURES_CONFIG, "crud_features.yaml")
             .await;
 
@@ -155,7 +157,7 @@ async fn test_crud_filtering_across_backends() {
 async fn test_crud_sorting_across_backends() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "api_sorting");
-        let app = test_db
+        let (app, _state, _pool) = test_db
             .setup_app(CRUD_FEATURES_CONFIG, "crud_features.yaml")
             .await;
 
@@ -243,6 +245,7 @@ endpoints:
     crud:
       table: "{authors_table}"
       database: "main"
+      writable_fields: ["*"]
 
   - path: "/api/posts"
     methods: ["get", "post"]
@@ -264,7 +267,7 @@ endpoints:
 "#
         );
 
-        let app = test_db.setup_app(&template, "join_test.yaml").await;
+        let (app, _state, _pool) = test_db.setup_app(&template, "join_test.yaml").await;
 
         // Create an author.
         let req = Request::builder()
@@ -322,7 +325,7 @@ endpoints:
 async fn test_crud_filter_on_disallowed_field_rejected() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "api_filter_reject");
-        let app = test_db
+        let (app, _state, _pool) = test_db
             .setup_app(CRUD_FEATURES_CONFIG, "crud_features.yaml")
             .await;
 
@@ -346,7 +349,7 @@ async fn test_crud_filter_on_disallowed_field_rejected() {
 async fn test_crud_sort_on_disallowed_field_rejected() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "api_sort_reject");
-        let app = test_db
+        let (app, _state, _pool) = test_db
             .setup_app(CRUD_FEATURES_CONFIG, "crud_features.yaml")
             .await;
 
@@ -418,7 +421,7 @@ endpoints:
 
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "api_where_single");
-        let app = test_db.setup_app(config, "where_single.yaml").await;
+        let (app, _state, _pool) = test_db.setup_app(config, "where_single.yaml").await;
 
         // Create an active item.
         let resp = app
@@ -498,7 +501,7 @@ endpoints:
 async fn test_crud_pagination_clamps_page_size() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "api_page_clamp");
-        let app = test_db
+        let (app, _state, _pool) = test_db
             .setup_app(CRUD_FEATURES_CONFIG, "crud_features.yaml")
             .await;
 
@@ -541,7 +544,7 @@ async fn test_crud_pagination_clamps_page_size() {
 async fn test_sql_injection_prevention() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "sql_injection_test");
-        let app = test_db
+        let (app, _state, _pool) = test_db
             .setup_app(CRUD_FEATURES_CONFIG, "crud_features.yaml")
             .await;
 
@@ -630,4 +633,553 @@ async fn test_sql_injection_prevention() {
             "backend: {backend} - Table should still have original data after injection attempts"
         );
     }
+}
+
+// =============================================================================
+// JSONB Sorting Tests
+// =============================================================================
+
+#[tokio::test]
+async fn test_crud_sort_jsonb_across_backends() {
+    for backend in enabled_backends() {
+        let test_db = TestDatabase::new(backend, "api_sort_jsonb");
+
+        let template = r#"
+server:
+  port: 0
+
+databases:
+  main:
+    driver: "__DB_DRIVER__"
+    url: "__DB_URL__"
+    auto_migrate: true
+
+tables:
+  __TABLE_NAME__:
+    database: "main"
+    columns:
+      - name: "id"
+        type: "serial"
+        primary_key: true
+      - name: "title"
+        type: "text"
+        nullable: false
+      - name: "metadata"
+        type: "jsonb"
+        nullable: true
+
+endpoints:
+  - path: "/api/posts"
+    methods: ["get", "post"]
+    action: "crud"
+    crud:
+      table: "__TABLE_NAME__"
+      database: "main"
+      fields: ["id", "title", "metadata"]
+      writable_fields: ["title", "metadata"]
+      filtering:
+        enabled: true
+        allowed_fields: ["metadata.role"]
+      sorting:
+        enabled: true
+        allowed_fields: ["metadata.role"]
+        default_field: "id"
+        default_order: "asc"
+    auth: "none"
+"#
+        .to_string();
+
+        let (app, _state, _pool) = test_db.setup_app(&template, "jsonb_sort.yaml").await;
+
+        // Seed posts with JSONB metadata containing role field
+        let seed_data = vec![
+            (serde_json::json!({"title": "Post C", "metadata": serde_json::json!({"role": "gamma"})})),
+            (serde_json::json!({"title": "Post A", "metadata": serde_json::json!({"role": "alpha"})})),
+            (serde_json::json!({"title": "Post B", "metadata": serde_json::json!({"role": "beta"})})),
+        ];
+        for data in &seed_data {
+            let req = Request::builder()
+                .method("POST")
+                .uri("/api/posts")
+                .header("content-type", "application/json")
+                .body(Body::from(data.to_string()))
+                .unwrap();
+            let _response = app.clone().oneshot(req).await.unwrap();
+        }
+
+        // Test ascending sort on JSONB nested field
+        let req = Request::builder()
+            .uri("/api/posts?sort=metadata.role&order=asc&page_size=10")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "JSONB sort ascending failed for {backend}"
+        );
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(
+            data[0]["title"], "Post A",
+            "alpha should be first for {backend}"
+        );
+        assert_eq!(
+            data[1]["title"], "Post B",
+            "beta should be second for {backend}"
+        );
+        assert_eq!(
+            data[2]["title"], "Post C",
+            "gamma should be third for {backend}"
+        );
+
+        // Test descending sort on JSONB nested field
+        let req = Request::builder()
+            .uri("/api/posts?sort=metadata.role&order=desc&page_size=10")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "JSONB sort descending failed for {backend}"
+        );
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(
+            data[0]["title"], "Post C",
+            "gamma should be first for {backend}"
+        );
+        assert_eq!(
+            data[1]["title"], "Post B",
+            "beta should be second for {backend}"
+        );
+        assert_eq!(
+            data[2]["title"], "Post A",
+            "alpha should be third for {backend}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_crud_sort_jsonb_disallowed_field_rejected() {
+    for backend in enabled_backends() {
+        let test_db = TestDatabase::new(backend, "api_sort_jsonb_reject");
+        let (app, _state, _pool) = test_db
+            .setup_app(CRUD_FEATURES_CONFIG, "crud_features.yaml")
+            .await;
+
+        // metadata.tags is not in sorting.allowed_fields
+        let req = Request::builder()
+            .uri("/api/posts?sort=metadata.tags")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "sorting on disallowed JSONB field should be rejected for {backend}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_crud_create_and_list_across_backends() {
+    for backend in enabled_backends() {
+        let test_db = TestDatabase::new(backend, "crud_create_and_list");
+        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+
+        let create_request = Request::builder()
+            .method("POST")
+            .uri("/api/posts")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "title": "Hello World",
+                    "body": "First post!",
+                    "author": "Alice"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+
+        let create_response = app.clone().oneshot(create_request).await.unwrap();
+        assert_eq!(
+            create_response.status(),
+            StatusCode::CREATED,
+            "backend: {backend}"
+        );
+
+        let list_request = Request::builder()
+            .uri("/api/posts")
+            .body(Body::empty())
+            .unwrap();
+
+        let list_response = app.oneshot(list_request).await.unwrap();
+        assert_eq!(list_response.status(), StatusCode::OK, "backend: {backend}");
+
+        let json = json_body(list_response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(data.len(), 1, "backend: {backend}");
+        assert_eq!(data[0]["title"], "Hello World", "backend: {backend}");
+        assert_eq!(data[0]["author"], "Alice", "backend: {backend}");
+    }
+}
+
+#[tokio::test]
+async fn test_crud_update_and_delete_across_backends() {
+    for backend in enabled_backends() {
+        let test_db = TestDatabase::new(backend, "crud_update_and_delete");
+        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+
+        let create_request = Request::builder()
+            .method("POST")
+            .uri("/api/posts")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "title": "Original",
+                    "body": "body",
+                    "author": "Bob"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let create_response = app.clone().oneshot(create_request).await.unwrap();
+        assert_eq!(
+            create_response.status(),
+            StatusCode::CREATED,
+            "backend: {backend}"
+        );
+
+        let update_request = Request::builder()
+            .method("PUT")
+            .uri("/api/posts/1")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({"title": "Updated", "body": "new body"}).to_string(),
+            ))
+            .unwrap();
+        let update_response = app.clone().oneshot(update_request).await.unwrap();
+        assert_eq!(
+            update_response.status(),
+            StatusCode::OK,
+            "backend: {backend}"
+        );
+
+        let get_request = Request::builder()
+            .uri("/api/posts/1")
+            .body(Body::empty())
+            .unwrap();
+        let get_response = app.clone().oneshot(get_request).await.unwrap();
+        assert_eq!(get_response.status(), StatusCode::OK, "backend: {backend}");
+        let json = json_body(get_response).await;
+        assert_eq!(json["title"], "Updated", "backend: {backend}");
+
+        let delete_request = Request::builder()
+            .method("DELETE")
+            .uri("/api/posts/1")
+            .body(Body::empty())
+            .unwrap();
+        let delete_response = app.clone().oneshot(delete_request).await.unwrap();
+        assert_eq!(
+            delete_response.status(),
+            StatusCode::OK,
+            "backend: {backend}"
+        );
+
+        let list_request = Request::builder()
+            .uri("/api/posts")
+            .body(Body::empty())
+            .unwrap();
+        let list_response = app.oneshot(list_request).await.unwrap();
+        let json = json_body(list_response).await;
+        let data = json["data"].as_array().unwrap();
+        assert!(data.is_empty(), "backend: {backend}");
+    }
+}
+
+#[tokio::test]
+async fn test_crud_list_empty() {
+    for backend in enabled_backends() {
+        let test_db = TestDatabase::new(backend, "crud_list_empty");
+        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+
+        let req = Request::builder()
+            .uri("/api/posts")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "backend: {backend}");
+
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert!(data.is_empty(), "backend: {backend}");
+    }
+}
+
+// =============================================================================
+// CRUD: Get single (GET /api/posts/{id})
+// =============================================================================
+
+#[tokio::test]
+async fn test_crud_get_one() {
+    for backend in enabled_backends() {
+        let test_db = TestDatabase::new(backend, "crud_get_one");
+        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+
+        // Create a post.
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/posts")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "title": "Test Post",
+                    "body": "content",
+                    "author": "Charlie"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+        let _ = app.clone().oneshot(req).await.unwrap();
+
+        // Get post by ID.
+        let req = Request::builder()
+            .uri("/api/posts/1")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "backend: {backend}");
+
+        let json = json_body(response).await;
+        assert_eq!(json["title"], "Test Post", "backend: {backend}");
+        assert_eq!(json["author"], "Charlie", "backend: {backend}");
+    }
+}
+
+#[tokio::test]
+async fn test_crud_get_one_not_found() {
+    for backend in enabled_backends() {
+        let test_db = TestDatabase::new(backend, "crud_get_not_found");
+        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+
+        let req = Request::builder()
+            .uri("/api/posts/999")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::NOT_FOUND,
+            "backend: {backend}"
+        );
+    }
+}
+
+// =============================================================================
+// CRUD: Update not found (PUT /api/posts/{id})
+// =============================================================================
+
+#[tokio::test]
+async fn test_crud_update_not_found() {
+    for backend in enabled_backends() {
+        let test_db = TestDatabase::new(backend, "crud_update_not_found");
+        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+
+        let req = Request::builder()
+            .method("PUT")
+            .uri("/api/posts/999")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::json!({"title": "Nope"}).to_string()))
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::NOT_FOUND,
+            "backend: {backend}"
+        );
+    }
+}
+
+// =============================================================================
+// CRUD: Delete not found (DELETE /api/posts/{id})
+// =============================================================================
+
+#[tokio::test]
+async fn test_crud_delete_not_found() {
+    for backend in enabled_backends() {
+        let test_db = TestDatabase::new(backend, "crud_delete_not_found");
+        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+
+        let req = Request::builder()
+            .method("DELETE")
+            .uri("/api/posts/999")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::NOT_FOUND,
+            "backend: {backend}"
+        );
+    }
+}
+
+// =============================================================================
+// CRUD: Invalid requests
+// =============================================================================
+
+#[tokio::test]
+async fn test_crud_create_no_body() {
+    for backend in enabled_backends() {
+        let test_db = TestDatabase::new(backend, "crud_no_body");
+        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/posts")
+            .header("content-type", "application/json")
+            .body(Body::empty())
+            .unwrap();
+
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "backend: {backend}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_crud_create_ignores_non_writable_field() {
+    for backend in enabled_backends() {
+        let test_db = TestDatabase::new(backend, "crud_non_writable");
+        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+
+        // Try to set "id" which is not in writable_fields.
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/posts")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({"id": 999, "title": "T", "body": "", "author": "X"}).to_string(),
+            ))
+            .unwrap();
+
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED, "backend: {backend}");
+
+        // Verify the id was NOT set to 999.
+        let req = Request::builder()
+            .uri("/api/posts/1")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "backend: {backend}");
+    }
+}
+
+// =============================================================================
+// Concurrent connection handling
+// =============================================================================
+
+#[tokio::test]
+async fn test_concurrent_connections() {
+    // Test that the server can handle at least 1000 concurrent connections
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let public_dir = dir.path().join("public");
+    std::fs::create_dir_all(&public_dir).unwrap();
+    std::fs::write(
+        public_dir.join("index.html"),
+        "<html><body>Concurrent Test</body></html>",
+    )
+    .unwrap();
+
+    let yaml_tmpl = r#"
+server:
+  port: 0
+
+endpoints:
+  - path: "/static/*"
+    methods: ["get"]
+    action: "static"
+    static_files:
+      root: "{root}"
+      index: "index.html"
+    auth: "none"
+"#;
+    let yaml = yaml_tmpl.replace("{root}", &public_dir.display().to_string());
+    let (app, _f) = support::setup_server(&yaml).await;
+
+    // Bind to a real port and spawn the server
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("Failed to bind to TCP listener");
+    let server_addr = listener.local_addr().expect("Failed to get local addr");
+    let server_url = format!("http://{}", server_addr);
+
+    // Clone the app for spawning
+    let app_clone = app.clone();
+
+    // Spawn the server in the background
+    let server_handle = tokio::spawn(async move {
+        axum::serve(listener, app_clone)
+            .await
+            .expect("Server failed");
+    });
+
+    // Give the server a moment to start
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    // Spawn 1000 concurrent HTTP requests to the real server
+    let mut handles = Vec::new();
+    let num_requests = 1000;
+
+    for i in 0..num_requests {
+        let url = server_url.clone();
+        let handle = tokio::spawn(async move {
+            let client = reqwest::Client::new();
+            let response = client
+                .get(format!("{}/static/index.html", url))
+                .send()
+                .await
+                .expect("Request failed");
+
+            assert_eq!(
+                response.status(),
+                reqwest::StatusCode::OK,
+                "Request {i} failed with status {}",
+                response.status()
+            );
+            let body = response.text().await.expect("Failed to read body");
+            assert!(
+                body.contains("Concurrent Test"),
+                "Request {i} body mismatch: {}",
+                body
+            );
+        });
+        handles.push(handle);
+    }
+
+    // Wait for all requests to complete
+    for handle in handles {
+        handle.await.expect("Request failed");
+    }
+
+    // Verify we handled at least 1000 requests
+    assert!(
+        num_requests >= 1000,
+        "Expected to handle at least 1000 concurrent connections, got {}",
+        num_requests
+    );
+
+    // Shutdown the server by killing the task
+    server_handle.abort();
 }

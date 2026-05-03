@@ -98,7 +98,7 @@ pub struct TestDatabase {
     pub backend: TestBackend,
     pub table_name: String,
     pub db_url: String,
-    root_dir: TempDir,
+    pub root_dir: TempDir,
 }
 
 impl TestDatabase {
@@ -134,10 +134,15 @@ impl TestDatabase {
         load_config(&config_path).expect("load config")
     }
 
-    pub async fn setup_app(&self, template: &str, file_name: &str) -> Router {
+    pub async fn setup_app(
+        &self,
+        template: &str,
+        file_name: &str,
+    ) -> (Router, AppState, HashMap<String, DatabasePool>) {
         let config_path = self.write_config(template, file_name);
         let config = load_config(&config_path).expect("load config");
         let pools = create_pools_and_migrate(&config).await;
+        let pools_to_return = pools.clone();
 
         let state = AppState::new(config, config_path, "test-token".to_string());
         {
@@ -148,7 +153,8 @@ impl TestDatabase {
         let config_guard = state.config.read().await;
         let app = build_router(&config_guard, state.clone());
         drop(config_guard);
-        app
+
+        (app, state, pools_to_return)
     }
 
     /// Drop the test table from postgres/mysql databases.

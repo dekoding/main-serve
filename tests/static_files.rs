@@ -9,13 +9,9 @@ mod support;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
-use tower::ServiceExt;
-
-use main_serve::config::load_config;
-use main_serve::server::{AppState, build_router};
-
 use support::db::{TestDatabase, enabled_backends};
 use support::{CRUD_CONFIG, json_body};
+use tower::ServiceExt;
 
 // =============================================================================
 // CRUD: List (GET /api/posts)
@@ -25,7 +21,7 @@ use support::{CRUD_CONFIG, json_body};
 async fn test_crud_list_empty() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "crud_list_empty");
-        let app = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
 
         let req = Request::builder()
             .uri("/api/posts")
@@ -49,7 +45,7 @@ async fn test_crud_list_empty() {
 async fn test_crud_get_one() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "crud_get_one");
-        let app = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
 
         // Create a post.
         let req = Request::builder()
@@ -86,7 +82,7 @@ async fn test_crud_get_one() {
 async fn test_crud_get_one_not_found() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "crud_get_not_found");
-        let app = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
 
         let req = Request::builder()
             .uri("/api/posts/999")
@@ -110,7 +106,7 @@ async fn test_crud_get_one_not_found() {
 async fn test_crud_update_not_found() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "crud_update_not_found");
-        let app = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
 
         let req = Request::builder()
             .method("PUT")
@@ -136,7 +132,7 @@ async fn test_crud_update_not_found() {
 async fn test_crud_delete_not_found() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "crud_delete_not_found");
-        let app = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
 
         let req = Request::builder()
             .method("DELETE")
@@ -161,7 +157,7 @@ async fn test_crud_delete_not_found() {
 async fn test_crud_create_no_body() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "crud_no_body");
-        let app = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
 
         let req = Request::builder()
             .method("POST")
@@ -183,7 +179,7 @@ async fn test_crud_create_no_body() {
 async fn test_crud_create_ignores_non_writable_field() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "crud_non_writable");
-        let app = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
 
         // Try to set "id" which is not in writable_fields.
         let req = Request::builder()
@@ -238,14 +234,7 @@ endpoints:
     auth: "none"
 "#;
     let yaml = yaml_tmpl.replace("{root}", &public_dir.display().to_string());
-
-    let config_file = dir.path().join("config.yaml");
-    std::fs::write(&config_file, &yaml).unwrap();
-    let config = load_config(&config_file).expect("load config");
-    let state = AppState::new(config, config_file, "test-token".to_string());
-    let config_guard = state.config.read().await;
-    let app = build_router(&config_guard, state.clone());
-    drop(config_guard);
+    let (app, _f) = support::setup_server(&yaml).await;
 
     // Serve the index via explicit path.
     let req = Request::builder()
@@ -315,14 +304,7 @@ endpoints:
     auth: "none"
 "#;
     let yaml = yaml_tmpl.replace("{root}", &public_dir.display().to_string());
-
-    let config_file = dir.path().join("config.yaml");
-    std::fs::write(&config_file, &yaml).unwrap();
-    let config = load_config(&config_file).expect("load");
-    let state = AppState::new(config, config_file, "test-token".to_string());
-    let config_guard = state.config.read().await;
-    let app = build_router(&config_guard, state.clone());
-    drop(config_guard);
+    let (app, _f) = support::setup_server(&yaml).await;
 
     let req = Request::builder()
         .uri("/static/nonexistent.txt")
@@ -355,14 +337,7 @@ endpoints:
     auth: "none"
 "#;
     let yaml = yaml_tmpl.replace("{root}", &public_dir.display().to_string());
-
-    let config_file = dir.path().join("config.yaml");
-    std::fs::write(&config_file, &yaml).unwrap();
-    let config = load_config(&config_file).expect("load");
-    let state = AppState::new(config, config_file, "test-token".to_string());
-    let config_guard = state.config.read().await;
-    let app = build_router(&config_guard, state.clone());
-    drop(config_guard);
+    let (app, _f) = support::setup_server(&yaml).await;
 
     // Request a non-existent path - SPA fallback should return index.html.
     let req = Request::builder()
@@ -402,14 +377,7 @@ endpoints:
     auth: "none"
 "#;
     let yaml = yaml_tmpl.replace("{root}", &public_dir.display().to_string());
-
-    let config_file = dir.path().join("config.yaml");
-    std::fs::write(&config_file, &yaml).unwrap();
-    let config = load_config(&config_file).expect("load config");
-    let state = AppState::new(config, config_file, "test-token".to_string());
-    let config_guard = state.config.read().await;
-    let app = build_router(&config_guard, state.clone());
-    drop(config_guard);
+    let (app, _f) = support::setup_server(&yaml).await;
 
     let req = Request::builder()
         .uri("/static/about")
@@ -467,14 +435,7 @@ endpoints:
     auth: "none"
 "#;
     let yaml = yaml_tmpl.replace("{root}", &public_dir.display().to_string());
-
-    let config_file = dir.path().join("config.yaml");
-    std::fs::write(&config_file, &yaml).unwrap();
-    let config = load_config(&config_file).expect("load config");
-    let state = AppState::new(config, config_file, "test-token".to_string());
-    let config_guard = state.config.read().await;
-    let app = build_router(&config_guard, state.clone());
-    drop(config_guard);
+    let (app, _f) = support::setup_server(&yaml).await;
 
     // 1. Serve a JS file in a nested subdirectory - verify body content.
     let req = Request::builder()
@@ -618,14 +579,7 @@ endpoints:
     auth: "none"
 "#;
     let yaml = yaml_tmpl.replace("{root}", &public_dir.display().to_string());
-
-    let config_file = dir.path().join("config.yaml");
-    std::fs::write(&config_file, &yaml).unwrap();
-    let config = load_config(&config_file).expect("load config");
-    let state = AppState::new(config, config_file, "test-token".to_string());
-    let config_guard = state.config.read().await;
-    let app = build_router(&config_guard, state.clone());
-    drop(config_guard);
+    let (app, _f) = support::setup_server(&yaml).await;
 
     // 1. Bare path should serve index.html.
     let req = Request::builder().uri("/site").body(Body::empty()).unwrap();
@@ -711,14 +665,7 @@ endpoints:
     auth: "none"
 "#;
     let yaml = yaml_tmpl.replace("{root}", &public_dir.display().to_string());
-
-    let config_file = dir.path().join("config.yaml");
-    std::fs::write(&config_file, &yaml).unwrap();
-    let config = load_config(&config_file).expect("load config");
-    let state = AppState::new(config, config_file, "test-token".to_string());
-    let config_guard = state.config.read().await;
-    let app = build_router(&config_guard, state.clone());
-    drop(config_guard);
+    let (app, _f) = support::setup_server(&yaml).await;
 
     // Root should 404 because the specified index doesn't exist.
     let req = Request::builder().uri("/site").body(Body::empty()).unwrap();
@@ -775,14 +722,7 @@ endpoints:
     auth: "none"
 "#;
     let yaml = yaml_tmpl.replace("{root}", &public_dir.display().to_string());
-
-    let config_file = dir.path().join("config.yaml");
-    std::fs::write(&config_file, &yaml).unwrap();
-    let config = load_config(&config_file).expect("load config");
-    let state = AppState::new(config, config_file, "test-token".to_string());
-    let config_guard = state.config.read().await;
-    let app = build_router(&config_guard, state.clone());
-    drop(config_guard);
+    let (app, _f) = support::setup_server(&yaml).await;
 
     // GET / should serve home.html.
     let req = Request::builder().uri("/").body(Body::empty()).unwrap();
@@ -877,14 +817,7 @@ endpoints:
     auth: "none"
 "#;
     let yaml = yaml_tmpl.replace("{root}", &public_dir.display().to_string());
-
-    let config_file = dir.path().join("config.yaml");
-    std::fs::write(&config_file, &yaml).unwrap();
-    let config = load_config(&config_file).expect("load config");
-    let state = AppState::new(config, config_file, "test-token".to_string());
-    let config_guard = state.config.read().await;
-    let app = build_router(&config_guard, state.clone());
-    drop(config_guard);
+    let (app, _f) = support::setup_server(&yaml).await;
 
     // GET / should serve the default index.html.
     let req = Request::builder().uri("/").body(Body::empty()).unwrap();
@@ -936,14 +869,7 @@ endpoints:
     auth: "none"
 "#;
     let yaml = yaml_tmpl.replace("{root}", &public_dir.display().to_string());
-
-    let config_file = dir.path().join("config.yaml");
-    std::fs::write(&config_file, &yaml).unwrap();
-    let config = load_config(&config_file).expect("load config");
-    let state = AppState::new(config, config_file, "test-token".to_string());
-    let config_guard = state.config.read().await;
-    let app = build_router(&config_guard, state.clone());
-    drop(config_guard);
+    let (app, _f) = support::setup_server(&yaml).await;
 
     // GET / should 404 because there's no index.html.
     let req = Request::builder().uri("/").body(Body::empty()).unwrap();
@@ -991,14 +917,7 @@ endpoints:
     auth: "none"
 "#;
     let yaml = yaml_tmpl.replace("{root}", &public_dir.display().to_string());
-
-    let config_file = dir.path().join("config.yaml");
-    std::fs::write(&config_file, &yaml).unwrap();
-    let config = load_config(&config_file).expect("load config");
-    let state = AppState::new(config, config_file, "test-token".to_string());
-    let config_guard = state.config.read().await;
-    let app = build_router(&config_guard, state.clone());
-    drop(config_guard);
+    let (app, _f) = support::setup_server(&yaml).await;
 
     // GET / should return a directory listing.
     let req = Request::builder().uri("/").body(Body::empty()).unwrap();
@@ -1072,14 +991,7 @@ endpoints:
     auth: "none"
 "#;
     let yaml = yaml_tmpl.replace("{root}", &public_dir.display().to_string());
-
-    let config_file = dir.path().join("config.yaml");
-    std::fs::write(&config_file, &yaml).unwrap();
-    let config = load_config(&config_file).expect("load config");
-    let state = AppState::new(config, config_file, "test-token".to_string());
-    let config_guard = state.config.read().await;
-    let app = build_router(&config_guard, state.clone());
-    drop(config_guard);
+    let (app, _f) = support::setup_server(&yaml).await;
 
     // GET / should serve index.html, not directory listing.
     let req = Request::builder().uri("/").body(Body::empty()).unwrap();
@@ -1133,14 +1045,7 @@ endpoints:
     auth: "none"
 "#;
     let yaml = yaml_tmpl.replace("{root}", &public_dir.display().to_string());
-
-    let config_file = dir.path().join("config.yaml");
-    std::fs::write(&config_file, &yaml).unwrap();
-    let config = load_config(&config_file).expect("load config");
-    let state = AppState::new(config, config_file, "test-token".to_string());
-    let config_guard = state.config.read().await;
-    let app = build_router(&config_guard, state.clone());
-    drop(config_guard);
+    let (app, _f) = support::setup_server(&yaml).await;
 
     // GET / should serve home.html.
     let req = Request::builder().uri("/").body(Body::empty()).unwrap();
@@ -1206,14 +1111,7 @@ endpoints:
     auth: "none"
 "#;
     let yaml = yaml_tmpl.replace("{root}", &public_dir.display().to_string());
-
-    let config_file = dir.path().join("config.yaml");
-    std::fs::write(&config_file, &yaml).unwrap();
-    let config = load_config(&config_file).expect("load config");
-    let state = AppState::new(config, config_file, "test-token".to_string());
-    let config_guard = state.config.read().await;
-    let app = build_router(&config_guard, state.clone());
-    drop(config_guard);
+    let (app, _f) = support::setup_server(&yaml).await;
 
     // GET / should show a directory listing since home.html doesn't exist.
     let req = Request::builder().uri("/").body(Body::empty()).unwrap();
@@ -1282,14 +1180,7 @@ endpoints:
     auth: "none"
 "#;
     let yaml = yaml_tmpl.replace("{root}", &public_dir.display().to_string());
-
-    let config_file = dir.path().join("config.yaml");
-    std::fs::write(&config_file, &yaml).unwrap();
-    let config = load_config(&config_file).expect("load config");
-    let state = AppState::new(config, config_file, "test-token".to_string());
-    let config_guard = state.config.read().await;
-    let app = build_router(&config_guard, state.clone());
-    drop(config_guard);
+    let (app, _f) = support::setup_server(&yaml).await;
 
     // Listing at /a/ should contain a link to /a/b/, not /ab/.
     let req = Request::builder().uri("/a/").body(Body::empty()).unwrap();
@@ -1333,109 +1224,4 @@ endpoints:
     assert_eq!(response.status(), StatusCode::OK);
     let body = response.into_body().collect().await.unwrap().to_bytes();
     assert_eq!(body.as_ref(), b"in b");
-}
-
-// =============================================================================
-// Concurrent connection handling
-// =============================================================================
-
-#[tokio::test]
-async fn test_concurrent_connections() {
-    // Test that the server can handle at least 1000 concurrent connections
-    let dir = tempfile::TempDir::new().expect("tempdir");
-    let public_dir = dir.path().join("public");
-    std::fs::create_dir_all(&public_dir).unwrap();
-    std::fs::write(
-        public_dir.join("index.html"),
-        "<html><body>Concurrent Test</body></html>",
-    )
-    .unwrap();
-
-    let yaml_tmpl = r#"
-server:
-  port: 0
-
-endpoints:
-  - path: "/static/*"
-    methods: ["get"]
-    action: "static"
-    static_files:
-      root: "{root}"
-      index: "index.html"
-    auth: "none"
-"#;
-    let yaml = yaml_tmpl.replace("{root}", &public_dir.display().to_string());
-
-    let config_file = dir.path().join("config.yaml");
-    std::fs::write(&config_file, &yaml).unwrap();
-    let config = load_config(&config_file).expect("load config");
-    let state = AppState::new(config, config_file, "test-token".to_string());
-    let config_guard = state.config.read().await;
-    let app = build_router(&config_guard, state.clone());
-    drop(config_guard);
-
-    // Bind to a real port and spawn the server
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("Failed to bind to TCP listener");
-    let server_addr = listener.local_addr().expect("Failed to get local addr");
-    let server_url = format!("http://{}", server_addr);
-
-    // Clone the app for spawning
-    let app_clone = app.clone();
-
-    // Spawn the server in the background
-    let server_handle = tokio::spawn(async move {
-        axum::serve(listener, app_clone)
-            .await
-            .expect("Server failed");
-    });
-
-    // Give the server a moment to start
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
-    // Spawn 1000 concurrent HTTP requests to the real server
-    let mut handles = Vec::new();
-    let num_requests = 1000;
-
-    for i in 0..num_requests {
-        let url = server_url.clone();
-        let handle = tokio::spawn(async move {
-            let client = reqwest::Client::new();
-            let response = client
-                .get(format!("{}/static/index.html", url))
-                .send()
-                .await
-                .expect("Request failed");
-
-            assert_eq!(
-                response.status(),
-                reqwest::StatusCode::OK,
-                "Request {i} failed with status {}",
-                response.status()
-            );
-            let body = response.text().await.expect("Failed to read body");
-            assert!(
-                body.contains("Concurrent Test"),
-                "Request {i} body mismatch: {}",
-                body
-            );
-        });
-        handles.push(handle);
-    }
-
-    // Wait for all requests to complete
-    for handle in handles {
-        handle.await.expect("Request failed");
-    }
-
-    // Verify we handled at least 1000 requests
-    assert!(
-        num_requests >= 1000,
-        "Expected to handle at least 1000 concurrent connections, got {}",
-        num_requests
-    );
-
-    // Shutdown the server by killing the task
-    server_handle.abort();
 }

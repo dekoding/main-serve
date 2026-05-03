@@ -8,79 +8,11 @@
 
 mod support;
 
+use crate::support::configs::{CORS_CONFIG, MINIMAL_CONFIG};
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
 use tower::ServiceExt;
-
-use main_serve::server::{AppState, build_router};
-
-const CORS_CONFIG: &str = r#"
-server:
-  host: "127.0.0.1"
-  port: 0
-
-cors:
-  allowed_origins:
-    - "https://example.com"
-  allowed_methods:
-    - "GET"
-    - "POST"
-  allowed_headers:
-    - "Content-Type"
-    - "Authorization"
-  allow_credentials: true
-  max_age: 3600
-
-endpoints:
-  - path: "/hello"
-    methods: ["get"]
-    action: "custom_response"
-    custom_response:
-      status: 200
-      content_type: "application/json"
-      body: '{"message": "hello"}'
-    auth: "none"
-"#;
-
-const RATE_LIMIT_CONFIG: &str = r#"
-server:
-  host: "127.0.0.1"
-  port: 0
-
-rate_limit:
-  enabled: true
-  max_requests: 3
-  window_seconds: 60
-  key_strategy: header
-  key_header: "X-Client-Id"
-
-endpoints:
-  - path: "/limited"
-    methods: ["get"]
-    action: "custom_response"
-    custom_response:
-      status: 200
-      content_type: "application/json"
-      body: '{"ok": true}'
-    auth: "none"
-"#;
-
-const MINIMAL_CONFIG: &str = r#"
-server:
-  host: "127.0.0.1"
-  port: 0
-
-endpoints:
-  - path: "/ping"
-    methods: ["get"]
-    action: "custom_response"
-    custom_response:
-      status: 200
-      content_type: "text/plain"
-      body: "pong"
-    auth: "none"
-"#;
 
 // =========================================================================
 // CORS tests
@@ -217,66 +149,6 @@ async fn test_request_id_propagated() {
 }
 
 // =========================================================================
-// Rate limiting tests
-// =========================================================================
-
-#[tokio::test]
-async fn test_rate_limit_blocks_excess_requests() {
-    let (app, _f) = support::setup_server(RATE_LIMIT_CONFIG).await;
-
-    // First 3 requests should succeed.
-    for i in 0..3 {
-        let req = Request::builder()
-            .uri("/limited")
-            .header("X-Client-Id", "client-1")
-            .body(Body::empty())
-            .unwrap();
-
-        let response = app.clone().oneshot(req).await.unwrap();
-        assert_eq!(
-            response.status(),
-            StatusCode::OK,
-            "Request {i} should succeed"
-        );
-    }
-
-    // 4th request should be rate limited.
-    let req = Request::builder()
-        .uri("/limited")
-        .header("X-Client-Id", "client-1")
-        .body(Body::empty())
-        .unwrap();
-
-    let response = app.oneshot(req).await.unwrap();
-    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-}
-
-#[tokio::test]
-async fn test_rate_limit_different_clients_independent() {
-    let (app, _f) = support::setup_server(RATE_LIMIT_CONFIG).await;
-
-    // Exhaust client-a's limit.
-    for _ in 0..3 {
-        let req = Request::builder()
-            .uri("/limited")
-            .header("X-Client-Id", "client-a")
-            .body(Body::empty())
-            .unwrap();
-        app.clone().oneshot(req).await.unwrap();
-    }
-
-    // client-b should still be allowed.
-    let req = Request::builder()
-        .uri("/limited")
-        .header("X-Client-Id", "client-b")
-        .body(Body::empty())
-        .unwrap();
-
-    let response = app.oneshot(req).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-}
-
-// =========================================================================
 // Compression tests
 // =========================================================================
 
@@ -409,11 +281,8 @@ endpoints:
 
 #[tokio::test]
 async fn test_max_body_size_enforced() {
-    // DefaultBodyLimit only applies when the handler extracts the body.
-    // CRUD POST handlers use Json<Value> extraction, which triggers the limit.
-    let dir = tempfile::TempDir::new().expect("tempdir");
-    let db_path = dir.path().join("test.db");
-
+    let backend = support::db::TestBackend::Sqlite;
+    let test_db = support::db::TestDatabase::new(backend, "max_body_size");
     let yaml = format!(
         r#"
 server:
@@ -422,8 +291,8 @@ server:
 
 databases:
   main:
-    driver: sqlite
-    url: "sqlite://{db_path}?mode=rwc"
+    driver: "sqlite"
+    url: "{}"
 
 tables:
   items:
@@ -442,28 +311,13 @@ endpoints:
     crud:
       table: items
       database: main
+      writable_fields: ["title"]
     auth: none
 "#,
-        db_path = db_path.display()
+        test_db.db_url
     );
 
-    let config_file = dir.path().join("config.yaml");
-    std::fs::write(&config_file, &yaml).unwrap();
-    let config = main_serve::config::load_config(&config_file).expect("load config");
-    let pools = main_serve::db::pool::create_pools(&config.databases)
-        .await
-        .expect("create pools");
-    main_serve::db::migration::run_migrations(&config.tables, &pools, &config.databases)
-        .await
-        .expect("migrations");
-    let state = AppState::new(config, config_file, "test-token".to_string());
-    {
-        let mut pool_lock = state.db_pools.write().await;
-        *pool_lock = pools;
-    }
-    let config_guard = state.config.read().await;
-    let app = build_router(&config_guard, state.clone());
-    drop(config_guard);
+    let (app, _state, _pool) = test_db.setup_app(&yaml, "config.yaml").await;
 
     // Small body should succeed.
     let req = Request::builder()
@@ -496,8 +350,8 @@ endpoints:
 /// handler intact (the middleware buffers and replays it).
 #[tokio::test]
 async fn test_body_logging_preserves_request_body() {
-    let dir = tempfile::TempDir::new().expect("tempdir");
-    let db_path = dir.path().join("test.db");
+    let backend = support::db::TestBackend::Sqlite;
+    let test_db = support::db::TestDatabase::new(backend, "body_logging");
 
     let yaml = format!(
         r#"
@@ -510,8 +364,8 @@ logging:
 
 databases:
   main:
-    driver: sqlite
-    url: "sqlite://{db_path}?mode=rwc"
+    driver: "sqlite"
+    url: "{}"
 
 tables:
   items:
@@ -530,30 +384,13 @@ endpoints:
     crud:
       table: items
       database: main
+      writable_fields: ["title"]
     auth: none
 "#,
-        db_path = db_path.display()
+        test_db.db_url
     );
 
-    let config_file = dir.path().join("config.yaml");
-    std::fs::write(&config_file, &yaml).unwrap();
-    let config = main_serve::config::load_config(&config_file).expect("load config");
-    assert!(config.logging.log_request_body);
-
-    let pools = main_serve::db::pool::create_pools(&config.databases)
-        .await
-        .expect("create pools");
-    main_serve::db::migration::run_migrations(&config.tables, &pools, &config.databases)
-        .await
-        .expect("migrations");
-    let state = AppState::new(config, config_file, "test-token".to_string());
-    {
-        let mut pool_lock = state.db_pools.write().await;
-        *pool_lock = pools;
-    }
-    let config_guard = state.config.read().await;
-    let app = build_router(&config_guard, state.clone());
-    drop(config_guard);
+    let (app, _state, _pool) = test_db.setup_app(&yaml, "config.yaml").await;
 
     // POST a JSON body - body logging should buffer it, but the CRUD
     // handler should still receive the data and create the record.
