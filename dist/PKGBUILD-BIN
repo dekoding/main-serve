@@ -1,0 +1,23 @@
+# dist/PKGBUILD-BIN
+pkgname=main-serve-bin
+pkgver=0.1.1
+pkgrel=1
+pkgdesc="A high-performance, YAML-configured web server"
+arch=('x86_64')
+url="https://github.com/dekoding/main-serve"
+license=('MIT')
+depends=('gcc-libs')
+source=(
+    'main-serve::https://github.com/dekoding/main-serve/releases/download/v'$pkgver'/main-serve'
+    "$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz"
+)
+sha256sums=('cad6aa684a74ef65155a91a9c84307a0cbee4f1952296cbbbce678e1a6317a22' 'SKIP')
+
+package() {
+    install -Dm755 "main-serve" "$pkgdir/usr/bin/main-serve"
+    install -Dm644 "main-serve-$pkgver/config/config.yaml" "$pkgdir/etc/main-serve/config.yaml"
+    install -Dm644 "main-serve-$pkgver/dist/main-serve.service" "$pkgdir/usr/lib/systemd/system/main-serve.service"
+    install -Dm644 "main-serve-$pkgver/dist/main-serve.sysusers" "$pkgdir/usr/lib/sysusers.d/main-serve.conf"
+    install -Dm644 "main-serve-$pkgver/dist/main-serve.tmpfiles" "$pkgdir/usr/lib/tmpfiles.d/main-serve.conf"
+    install -Dm644 "main-serve-$pkgver/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

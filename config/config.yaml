@@ -116,5 +116,5 @@ endpoints:
     custom_response:
       status: 200
       content_type: "application/json"
-      body: '{"name": "Main Serve Demo", "version": "0.1.0"}'
+      body: '{"name": "Main Serve Demo", "version": "0.1.1"}'
     auth: "none"

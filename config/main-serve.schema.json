@@ -752,7 +752,7 @@
                     "type": "string",
                     "description": "Response body (inline string).",
                     "examples": [
-                        "{\"name\": \"Main Serve\", \"version\": \"0.1.0\"}"
+                        "{\"name\": \"Main Serve\", \"version\": \"0.1.1\"}"
                     ]
                 },
                 "headers": {

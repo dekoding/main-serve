@@ -27,7 +27,7 @@ A clear and concise description of what you expected to happen.
 
 ## Environment
 - OS: [e.g., Ubuntu 24.04, Fedora 41, Arch]
-- Main Serve version: [e.g., 0.1.0]
+- Main Serve version: [e.g., 0.1.1]
 - Installation method: [e.g., .deb, .rpm, aur, cargo install, built from source]
 
 ## Logs
