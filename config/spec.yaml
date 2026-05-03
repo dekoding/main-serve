@@ -799,7 +799,7 @@ endpoints:
 
       # Response body (inline string).
       # Type: string
-      body: '{"name": "Main Serve", "version": "0.1.0"}'
+      body: '{"name": "Main Serve", "version": "0.1.1"}'
 
       # Response headers to include.
       # Type: map of string -> string
