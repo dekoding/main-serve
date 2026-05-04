@@ -32,11 +32,23 @@ pub enum AppError {
     #[error("Not found: {0}")]
     NotFound(String),
 
+    #[error("Method not allowed: {0}")]
+    MethodNotAllowed(String),
+
     #[error("Rate limited")]
     RateLimited,
 
     #[error("Bad request: {0}")]
     BadRequest(String),
+
+    #[error("Payload too large: {0}")]
+    PayloadTooLarge(String),
+
+    #[error("Unsupported media type: {0}")]
+    UnsupportedMediaType(String),
+
+    #[error("File operation error: {0}")]
+    FileOperation(String),
 
     #[error("Internal error: {0}")]
     Internal(String),
@@ -73,6 +85,10 @@ impl IntoResponse for AppError {
             AppError::BadRequest(_) => (StatusCode::BAD_REQUEST, "bad_request"),
             AppError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "internal_error"),
             AppError::Io(_) => (StatusCode::INTERNAL_SERVER_ERROR, "io_error"),
+            AppError::MethodNotAllowed(_) => (StatusCode::METHOD_NOT_ALLOWED, "method_not_allowed"),
+            AppError::PayloadTooLarge(_) => (StatusCode::PAYLOAD_TOO_LARGE, "payload_too_large"),
+            AppError::UnsupportedMediaType(_) => (StatusCode::UNSUPPORTED_MEDIA_TYPE, "unsupported_media_type"),
+            AppError::FileOperation(_) => (StatusCode::INTERNAL_SERVER_ERROR, "file_operation"),
         };
 
         let body = ErrorBody {
