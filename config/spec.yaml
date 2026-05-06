@@ -777,7 +777,122 @@ endpoints:
       # Default: false
       spa_fallback: false
 
-    auth: "none"
+      # -----------------------------------------------------------------------
+      # File Upload Configuration (optional)
+      # -----------------------------------------------------------------------
+      upload:
+        # Whether file uploads are enabled for this endpoint.
+        # Type: boolean
+        # Default: false
+        enabled: false
+
+        # Maximum upload size in bytes.
+        # Type: integer
+        # Default: 10485760 (10 MiB)
+        max_size: 10485760
+
+        # Allowed file extensions (empty = all extensions allowed).
+        # Type: list of strings (without dots)
+        # Default: [] (all extensions)
+        allowed_extensions:
+          - "jpg"
+          - "jpeg"
+          - "png"
+          - "gif"
+          - "pdf"
+
+        # Subdirectory pattern for organizing uploads.
+        # Available placeholders: {user_id}, {year}, {month}, {day}, {uuid}
+        # If not set, files are stored directly in the root directory.
+        # Type: string
+        # Default: null
+        create_subdirectory: "{user_id}/{year}/{month}"
+
+        # Role required to upload files.
+        # If set, only users with this role can upload.
+        # If not set, any authenticated user can upload.
+        # Type: string
+        # Default: null
+        required_role: null
+
+      # -----------------------------------------------------------------------
+      # User Scoping Configuration (optional)
+      # -----------------------------------------------------------------------
+      user_scope:
+        # Enable user-scoped file browsing.
+        # When enabled, each user can only access their own directory.
+        # Type: boolean
+        # Default: false
+        enabled: false
+
+        # Role required to access user-scoped files.
+        # If not set, any authenticated user can access their own files.
+        # Type: string
+        # Default: null
+        required_role: null
+
+        # Pattern for user-specific directories.
+        # Available placeholders: {user_id}
+        # Default: "{user_id}"
+        # Example: "{user_id}" -> /uploads/user123/file.png
+        # Example: "users/{user_id}" -> /uploads/users/user123/file.png
+        directory_pattern: "{user_id}"
+
+        # Whether the root directory is exposed when user_scope is enabled.
+        # When false, users can only access their own subdirectory.
+        # When true, users can also access the root directory.
+        # Type: boolean
+        # Default: false
+        expose_root: false
+
+      # -----------------------------------------------------------------------
+      # Image Scaling Configuration (optional)
+      # -----------------------------------------------------------------------
+      image_resize:
+        # Whether on-demand image resizing is enabled.
+        # Type: boolean
+        # Default: false
+        enabled: false
+
+        # Maximum dimension (width or height) for auto-resize.
+        # Images larger than this will be scaled down.
+        # Type: integer (pixels)
+        # Default: 4096
+        max_dimension: 4096
+
+        # Supported formats for image conversion.
+        # Type: list of strings
+        # Default: ["jpg", "jpeg", "png", "webp"]
+        supported_formats:
+          - "jpg"
+          - "jpeg"
+          - "png"
+          - "webp"
+
+        # Cache directory for resized images.
+        # If not set, resized images are returned on each request.
+        # Type: string (relative to root)
+        # Default: null
+        cache_dir: null
+
+      # -----------------------------------------------------------------------
+      # Streaming Configuration (optional)
+      # -----------------------------------------------------------------------
+      streaming:
+        # Enable chunked streaming for large files.
+        # Type: boolean
+        # Default: false
+        enabled: false
+
+        # Chunk size in bytes for streaming.
+        # Default: 65536 (64 KiB)
+        buffer_size: 65536
+
+        # Threshold for enabling streaming (files larger than this use streaming).
+        # Files below this threshold are read entirely into memory.
+        # Type: integer (bytes)
+        # Default: 1048576 (1 MiB)
+        threshold: 1048576
 
   # ---- Custom Response Example ----
   - path: "/api/info"
