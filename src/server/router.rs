@@ -28,7 +28,7 @@ use crate::error::AppError;
 use crate::handlers::crud::handle_crud;
 use crate::handlers::custom_response::handle_custom_response;
 use crate::handlers::proxy::handle_proxy;
-use crate::handlers::static_files::handle_static_files;
+use crate::handlers::static_files::routing::handle_static_files;
 use crate::middleware::compression::build_compression_layer;
 use crate::middleware::cors::build_cors_layer;
 use crate::middleware::logging::{body_logging_middleware, build_trace_layer};
