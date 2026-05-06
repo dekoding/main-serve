@@ -87,7 +87,9 @@ impl IntoResponse for AppError {
             AppError::Io(_) => (StatusCode::INTERNAL_SERVER_ERROR, "io_error"),
             AppError::MethodNotAllowed(_) => (StatusCode::METHOD_NOT_ALLOWED, "method_not_allowed"),
             AppError::PayloadTooLarge(_) => (StatusCode::PAYLOAD_TOO_LARGE, "payload_too_large"),
-            AppError::UnsupportedMediaType(_) => (StatusCode::UNSUPPORTED_MEDIA_TYPE, "unsupported_media_type"),
+            AppError::UnsupportedMediaType(_) => {
+                (StatusCode::UNSUPPORTED_MEDIA_TYPE, "unsupported_media_type")
+            }
             AppError::FileOperation(_) => (StatusCode::INTERNAL_SERVER_ERROR, "file_operation"),
         };
 

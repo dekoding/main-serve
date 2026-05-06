@@ -250,18 +250,34 @@ fn add_endpoint_route(
             route_method(app, path, method, handler, cors)
         }
         EndpointAction::Static => {
-            let handler = move |state: axum::extract::State<AppState>,
-                                uri: Uri,
-                                remote_addr: Option<Extension<SocketAddr>>,
-                                query: Query<HashMap<String, String>>,
-                                headers: HeaderMap| {
-                let ep = ep.clone();
-                async move {
-                    run_pre_checks(&state, &headers, &query.0, &ep, extract_addr(remote_addr))
+            let handler =
+                move |state: axum::extract::State<AppState>,
+                      method: axum::http::Method,
+                      uri: Uri,
+                      headers: HeaderMap,
+                      remote_addr: Option<Extension<SocketAddr>>,
+                      query: Query<Option<HashMap<String, String>>>| {
+                    let ep = ep.clone();
+                    async move {
+                        run_pre_checks(
+                            &state,
+                            &headers,
+                            query.as_ref().unwrap_or(&HashMap::new()),
+                            &ep,
+                            extract_addr(remote_addr),
+                        )
                         .await?;
-                    handle_static_files(axum::extract::State(state.0), uri, ep).await
-                }
-            };
+                        handle_static_files(
+                            axum::extract::State(state.0),
+                            method,
+                            uri,
+                            ep,
+                            headers,
+                            query,
+                        )
+                        .await
+                    }
+                };
             route_method(app, path, method, handler, cors)
         }
     }

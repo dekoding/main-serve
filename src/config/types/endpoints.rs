@@ -309,7 +309,7 @@ pub struct StaticFilesConfig {
     pub cache_max_age: u64,
     /// Whether to serve the index file for unmatched routes (SPA mode).
     pub spa_fallback: bool,
-    
+
     /// File upload configuration (optional).
     #[serde(default)]
     pub upload: Option<UploadConfig>,
@@ -416,7 +416,12 @@ impl Default for ImageResizeConfig {
         Self {
             enabled: false,
             max_dimension: 4096,
-            supported_formats: vec!["jpg".to_string(), "jpeg".to_string(), "png".to_string(), "webp".to_string()],
+            supported_formats: vec![
+                "jpg".to_string(),
+                "jpeg".to_string(),
+                "png".to_string(),
+                "webp".to_string(),
+            ],
             cache_dir: None,
         }
     }
@@ -438,7 +443,7 @@ impl Default for StreamingConfig {
     fn default() -> Self {
         Self {
             enabled: false,
-            buffer_size: 65536, // 64 KiB
+            buffer_size: 65536,     // 64 KiB
             threshold: 1024 * 1024, // 1 MiB
         }
     }
