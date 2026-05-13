@@ -98,7 +98,7 @@ databases:
     min_connections: 1
 
 tables:
-  __TABLE_NAME__:
+  - name: "__TABLE_NAME__"
     database: "main"
     columns:
       - name: "id"

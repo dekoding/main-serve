@@ -76,7 +76,7 @@ databases:
 # =============================================================================
 
 tables:
-  __TABLE_NAME___authors:
+  - name: "__TABLE_NAME___authors"
     database: "main"
     columns:
       - name: "id"
@@ -97,7 +97,7 @@ tables:
         nullable: false
         default: "CURRENT_TIMESTAMP"
 
-  __TABLE_NAME___categories:
+  - name: "__TABLE_NAME___categories"
     database: "main"
     columns:
       - name: "id"
@@ -111,7 +111,7 @@ tables:
         type: "text"
         nullable: true
 
-  __TABLE_NAME__:
+  - name: "__TABLE_NAME__"
     database: "main"
     columns:
       - name: "id"

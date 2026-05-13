@@ -38,7 +38,7 @@ databases:
 # Table Schemas
 # ---------------------------------------------------------------------------
 tables:
-  posts:
+  - name: "posts"
     database: "main"
     columns:
       - name: "id"

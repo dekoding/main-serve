@@ -1,4 +1,4 @@
-# yaml-language-server: $schema=https://raw.githubusercontent.com/dekoding/schemas/refs/heads/main/main-serve.json
+# yaml-language-server: $schema=./main-serve.schema.json
 # =============================================================================
 # Main Serve - Full YAML Configuration Specification
 # =============================================================================
@@ -42,6 +42,9 @@
 #   Includes can be nested. Circular includes are detected and rejected.
 #   Included files also support ${ENV_VAR} interpolation.
 #
+#   In cases of collisions (e.g. two tables with the same name), the last
+#   included file takes precedence.
+#
 # =============================================================================
 
 # -----------------------------------------------------------------------------
@@ -64,6 +67,8 @@ server:
   workers: 0
 
   # Maximum request body size in bytes. Requests exceeding this are rejected with 413.
+  # Not applied to file uploads - those are configured under static_files.upload.
+  # Not applied to proxied requests - those are configured under proxy.max_response_size.
   # Type: integer
   # Default: 10485760 (10 MiB)
   max_body_size: 10485760
@@ -259,17 +264,18 @@ databases:
 
 # -----------------------------------------------------------------------------
 # TABLE SCHEMAS
-# Define database tables. Used for auto-migration and CRUD query generation.
+# Define array of database tables. Used for auto-migration and CRUD query
+# generation.
+# 
+# Each table consists of the table name, the database it belongs to, and an
+# array of column definitions. Columns have a name, type, and optional
+# constraints.
 # -----------------------------------------------------------------------------
 tables:
-  # Each key is the table name.
-  # Example:
-  users:
+    # Name of the table as it appears in the database.
+  - name: "users"
     # Which named database this table belongs to (must match a key in `databases`).
-    # Type: string
-    # Default: "main"
     database: "main"
-
     # Column definitions. Every table must have at least one primary key column.
     columns:
       # Each column is defined as:
@@ -531,8 +537,8 @@ endpoints:
       table: "users"
 
       # Which named database to use (must match a key in `databases`).
-      # Type: string (optional)
-      # Default: inherited from the table's `database` setting, or "main" if neither is set
+      # Type: string
+      # Required.
       database: "main"
 
       # Fields to return in GET responses. Use ["*"] for all.
@@ -781,7 +787,8 @@ endpoints:
       # File Upload Configuration (optional)
       # -----------------------------------------------------------------------
       upload:
-        # Whether file uploads are enabled for this endpoint.
+        # Whether file uploads are enabled for this endpoint. Uploads will be checked for
+        # valid extensions and checked with mime sniffing to prevent malicious files from being uploaded.
         # Type: boolean
         # Default: false
         enabled: false
@@ -792,17 +799,25 @@ endpoints:
         max_size: 10485760
 
         # Allowed file extensions (empty = all extensions allowed).
-        # Type: list of strings (without dots)
+        # Type: list of strings (beginning with dots)
         # Default: [] (all extensions)
         allowed_extensions:
-          - "jpg"
-          - "jpeg"
-          - "png"
-          - "gif"
-          - "pdf"
+          - ".jpg"
+          - ".jpeg"
+          - ".png"
+          - ".gif"
+          - ".pdf"
+          - ".docx"
+          - ".xlsx"
+          - ".tar.gz"
 
         # Subdirectory pattern for organizing uploads.
-        # Available placeholders: {user_id}, {year}, {month}, {day}, {uuid}
+        # Available placeholders:
+        # - {user_id}
+        # - {year} (4-digit)
+        # - {month} (2-digit)
+        # - {day} (2-digit)
+        # - {uuid}
         # If not set, files are stored directly in the root directory.
         # Type: string
         # Default: null
@@ -884,7 +899,8 @@ endpoints:
         # Default: false
         enabled: false
 
-        # Chunk size in bytes for streaming.
+        # Chunk size in bytes for streaming. Must be lower than threshold.
+        # Type: integer (bytes)
         # Default: 65536 (64 KiB)
         buffer_size: 65536
 
