@@ -11,6 +11,7 @@ use tokio::sync::{Mutex, RwLock};
 
 use crate::auth::oauth2::PendingOAuth2;
 use crate::config::AppConfig;
+use crate::config::types::EndpointConfig;
 use crate::db::pool::DatabasePool;
 use crate::middleware::rate_limit::RateLimiter;
 
@@ -34,6 +35,10 @@ pub struct AppState {
 
     /// Pending `OAuth2` authorization code flow states (state -> PKCE verifier).
     pub oauth2_pending: Arc<Mutex<HashMap<String, PendingOAuth2>>>,
+
+    /// Endpoint configurations keyed by their normalized path, used for lookups
+    /// within request handlers when the path parameter is available.
+    pub endpoint_configs: Arc<RwLock<HashMap<String, EndpointConfig>>>,
 }
 
 impl AppState {
@@ -47,6 +52,12 @@ impl AppState {
             db_pools: Arc::new(RwLock::new(HashMap::new())),
             rate_limiter: RateLimiter::new(),
             oauth2_pending: Arc::new(Mutex::new(HashMap::new())),
+            endpoint_configs: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    /// Get the endpoint configuration for a given path, if it exists.
+    pub async fn get_endpoint_config(&self, path: &str) -> Option<EndpointConfig> {
+        self.endpoint_configs.read().await.get(path).cloned()
     }
 }

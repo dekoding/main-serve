@@ -55,6 +55,12 @@ pub enum AppError {
 
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+
+    #[error("Body extraction error: {0}")]
+    Body(String),
+
+    #[error("Parse error: {0}")]
+    ParseError(String),
 }
 
 #[derive(Serialize)]
@@ -91,6 +97,8 @@ impl IntoResponse for AppError {
                 (StatusCode::UNSUPPORTED_MEDIA_TYPE, "unsupported_media_type")
             }
             AppError::FileOperation(_) => (StatusCode::INTERNAL_SERVER_ERROR, "file_operation"),
+            AppError::Body(_) => (StatusCode::PAYLOAD_TOO_LARGE, "request_body_error"),
+            AppError::ParseError(_) => (StatusCode::BAD_REQUEST, "json_parse_error"),
         };
 
         let body = ErrorBody {

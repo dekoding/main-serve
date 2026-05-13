@@ -247,6 +247,7 @@ mod tests {
 
     fn test_table() -> TableConfig {
         TableConfig {
+            name: "posts".to_string(),
             database: "main".to_string(),
             columns: vec![
                 ColumnConfig {
@@ -286,6 +287,7 @@ mod tests {
     /// Helper function to create a table config with a JSONB column.
     fn test_table_with_jsonb() -> TableConfig {
         TableConfig {
+            name: "posts".to_string(),
             database: "main".to_string(),
             columns: vec![
                 ColumnConfig {

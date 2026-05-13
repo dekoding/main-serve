@@ -5,7 +5,9 @@ use axum::response::IntoResponse;
 use axum::response::Response;
 
 use crate::error::AppError;
-use crate::handlers::static_files::utils::{apply_static_headers, format_modified, format_size, html_escape};
+use crate::handlers::static_files::utils::{
+    apply_static_headers, format_modified, format_size, html_escape,
+};
 use percent_encoding::percent_decode_str;
 
 /// Metadata collected for a single directory entry.
@@ -21,7 +23,10 @@ pub struct DirEntryInfo {
 }
 
 /// Generate an HTML directory listing for the given directory.
-pub async fn generate_directory_listing(dir: &Path, request_path: &str) -> Result<Response, AppError> {
+pub async fn generate_directory_listing(
+    dir: &Path,
+    request_path: &str,
+) -> Result<Response, AppError> {
     let mut entries = tokio::fs::read_dir(dir)
         .await
         .map_err(|e| AppError::Internal(format!("Failed to read directory: {e}")))?;

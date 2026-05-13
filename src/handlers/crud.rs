@@ -45,7 +45,8 @@ pub async fn handle_crud(
     let config = state.config.read().await;
     let table_config = config
         .tables
-        .get(&crud.table)
+        .iter()
+        .find(|t| t.name == crud.table)
         .ok_or_else(|| AppError::Internal(format!("Table '{}' not found in config", crud.table)))?;
 
     let db_name = crud.database.as_deref().unwrap_or(&table_config.database);

@@ -47,7 +47,7 @@ pub async fn handle_file_delete(
     check_upload_role(&auth_info, upload_config)?;
 
     let user_id = &auth_info.subject;
-    let sanitized_filename = sanitize_filename(relative)?;
+    let sanitized_filename = sanitize_filename(relative, false)?;
 
     // Check user_scope.
     let delete_path = if let Some(user_scope) = &config.user_scope {

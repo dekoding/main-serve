@@ -35,11 +35,12 @@ use crate::error::AppError;
 /// Returns `AppError::Database` if any SQL statement fails, or `AppError::Internal`
 /// if a referenced database pool is missing.
 pub async fn run_migrations(
-    tables: &HashMap<String, TableConfig>,
+    tables: &[TableConfig],
     pools: &HashMap<String, DatabasePool>,
     databases: &HashMap<String, DatabaseConfig>,
 ) -> Result<(), AppError> {
-    for (table_name, table_config) in tables {
+    for table_config in tables {
+        let table_name = &table_config.name;
         let db_name = &table_config.database;
 
         let db_config = databases.get(db_name);
@@ -66,7 +67,7 @@ pub async fn run_migrations(
 
         if existing_columns.is_empty() {
             // Table does not exist (or has no columns) - create it.
-            let sql = generate_create_table(table_name, table_config, driver);
+            let sql = generate_create_table(table_config, driver);
             tracing::info!("Creating table '{table_name}' on database '{db_name}'");
             tracing::debug!("DDL: {sql}");
 
@@ -346,7 +347,7 @@ fn generate_drop_column(table_name: &str, column_name: &str, driver: DatabaseDri
 
 /// Generate a CREATE TABLE IF NOT EXISTS statement.
 #[must_use]
-fn generate_create_table(table_name: &str, table: &TableConfig, driver: DatabaseDriver) -> String {
+fn generate_create_table(table: &TableConfig, driver: DatabaseDriver) -> String {
     let mut parts: Vec<String> = Vec::new();
     let mut pk_columns: Vec<String> = Vec::new();
 
@@ -415,7 +416,7 @@ fn generate_create_table(table_name: &str, table: &TableConfig, driver: Database
 
     format!(
         "CREATE TABLE IF NOT EXISTS {} (\n{}\n)",
-        quote_object_name(table_name, driver),
+        quote_object_name(&table.name, driver),
         parts.join(",\n")
     )
 }
@@ -542,6 +543,7 @@ mod tests {
     #[test]
     fn test_generate_create_table_sqlite() {
         let table = TableConfig {
+            name: "posts".to_string(),
             database: "main".to_string(),
             columns: vec![
                 ColumnConfig {
@@ -568,7 +570,7 @@ mod tests {
             foreign_keys: vec![],
         };
 
-        let sql = generate_create_table("posts", &table, DatabaseDriver::Sqlite);
+        let sql = generate_create_table(&table, DatabaseDriver::Sqlite);
         assert!(sql.contains("CREATE TABLE IF NOT EXISTS \"posts\""));
         assert!(sql.contains("\"id\" INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL"));
         assert!(sql.contains("\"title\" TEXT NOT NULL"));
@@ -579,6 +581,7 @@ mod tests {
     #[test]
     fn test_generate_create_table_postgres() {
         let table = TableConfig {
+            name: "users".to_string(),
             database: "main".to_string(),
             columns: vec![
                 ColumnConfig {
@@ -599,7 +602,7 @@ mod tests {
             foreign_keys: vec![],
         };
 
-        let sql = generate_create_table("users", &table, DatabaseDriver::Postgres);
+        let sql = generate_create_table(&table, DatabaseDriver::Postgres);
         assert!(sql.contains("\"id\" SERIAL NOT NULL"));
         assert!(sql.contains("\"email\" VARCHAR(255) NOT NULL UNIQUE"));
     }
@@ -694,6 +697,7 @@ mod tests {
     #[test]
     fn test_generate_create_table_mysql_uses_backticks() {
         let table = TableConfig {
+            name: "users".to_string(),
             database: "main".to_string(),
             columns: vec![ColumnConfig {
                 name: "id".to_string(),
@@ -705,7 +709,7 @@ mod tests {
             foreign_keys: vec![],
         };
 
-        let sql = generate_create_table("users", &table, DatabaseDriver::Mysql);
+        let sql = generate_create_table(&table, DatabaseDriver::Mysql);
         assert!(sql.contains("CREATE TABLE IF NOT EXISTS `users`"));
         assert!(sql.contains("`id` INTEGER AUTO_INCREMENT NOT NULL"));
     }

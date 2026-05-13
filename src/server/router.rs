@@ -1,21 +1,14 @@
-/// Dynamic router builder - constructs an axum Router from parsed config.
-///
-/// This module builds a complete `axum::Router` from an `AppConfig` struct.
-/// The router includes:
-/// - Hard-coded system endpoints (`/_main-serve/health`, `/_main-serve/reload`)
-/// - All user-defined endpoints from the YAML config
-///
-/// The router is rebuilt on every hot-reload and broadcast via a `watch` channel.
-/// Each endpoint's auth and role requirements are enforced before the handler runs.
+use futures_util::future::FutureExt;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
 use axum::Router;
 use axum::body::Body;
-use axum::extract::{DefaultBodyLimit, Extension, Path, Query};
-use axum::http::{HeaderMap, Uri};
+use axum::debug_handler;
+use axum::extract::Multipart;
+use axum::extract::{Extension, MatchedPath, Path, Query, State};
+use axum::http::{HeaderMap, Method as HttpMethod, Uri};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
 use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
 
 use super::reload::{handle_health, handle_reload};
@@ -23,278 +16,477 @@ use super::state::AppState;
 use crate::auth::middleware::{authenticate, check_roles};
 use crate::auth::oauth2::{handle_oauth2_authorize, handle_oauth2_callback};
 use crate::config::AppConfig;
-use crate::config::types::{EndpointAction, EndpointConfig, HttpMethod};
+use crate::config::types::{EndpointAction, EndpointConfig, HttpMethod as ConfigHttpMethod};
 use crate::error::AppError;
 use crate::handlers::crud::handle_crud;
 use crate::handlers::custom_response::handle_custom_response;
 use crate::handlers::proxy::handle_proxy;
-use crate::handlers::static_files::routing::handle_static_files;
+use crate::handlers::static_files::routing::{handle_file_upload_route, handle_static_files};
+use crate::middleware::body_limit::body_limit_middleware;
 use crate::middleware::compression::build_compression_layer;
 use crate::middleware::cors::build_cors_layer;
 use crate::middleware::logging::{body_logging_middleware, build_trace_layer};
 
-/// Build a complete `Router` from the given config and shared state.
-///
-/// This is called at startup and again on every successful hot-reload.
-pub fn build_router(config: &AppConfig, state: AppState) -> Router {
-    let mut app = Router::new()
-        // Hard-coded system endpoints - always present, not configurable.
-        .route("/_main-serve/health", get(handle_health))
-        .route("/_main-serve/reload", post(handle_reload));
-
-    // Register OAuth2 code flow endpoints if the authorization URL is configured.
-    if config
-        .auth
-        .oauth2
-        .as_ref()
-        .is_some_and(|o| !o.authorization_url.is_empty())
-    {
-        app = app
-            .route(
-                "/_main-serve/oauth2/authorize",
-                get(handle_oauth2_authorize),
-            )
-            .route("/_main-serve/oauth2/callback", get(handle_oauth2_callback));
-    }
-
-    // Check if any endpoints have per-endpoint CORS overrides.
-    let has_per_endpoint_cors = config.endpoints.iter().any(|ep| ep.cors.is_some());
-
-    // Wire user-defined endpoints from config.
+pub async fn build_router(config: &AppConfig, state: AppState) -> Router {
+    let mut endpoint_configs = std::collections::HashMap::new();
     for endpoint in &config.endpoints {
         let mut path = endpoint.path.replace(":id", "{id}").replace('*', "{*rest}");
-
-        // Static endpoints need a catch-all suffix to serve files under
-        // the root directory.  If the user omitted the trailing /* in the
-        // config path, append /{*rest} automatically so that sub-paths
-        // (e.g. /site/style.css) are routed to the handler.
         let static_catch_all_added =
             endpoint.action == EndpointAction::Static && !path.contains("{*rest}");
         if static_catch_all_added {
             let trimmed = path.trim_end_matches('/');
             path = format!("{trimmed}/{{*rest}}");
         }
+        endpoint_configs.insert(path.clone(), endpoint.clone());
+        if endpoint.action == EndpointAction::Static {
+            let bare = path.trim_end_matches("{*rest}").trim_end_matches('/');
+            if !bare.is_empty() {
+                endpoint_configs.insert(bare.to_string(), endpoint.clone());
+                endpoint_configs.insert(format!("{bare}/"), endpoint.clone());
+            } else {
+                endpoint_configs.insert("/".to_string(), endpoint.clone());
+            }
+        }
+    }
 
-        // Determine the effective CORS config for this endpoint.
-        // If any endpoint uses per-endpoint CORS, we apply CORS per-route
-        // (using the endpoint's override or the global config) so that
-        // per-endpoint overrides aren't masked by the global CORS layer.
-        let cors_ref = if has_per_endpoint_cors {
-            Some(endpoint.cors.as_ref().unwrap_or(&config.cors))
+    let mut configs_write = state.endpoint_configs.write().await;
+    *configs_write = endpoint_configs;
+    drop(configs_write);
+
+    let mut router = Router::new()
+        .route("/_main-serve/health", axum::routing::get(handle_health))
+        .route("/_main-serve/reload", axum::routing::post(handle_reload));
+
+    if config
+        .auth
+        .oauth2
+        .as_ref()
+        .is_some_and(|o| !o.authorization_url.is_empty())
+    {
+        router = router
+            .route(
+                "/_main-serve/oauth2/authorize",
+                axum::routing::get(handle_oauth2_authorize),
+            )
+            .route(
+                "/_main-serve/oauth2/callback",
+                axum::routing::get(handle_oauth2_callback),
+            );
+    }
+
+    for endpoint in &config.endpoints {
+        let path_for_routes = endpoint.path.replace(":id", "{id}").replace('*', "{*rest}");
+        let static_catch_all_added =
+            endpoint.action == EndpointAction::Static && !path_for_routes.contains("{*rest}");
+        let path = if static_catch_all_added {
+            let trimmed = path_for_routes.trim_end_matches('/');
+            format!("{trimmed}/{{*rest}}")
         } else {
-            None
+            path_for_routes
         };
 
+        // Always provide a CORS config for per-endpoint routing:
+        // - Use endpoint's own CORS if present
+        // - Otherwise, fall back to global CORS config
+        let endpoint_cors = endpoint.cors.as_ref().unwrap_or(&config.cors);
+        
         for method in &endpoint.methods {
-            app = add_endpoint_route(app, &path, *method, endpoint, cors_ref);
+            router = add_endpoint_route(router, &path, *method, endpoint, Some(endpoint_cors));
         }
 
-        // For static endpoints, also register the bare path (without the
-        // catch-all) so that e.g. GET /static serves index.html just like
-        // GET /static/ does. Without this, axum's {*rest} catch-all only
-        // matches when there is at least a trailing slash.
         if endpoint.action == EndpointAction::Static && path.ends_with("{*rest}") {
             let bare = path.trim_end_matches("{*rest}").trim_end_matches('/');
             if bare.is_empty() {
-                // Endpoint mounted at root "/": register "/" so that
-                // GET / is handled (the catch-all /{*rest} alone won't
-                // match the bare root).
                 for method in &endpoint.methods {
-                    app = add_endpoint_route(app, "/", *method, endpoint, cors_ref);
+                    router = add_endpoint_route(router, "/", *method, endpoint, Some(endpoint_cors));
                 }
             } else {
                 for method in &endpoint.methods {
-                    app = add_endpoint_route(app, bare, *method, endpoint, cors_ref);
-                    // Also register with trailing slash to cover /static/ explicitly,
-                    // since registering /static as a separate route can prevent
-                    // matchit from falling through to the catch-all for /static/.
+                    router = add_endpoint_route(router, bare, *method, endpoint, Some(endpoint_cors));
                     let with_slash = format!("{bare}/");
-                    app = add_endpoint_route(app, &with_slash, *method, endpoint, cors_ref);
+                    router = add_endpoint_route(router, &with_slash, *method, endpoint, Some(endpoint_cors));
                 }
             }
         }
     }
 
-    let router = app.with_state(state.clone());
+    let router = router.with_state(state.clone());
 
-    // If no endpoint uses per-endpoint CORS, apply the global CORS layer once
-    // at the top level. Otherwise, CORS was already applied per-route above.
-    let router = if has_per_endpoint_cors {
-        router
-    } else {
-        router.layer(build_cors_layer(&config.cors))
-    };
+    // Body limit must run before body logging so it can reconstruct the body first.
+    let router = router.layer(axum::middleware::from_fn_with_state(
+        state.clone(),
+        body_limit_middleware,
+    ));
 
-    // Conditionally add the body logging middleware when either flag is enabled.
     let router = if config.logging.log_request_body || config.logging.log_response_body {
         router.layer(axum::middleware::from_fn_with_state(
-            state,
+            state.clone(),
             body_logging_middleware,
         ))
     } else {
         router
     };
 
+    // Per-endpoint CORS is now applied in add_endpoint_route for all endpoints.
+    // No global CORS layer needed.
+
     router
-        // Layers are applied bottom-up: request ID first, then tracing, compression, body limit.
-        .layer(DefaultBodyLimit::max(config.server.max_body_size))
         .layer(build_compression_layer())
         .layer(build_trace_layer())
         .layer(PropagateRequestIdLayer::x_request_id())
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
 }
 
-/// Extract the remote address from the request extension.
 fn extract_addr(ext: Option<Extension<SocketAddr>>) -> Option<SocketAddr> {
     ext.map(|Extension(a)| a)
 }
 
-/// Add a single method handler for an endpoint to the router.
-fn add_endpoint_route(
-    app: Router<AppState>,
-    path: &str,
-    method: HttpMethod,
-    endpoint: &EndpointConfig,
-    cors: Option<&crate::config::types::CorsConfig>,
-) -> Router<AppState> {
-    let ep = endpoint.clone();
-    match endpoint.action {
-        EndpointAction::CustomResponse => {
-            let handler = move |state: axum::extract::State<AppState>,
-                                remote_addr: Option<Extension<SocketAddr>>,
-                                query: Query<HashMap<String, String>>,
-                                headers: HeaderMap| {
-                let ep = ep.clone();
-                async move {
-                    run_pre_checks(&state, &headers, &query.0, &ep, extract_addr(remote_addr))
-                        .await?;
-                    Ok::<Response, AppError>(
-                        handle_custom_response(axum::extract::State(state.0), ep)
-                            .await
-                            .into_response(),
-                    )
-                }
-            };
-            route_method(app, path, method, handler, cors)
+fn find_prefix_match<'a>(
+    state: &'a State<AppState>,
+    path: &'a str,
+) -> impl std::future::Future<Output = Option<EndpointConfig>> + 'a {
+    async move {
+        let configs = state.endpoint_configs.read().await;
+        let mut current = path;
+        while !current.is_empty() {
+            if let Some(endpoint) = configs.get(current) {
+                return Some(endpoint.clone());
+            }
+            if let Some(pos) = current.rfind('/') {
+                current = &current[..pos];
+            } else {
+                break;
+            }
         }
-        EndpointAction::Crud => {
-            let ep = ep.clone();
-            let path_owned = path.to_string();
-            let handler =
-                move |state: axum::extract::State<AppState>,
-                      method: axum::http::Method,
-                      path_params: Option<Path<HashMap<String, String>>>,
-                      remote_addr: Option<Extension<SocketAddr>>,
-                      query: Query<HashMap<String, String>>,
-                      headers: HeaderMap,
-                      body: Option<axum::Json<serde_json::Value>>| {
-                    let ep = ep.clone();
-                    let path = path_owned.clone();
-                    async move {
-                        let auth_info = run_pre_checks(
-                            &state,
-                            &headers,
-                            &query.0,
-                            &ep,
-                            extract_addr(remote_addr),
-                        )
-                        .await?;
-                        let context = crate::context::RequestContext {
-                            user_id: auth_info.subject.clone().into(),
-                            user_role: auth_info.role,
-                            headers: headers
-                                .iter()
-                                .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
-                                .collect(),
-                            method: method.to_string(),
-                            path,
-                            query_params: query.0.clone(),
-                        };
-                        handle_crud(
-                            axum::extract::State(state.0),
-                            method,
-                            path_params,
-                            Query(query.0),
-                            body,
-                            ep,
-                            context,
-                        )
-                        .await
-                    }
-                };
-            route_method(app, path, method, handler, cors)
-        }
-        EndpointAction::Proxy => {
-            let handler = move |state: axum::extract::State<AppState>,
-                                method: axum::http::Method,
-                                uri: Uri,
-                                remote_addr: Option<Extension<SocketAddr>>,
-                                query: Query<HashMap<String, String>>,
-                                headers: HeaderMap,
-                                body: Body| {
-                let ep = ep.clone();
-                async move {
-                    run_pre_checks(&state, &headers, &query.0, &ep, extract_addr(remote_addr))
-                        .await?;
-                    handle_proxy(
-                        axum::extract::State(state.0),
-                        method,
-                        uri,
-                        headers,
-                        body,
-                        ep,
-                    )
-                    .await
-                }
-            };
-            route_method(app, path, method, handler, cors)
-        }
-        EndpointAction::Static => {
-            let handler =
-                move |state: axum::extract::State<AppState>,
-                      method: axum::http::Method,
-                      uri: Uri,
-                      headers: HeaderMap,
-                      remote_addr: Option<Extension<SocketAddr>>,
-                      query: Query<Option<HashMap<String, String>>>| {
-                    let ep = ep.clone();
-                    async move {
-                        run_pre_checks(
-                            &state,
-                            &headers,
-                            query.as_ref().unwrap_or(&HashMap::new()),
-                            &ep,
-                            extract_addr(remote_addr),
-                        )
-                        .await?;
-                        handle_static_files(
-                            axum::extract::State(state.0),
-                            method,
-                            uri,
-                            ep,
-                            headers,
-                            query,
-                        )
-                        .await
-                    }
-                };
-            route_method(app, path, method, handler, cors)
-        }
+        None
     }
 }
 
-/// Run rate limiting, authentication, and role-based authorization for an endpoint.
-///
-/// Returns `AuthInfo` on success.
+fn add_endpoint_route(
+    mut app: Router<AppState>,
+    path: &str,
+    method: ConfigHttpMethod,
+    _endpoint: &EndpointConfig,
+    cors: Option<&crate::config::types::CorsConfig>,
+) -> Router<AppState> {
+    match _endpoint.action {
+        EndpointAction::CustomResponse => {
+            let handler = handle_custom_response_route;
+            let method_router = match method {
+                ConfigHttpMethod::Get => axum::routing::get(handler),
+                ConfigHttpMethod::Post => axum::routing::post(handler),
+                ConfigHttpMethod::Put => axum::routing::put(handler),
+                ConfigHttpMethod::Patch => axum::routing::patch(handler),
+                ConfigHttpMethod::Delete => axum::routing::delete(handler),
+                ConfigHttpMethod::Head => axum::routing::head(handler),
+                ConfigHttpMethod::Options => axum::routing::options(handler),
+            };
+
+            if let Some(cors_config) = cors {
+                app = app.route(path, method_router).route_layer(build_cors_layer(cors_config));
+            } else {
+                app = app.route(path, method_router);
+            }
+        }
+
+        EndpointAction::Crud => {
+            let handler = handle_crud_route;
+            let method_router = match method {
+                ConfigHttpMethod::Get => axum::routing::get(handler),
+                ConfigHttpMethod::Post => axum::routing::post(handler),
+                ConfigHttpMethod::Put => axum::routing::put(handler),
+                ConfigHttpMethod::Patch => axum::routing::patch(handler),
+                ConfigHttpMethod::Delete => axum::routing::delete(handler),
+                ConfigHttpMethod::Head => axum::routing::head(handler),
+                ConfigHttpMethod::Options => axum::routing::options(handler),
+            };
+
+            if let Some(cors_config) = cors {
+                app = app.route(path, method_router).route_layer(build_cors_layer(cors_config));
+            } else {
+                app = app.route(path, method_router);
+            }
+        }
+
+        EndpointAction::Proxy => {
+            let handler = handle_proxy_route;
+            let method_router = match method {
+                ConfigHttpMethod::Get => axum::routing::get(handler),
+                ConfigHttpMethod::Post => axum::routing::post(handler),
+                ConfigHttpMethod::Put => axum::routing::put(handler),
+                ConfigHttpMethod::Patch => axum::routing::patch(handler),
+                ConfigHttpMethod::Delete => axum::routing::delete(handler),
+                ConfigHttpMethod::Head => axum::routing::head(handler),
+                ConfigHttpMethod::Options => axum::routing::options(handler),
+            };
+
+            if let Some(cors_config) = cors {
+                app = app.route(path, method_router).route_layer(build_cors_layer(cors_config));
+            } else {
+                app = app.route(path, method_router);
+            }
+        }
+
+        EndpointAction::Static => {
+            let has_upload = _endpoint
+                .static_files
+                .as_ref()
+                .and_then(|sf| sf.upload.as_ref())
+                .is_some_and(|u| u.enabled);
+
+            if has_upload {
+                let handler = handle_upload_route;
+                let method_router = match method {
+                    ConfigHttpMethod::Get => axum::routing::get(handler),
+                    ConfigHttpMethod::Post => axum::routing::post(handler),
+                    ConfigHttpMethod::Put => axum::routing::put(handler),
+                    ConfigHttpMethod::Patch => axum::routing::patch(handler),
+                    ConfigHttpMethod::Delete => axum::routing::delete(handler),
+                    ConfigHttpMethod::Head => axum::routing::head(handler),
+                    ConfigHttpMethod::Options => axum::routing::options(handler),
+                };
+
+                if let Some(cors_config) = cors {
+                    app = app.route(path, method_router).route_layer(build_cors_layer(cors_config));
+                } else {
+                    app = app.route(path, method_router);
+                }
+            } else {
+                let handler = handle_static_files_route;
+                let method_router = match method {
+                    ConfigHttpMethod::Get => axum::routing::get(handler),
+                    ConfigHttpMethod::Post => axum::routing::post(handler),
+                    ConfigHttpMethod::Put => axum::routing::put(handler),
+                    ConfigHttpMethod::Patch => axum::routing::patch(handler),
+                    ConfigHttpMethod::Delete => axum::routing::delete(handler),
+                    ConfigHttpMethod::Head => axum::routing::head(handler),
+                    ConfigHttpMethod::Options => axum::routing::options(handler),
+                };
+
+                if let Some(cors_config) = cors {
+                    app = app.route(path, method_router).route_layer(build_cors_layer(cors_config));
+                } else {
+                    app = app.route(path, method_router);
+                }
+            }
+        }
+    }
+    app
+}
+
+#[debug_handler]
+async fn handle_custom_response_route(
+    state: State<AppState>,
+    matched_path: MatchedPath,
+    remote_addr: Option<Extension<SocketAddr>>,
+    headers: HeaderMap,
+    query: Query<HashMap<String, String>>,
+) -> Result<Response, AppError> {
+    let query_map = query.0.clone();
+    let path_str = matched_path.as_str();
+
+    let endpoint = state
+        .get_endpoint_config(path_str)
+        .await
+        .or_else(|| find_prefix_match(&state, path_str).now_or_never().flatten())
+        .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
+
+    let state_clone = state.clone();
+    run_pre_checks(
+        state_clone,
+        &headers,
+        &query_map,
+        &endpoint,
+        extract_addr(remote_addr),
+    )
+    .await?;
+    Ok(handle_custom_response(state, endpoint)
+        .await
+        .into_response())
+}
+
+#[debug_handler]
+async fn handle_crud_route(
+    state: State<AppState>,
+    matched_path: MatchedPath,
+    remote_addr: Option<Extension<SocketAddr>>,
+    method: HttpMethod,
+    headers: HeaderMap,
+    path_params: Option<Path<HashMap<String, String>>>,
+    query: Query<HashMap<String, String>>,
+    body: Body,
+) -> Result<Response, AppError> {
+    let query_map = query.0.clone();
+    let path_str = matched_path.as_str();
+
+    let endpoint = state
+        .get_endpoint_config(path_str)
+        .await
+        .or_else(|| find_prefix_match(&state, path_str).now_or_never().flatten())
+        .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
+
+    let json_body: Option<axum::Json<serde_json::Value>> = if headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .map(|t| t.contains("application/json"))
+        .unwrap_or(false)
+    {
+        let bytes = axum::body::to_bytes(body, usize::MAX)
+            .await
+            .map_err(|e| AppError::Body(e.to_string()))?;
+        serde_json::from_slice(&bytes)
+            .map_err(|e| AppError::ParseError(e.to_string()))
+            .ok()
+            .map(axum::Json)
+    } else {
+        None
+    };
+
+    let state_clone = state.clone();
+    let auth_info = run_pre_checks(
+        state_clone,
+        &headers,
+        &query_map,
+        &endpoint,
+        extract_addr(remote_addr),
+    )
+    .await?;
+    let context = crate::context::RequestContext {
+        user_id: auth_info.subject.clone().into(),
+        user_role: auth_info.role,
+        headers: headers
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
+            .collect(),
+        method: method.to_string(),
+        path: path_str.to_string(),
+        query_params: query_map.clone(),
+    };
+    let response = handle_crud(
+        state,
+        method,
+        path_params,
+        Query(query_map),
+        json_body,
+        endpoint,
+        context,
+    )
+    .await?;
+    Ok(response.into_response())
+}
+
+#[debug_handler]
+async fn handle_proxy_route(
+    state: State<AppState>,
+    matched_path: MatchedPath,
+    remote_addr: Option<Extension<SocketAddr>>,
+    method: HttpMethod,
+    uri: Uri,
+    query: Query<HashMap<String, String>>,
+    headers: HeaderMap,
+    body: Body,
+) -> Result<Response, AppError> {
+    let query_map = query.0.clone();
+    let path_str = matched_path.as_str();
+
+    let endpoint = state
+        .get_endpoint_config(path_str)
+        .await
+        .or_else(|| find_prefix_match(&state, path_str).now_or_never().flatten())
+        .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
+
+    let state_clone = state.clone();
+    run_pre_checks(
+        state_clone,
+        &headers,
+        &query_map,
+        &endpoint,
+        extract_addr(remote_addr),
+    )
+    .await?;
+    handle_proxy(state, method, uri, headers, body, endpoint).await
+}
+
+#[debug_handler]
+async fn handle_upload_route(
+    state: State<AppState>,
+    matched_path: MatchedPath,
+    remote_addr: Option<Extension<SocketAddr>>,
+    method: axum::http::Method,
+    uri: Uri,
+    query: Query<HashMap<String, String>>,
+    headers: HeaderMap,
+    multipart: Multipart,
+) -> Result<Response, AppError> {
+    let query_map = query.0.clone();
+    let path_str = matched_path.as_str();
+
+    let endpoint = state
+        .get_endpoint_config(path_str)
+        .await
+        .or_else(|| find_prefix_match(&state, path_str).now_or_never().flatten())
+        .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
+
+    let state_clone = state.clone();
+    run_pre_checks(
+        state_clone,
+        &headers,
+        &query_map,
+        &endpoint,
+        extract_addr(remote_addr),
+    )
+    .await?;
+    handle_file_upload_route(multipart, state, uri, method, endpoint, headers).await
+}
+
+#[debug_handler]
+async fn handle_static_files_route(
+    state: State<AppState>,
+    matched_path: MatchedPath,
+    remote_addr: Option<Extension<SocketAddr>>,
+    method: axum::http::Method,
+    uri: Uri,
+    query: Query<HashMap<String, String>>,
+    headers: HeaderMap,
+) -> Result<Response, AppError> {
+    let query_map = query.0.clone();
+    let path_str = matched_path.as_str();
+
+    let endpoint = state
+        .get_endpoint_config(path_str)
+        .await
+        .or_else(|| find_prefix_match(&state, path_str).now_or_never().flatten())
+        .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
+
+    let state_clone = state.clone();
+    run_pre_checks(
+        state_clone,
+        &headers,
+        &query_map,
+        &endpoint,
+        extract_addr(remote_addr),
+    )
+    .await?;
+    let response = handle_static_files(
+        state,
+        method,
+        uri,
+        endpoint,
+        headers,
+        Some(Query(query_map)),
+    )
+    .await?;
+    Ok(response)
+}
+
 async fn run_pre_checks(
-    state: &axum::extract::State<AppState>,
+    state: axum::extract::State<AppState>,
     headers: &HeaderMap,
     query_params: &HashMap<String, String>,
     endpoint: &EndpointConfig,
     remote_addr: Option<std::net::SocketAddr>,
 ) -> Result<crate::auth::middleware::AuthInfo, AppError> {
-    // Rate limiting comes first - reject early before auth overhead.
-    let config = state.config.read().await;
+    let config = state.0.config.read().await;
     let rl_config = endpoint.rate_limit.as_ref().unwrap_or(&config.rate_limit);
     state
         .rate_limiter
@@ -313,37 +505,36 @@ async fn run_pre_checks(
     Ok(auth_info)
 }
 
-/// Route a handler to a specific HTTP method on a path.
-///
-/// If a per-endpoint CORS config is provided, it is applied as a route-level
-/// layer by nesting the route in a sub-router, overriding the global CORS config.
-fn route_method<H, T>(
-    app: Router<AppState>,
-    path: &str,
-    method: HttpMethod,
-    handler: H,
-    cors_override: Option<&crate::config::types::CorsConfig>,
-) -> Router<AppState>
-where
-    H: axum::handler::Handler<T, AppState> + Clone,
-    T: 'static,
-{
-    let method_router = match method {
-        HttpMethod::Get => axum::routing::get(handler),
-        HttpMethod::Post => axum::routing::post(handler),
-        HttpMethod::Put => axum::routing::put(handler),
-        HttpMethod::Patch => axum::routing::patch(handler),
-        HttpMethod::Delete => axum::routing::delete(handler),
-        HttpMethod::Head => axum::routing::head(handler),
-        HttpMethod::Options => axum::routing::options(handler),
-    };
+// /// Route a handler to a specific HTTP method on a path.
+// ///
+// /// If a per-endpoint CORS config is provided, it is applied as a route-level
+// /// layer by nesting the route in a sub-router, overriding the global CORS config.
+// fn route_method<F>(
+//     mut app: Router<AppState>,
+//     path: &str,
+//     method: HttpMethod,
+//     handler: F,
+//     cors_override: Option<&crate::config::types::CorsConfig>,
+// ) -> Router<AppState>
+// where
+//     F: axum::handler::Handler<(), AppState> + Clone + Send + 'static,
+// {
+//     let method_router = match method {
+//         HttpMethod::Get => axum::routing::get(handler.clone()),
+//         HttpMethod::Post => axum::routing::post(handler.clone()),
+//         HttpMethod::Put => axum::routing::put(handler.clone()),
+//         HttpMethod::Patch => axum::routing::patch(handler.clone()),
+//         HttpMethod::Delete => axum::routing::delete(handler.clone()),
+//         HttpMethod::Head => axum::routing::head(handler.clone()),
+//         HttpMethod::Options => axum::routing::options(handler.clone()),
+//     };
 
-    if let Some(cors_config) = cors_override {
-        let sub = Router::<AppState>::new()
-            .route(path, method_router)
-            .layer(build_cors_layer(cors_config));
-        app.merge(sub)
-    } else {
-        app.route(path, method_router)
-    }
-}
+//     if let Some(cors_config) = cors_override {
+//         let sub = Router::<AppState>::new()
+//             .route(path, method_router)
+//             .layer(build_cors_layer(cors_config));
+//         app.merge(sub)
+//     } else {
+//         app.route(path, method_router)
+//     }
+// }

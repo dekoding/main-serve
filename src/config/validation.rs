@@ -77,18 +77,34 @@ fn validate_databases(config: &AppConfig, errors: &mut Vec<String>) {
 
 /// Validate table schemas reference existing databases and have valid columns.
 fn validate_tables(config: &AppConfig, errors: &mut Vec<String>) {
-    for (table_name, table) in &config.tables {
+    // Check for duplicate table name + database combinations
+    let mut seen_tables = std::collections::HashSet::new();
+
+    for table in &config.tables {
+        let table_key = format!("{}.{}", table.name, table.database);
+        if !seen_tables.insert(table_key.clone()) {
+            errors.push(format!(
+                "Duplicate table definition for '{}.{}'",
+                table.name, table.database
+            ));
+        }
+    }
+
+    // Validate each table
+    for (i, table) in config.tables.iter().enumerate() {
+        let label = format!("tables[{}] ({})", i, table.name);
+
         // Check database reference exists
         if !config.databases.contains_key(&table.database) {
             errors.push(format!(
-                "tables.{table_name}.database references '{}' which is not defined in databases",
-                table.database
+                "{}: references database '{}' which is not defined in databases",
+                label, table.database
             ));
         }
 
         // Check table has at least one column
         if table.columns.is_empty() {
-            errors.push(format!("tables.{table_name} must have at least one column"));
+            errors.push(format!("{}: must have at least one column", label));
         }
 
         // Check column names are not empty and not duplicated
@@ -96,14 +112,12 @@ fn validate_tables(config: &AppConfig, errors: &mut Vec<String>) {
         let mut has_pk = false;
         for col in &table.columns {
             if col.name.is_empty() {
-                errors.push(format!(
-                    "tables.{table_name} has a column with an empty name"
-                ));
+                errors.push(format!("{}: has a column with an empty name", label));
             }
             if !col_names.insert(&col.name) {
                 errors.push(format!(
-                    "tables.{table_name} has duplicate column name '{}'",
-                    col.name
+                    "{}: has duplicate column name '{}'",
+                    label, col.name
                 ));
             }
             if col.primary_key {
@@ -112,7 +126,8 @@ fn validate_tables(config: &AppConfig, errors: &mut Vec<String>) {
         }
         if !has_pk {
             errors.push(format!(
-                "tables.{table_name} must have at least one primary key column"
+                "{}: must have at least one primary key column",
+                label
             ));
         }
 
@@ -120,14 +135,19 @@ fn validate_tables(config: &AppConfig, errors: &mut Vec<String>) {
         for fk in &table.foreign_keys {
             if !col_names.contains(&fk.column) {
                 errors.push(format!(
-                    "tables.{table_name}.foreign_keys references column '{}' which does not exist",
-                    fk.column
+                    "{}: foreign_keys references column '{}' which does not exist",
+                    label, fk.column
                 ));
             }
-            if !config.tables.contains_key(&fk.references_table) {
+            // Check referenced table exists (by name + database match)
+            let table_exists = config
+                .tables
+                .iter()
+                .any(|t| t.name == fk.references_table && t.database == table.database);
+            if !table_exists {
                 errors.push(format!(
-                    "tables.{table_name}.foreign_keys references table '{}' which is not defined",
-                    fk.references_table
+                    "{}: foreign_keys references table '{}' which is not defined",
+                    label, fk.references_table
                 ));
             }
         }
@@ -151,7 +171,7 @@ fn validate_endpoints(config: &AppConfig, errors: &mut Vec<String>) {
                 if let Some(ref crud) = ep.crud {
                     if crud.table.is_empty() {
                         errors.push(format!("{label}: crud.table must not be empty"));
-                    } else if !config.tables.contains_key(&crud.table) {
+                    } else if !config.tables.iter().any(|t| t.name == crud.table) {
                         errors.push(format!(
                             "{label}: crud.table '{}' is not defined in tables",
                             crud.table
