@@ -26,7 +26,7 @@ pub async fn setup_server(yaml: &str) -> (axum::Router, NamedTempFile) {
     let config = load_config(f.path()).expect("load config");
     let state = AppState::new(config, f.path().to_path_buf(), "test-token".to_string());
     let config_guard = state.config.read().await;
-    let app = build_router(&config_guard, state.clone());
+    let app = build_router(&config_guard, state.clone()).await;
     drop(config_guard);
     (app, f)
 }
@@ -53,7 +53,7 @@ databases:
     auto_migrate: true
 
 tables:
-  __TABLE_NAME__:
+  - name: "__TABLE_NAME__"
     database: "main"
     columns:
       - name: "id"

@@ -151,7 +151,7 @@ impl TestDatabase {
         }
 
         let config_guard = state.config.read().await;
-        let app = build_router(&config_guard, state.clone());
+        let app = build_router(&config_guard, state.clone()).await;
         drop(config_guard);
 
         (app, state, pools_to_return)

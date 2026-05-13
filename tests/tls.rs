@@ -142,7 +142,7 @@ endpoints:
 
     let state = AppState::new(config, config_file.clone(), "test-token".to_string());
     let config_guard = state.config.read().await;
-    let app = build_router(&config_guard, state.clone());
+    let app = build_router(&config_guard, state.clone()).await;
     drop(config_guard);
 
     let acceptor = build_tls_acceptor(&tls_config).expect("build acceptor");

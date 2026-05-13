@@ -17,7 +17,7 @@ databases:
     allow_destructive: false
 
 tables:
-  __TABLE_NAME__:
+  - name: "__TABLE_NAME__"
     database: "main"
     columns:
       - name: "id"
@@ -42,7 +42,7 @@ databases:
     allow_destructive: false
 
 tables:
-  __TABLE_NAME__:
+  - name: "__TABLE_NAME__"
     database: "main"
     columns:
       - name: "id"
@@ -71,7 +71,7 @@ databases:
     allow_destructive: __ALLOW_DESTRUCTIVE__
 
 tables:
-  __TABLE_NAME__:
+  - name: "__TABLE_NAME__"
     database: "main"
     columns:
       - name: "id"
@@ -99,7 +99,7 @@ databases:
     allow_destructive: __ALLOW_DESTRUCTIVE__
 
 tables:
-  __TABLE_NAME__:
+  - name: "__TABLE_NAME__"
     database: "main"
     columns:
       - name: "id"
@@ -124,7 +124,7 @@ databases:
     allow_destructive: false
 
 tables:
-  __TABLE_NAME__:
+  - name: "__TABLE_NAME__"
     database: "main"
     columns:
       - name: "id"

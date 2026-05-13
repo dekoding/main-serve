@@ -46,7 +46,7 @@ databases:
     allow_destructive: false
 
 tables:
-  __TABLE_NAME__:
+  - name: "__TABLE_NAME__"
     database: "main"
     columns:
       - name: "id"
@@ -79,7 +79,7 @@ databases:
     allow_destructive: false
 
 tables:
-  __TABLE_NAME__:
+  - name: "__TABLE_NAME__"
     database: "main"
     columns:
       - name: "id"
@@ -116,7 +116,7 @@ databases:
     allow_destructive: true
 
 tables:
-  __TABLE_NAME__:
+  - name: "__TABLE_NAME__"
     database: "main"
     columns:
       - name: "id"
@@ -152,7 +152,7 @@ databases:
     allow_destructive: true
 
 tables:
-  __TABLE_NAME__:
+  - name: "__TABLE_NAME__"
     database: "main"
     columns:
       - name: "id"
@@ -382,7 +382,7 @@ databases:
     driver: "sqlite"
     url: "sqlite://test.db"
 tables:
-  items:
+  - name: "items"
     database: "main"
     columns:
       - name: "id"

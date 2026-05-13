@@ -102,7 +102,7 @@ async fn setup_static_server(
     let config = load_config(&config_file).expect("load config");
     let state = AppState::new(config, config_file, "test-token".to_string());
     let config_guard = state.config.read().await;
-    let app = build_router(&config_guard, state.clone());
+    let app = build_router(&config_guard, state.clone()).await;
     drop(config_guard);
 
     (app, dir)
@@ -133,7 +133,7 @@ async fn setup_combined_app(
         *pool_lock = pools;
     }
     let config_guard = state.config.read().await;
-    let app = build_router(&config_guard, state.clone());
+    let app = build_router(&config_guard, state.clone()).await;
     drop(config_guard);
 
     (app, dir)

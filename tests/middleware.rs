@@ -295,7 +295,7 @@ databases:
     url: "{}"
 
 tables:
-  items:
+  - name: "items"
     database: main
     columns:
       - name: id
@@ -368,7 +368,7 @@ databases:
     url: "{}"
 
 tables:
-  items:
+  - name: "items"
     database: main
     columns:
       - name: id

@@ -427,7 +427,7 @@ databases:
     auto_migrate: true
 
 tables:
-  __TABLE_NAME__:
+  - name: "__TABLE_NAME__"
     database: "main"
     columns:
       - name: "id"
@@ -465,7 +465,7 @@ databases:
     auto_migrate: true
 
 tables:
-  __TABLE_NAME__:
+  - name: "__TABLE_NAME__"
     database: "main"
     columns:
       - name: "id"
