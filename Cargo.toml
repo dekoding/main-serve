@@ -57,6 +57,7 @@ systemctl daemon-reload 2>/dev/null || true
 [dependencies]
 # Async runtime
 tokio = { version = "1", features = ["full"] }
+async-trait = "0.1"
 
 # HTTP framework
 axum = { version = "0.8", features = ["macros", "multipart"] }
