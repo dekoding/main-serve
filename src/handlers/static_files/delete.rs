@@ -10,9 +10,11 @@ use crate::error::AppError;
 use crate::handlers::static_files::routing::{check_upload_role, extract_auth_info};
 use crate::handlers::static_files::upload::sanitize_filename;
 use crate::server::state::AppState;
+use crate::storage::Storage;
 
 /// Handle file deletion (DELETE).
 pub async fn handle_file_delete(
+    storage: &dyn Storage,
     state: State<AppState>,
     endpoint: &crate::config::types::EndpointConfig,
     config: &StaticFilesConfig,
@@ -64,12 +66,13 @@ pub async fn handle_file_delete(
     };
 
     // Verify file exists.
-    if !delete_path.exists() {
+    if !storage.exists(&delete_path).await {
         return Err(AppError::NotFound("File not found".to_string()));
     }
 
     // Delete the file.
-    tokio::fs::remove_file(&delete_path)
+    storage
+        .delete(&delete_path)
         .await
         .map_err(|e| AppError::FileOperation(format!("Failed to delete file: {e}")))?;
 

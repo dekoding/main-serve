@@ -14,6 +14,7 @@ use crate::config::AppConfig;
 use crate::config::types::EndpointConfig;
 use crate::db::pool::DatabasePool;
 use crate::middleware::rate_limit::RateLimiter;
+use crate::storage::backend::native::NativeStorage;
 
 /// Shared application state available to all handlers.
 #[derive(Clone)]
@@ -39,6 +40,9 @@ pub struct AppState {
     /// Endpoint configurations keyed by their normalized path, used for lookups
     /// within request handlers when the path parameter is available.
     pub endpoint_configs: Arc<RwLock<HashMap<String, EndpointConfig>>>,
+
+    /// File storage backend for static file serving.
+    pub storage: NativeStorage,
 }
 
 impl AppState {
@@ -53,6 +57,7 @@ impl AppState {
             rate_limiter: RateLimiter::new(),
             oauth2_pending: Arc::new(Mutex::new(HashMap::new())),
             endpoint_configs: Arc::new(RwLock::new(HashMap::new())),
+            storage: NativeStorage::new(),
         }
     }
 

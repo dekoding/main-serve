@@ -89,7 +89,7 @@ pub async fn build_router(config: &AppConfig, state: AppState) -> Router {
         // - Use endpoint's own CORS if present
         // - Otherwise, fall back to global CORS config
         let endpoint_cors = endpoint.cors.as_ref().unwrap_or(&config.cors);
-        
+
         for method in &endpoint.methods {
             router = add_endpoint_route(router, &path, *method, endpoint, Some(endpoint_cors));
         }
@@ -98,13 +98,21 @@ pub async fn build_router(config: &AppConfig, state: AppState) -> Router {
             let bare = path.trim_end_matches("{*rest}").trim_end_matches('/');
             if bare.is_empty() {
                 for method in &endpoint.methods {
-                    router = add_endpoint_route(router, "/", *method, endpoint, Some(endpoint_cors));
+                    router =
+                        add_endpoint_route(router, "/", *method, endpoint, Some(endpoint_cors));
                 }
             } else {
                 for method in &endpoint.methods {
-                    router = add_endpoint_route(router, bare, *method, endpoint, Some(endpoint_cors));
+                    router =
+                        add_endpoint_route(router, bare, *method, endpoint, Some(endpoint_cors));
                     let with_slash = format!("{bare}/");
-                    router = add_endpoint_route(router, &with_slash, *method, endpoint, Some(endpoint_cors));
+                    router = add_endpoint_route(
+                        router,
+                        &with_slash,
+                        *method,
+                        endpoint,
+                        Some(endpoint_cors),
+                    );
                 }
             }
         }
@@ -141,25 +149,23 @@ fn extract_addr(ext: Option<Extension<SocketAddr>>) -> Option<SocketAddr> {
     ext.map(|Extension(a)| a)
 }
 
-fn find_prefix_match<'a>(
+async fn find_prefix_match<'a>(
     state: &'a State<AppState>,
     path: &'a str,
-) -> impl std::future::Future<Output = Option<EndpointConfig>> + 'a {
-    async move {
-        let configs = state.endpoint_configs.read().await;
-        let mut current = path;
-        while !current.is_empty() {
-            if let Some(endpoint) = configs.get(current) {
-                return Some(endpoint.clone());
-            }
-            if let Some(pos) = current.rfind('/') {
-                current = &current[..pos];
-            } else {
-                break;
-            }
+) -> Option<EndpointConfig> {
+    let configs = state.endpoint_configs.read().await;
+    let mut current = path;
+    while !current.is_empty() {
+        if let Some(endpoint) = configs.get(current) {
+            return Some(endpoint.clone());
         }
-        None
+        if let Some(pos) = current.rfind('/') {
+            current = &current[..pos];
+        } else {
+            break;
+        }
     }
+    None
 }
 
 fn add_endpoint_route(
@@ -183,7 +189,9 @@ fn add_endpoint_route(
             };
 
             if let Some(cors_config) = cors {
-                app = app.route(path, method_router).route_layer(build_cors_layer(cors_config));
+                app = app
+                    .route(path, method_router)
+                    .route_layer(build_cors_layer(cors_config));
             } else {
                 app = app.route(path, method_router);
             }
@@ -202,7 +210,9 @@ fn add_endpoint_route(
             };
 
             if let Some(cors_config) = cors {
-                app = app.route(path, method_router).route_layer(build_cors_layer(cors_config));
+                app = app
+                    .route(path, method_router)
+                    .route_layer(build_cors_layer(cors_config));
             } else {
                 app = app.route(path, method_router);
             }
@@ -221,7 +231,9 @@ fn add_endpoint_route(
             };
 
             if let Some(cors_config) = cors {
-                app = app.route(path, method_router).route_layer(build_cors_layer(cors_config));
+                app = app
+                    .route(path, method_router)
+                    .route_layer(build_cors_layer(cors_config));
             } else {
                 app = app.route(path, method_router);
             }
@@ -247,7 +259,9 @@ fn add_endpoint_route(
                 };
 
                 if let Some(cors_config) = cors {
-                    app = app.route(path, method_router).route_layer(build_cors_layer(cors_config));
+                    app = app
+                        .route(path, method_router)
+                        .route_layer(build_cors_layer(cors_config));
                 } else {
                     app = app.route(path, method_router);
                 }
@@ -264,7 +278,9 @@ fn add_endpoint_route(
                 };
 
                 if let Some(cors_config) = cors {
-                    app = app.route(path, method_router).route_layer(build_cors_layer(cors_config));
+                    app = app
+                        .route(path, method_router)
+                        .route_layer(build_cors_layer(cors_config));
                 } else {
                     app = app.route(path, method_router);
                 }

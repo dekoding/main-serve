@@ -13,6 +13,7 @@ use crate::error::AppError;
 use crate::handlers::static_files::routing::{check_upload_role, extract_auth_info};
 use crate::handlers::static_files::utils::mime_from_path;
 use crate::server::state::AppState;
+use crate::storage::Storage;
 
 /// Handle file upload (POST/PUT/PATCH).
 pub async fn handle_file_upload(
@@ -24,6 +25,7 @@ pub async fn handle_file_upload(
     root: &Path,
     headers: &axum::http::HeaderMap,
 ) -> Result<axum::http::Response<Body>, AppError> {
+    let storage = &state.storage;
     let upload_config = config
         .upload
         .as_ref()
@@ -140,7 +142,8 @@ pub async fn handle_file_upload(
 
     // Ensure parent directories exist.
     if let Some(parent) = storage_path.parent() {
-        tokio::fs::create_dir_all(parent)
+        storage
+            .create_dir_all(parent)
             .await
             .map_err(|e| AppError::FileOperation(format!("Failed to create directory: {e}")))?;
     }
@@ -162,7 +165,7 @@ pub async fn handle_file_upload(
     }
 
     // Check if file already exists at the destination path.
-    if storage_path.exists() {
+    if storage.exists(&storage_path).await {
         return Err(AppError::FileOperation(format!(
             "A file already exists at the destination path: {}",
             storage_path.display()
@@ -170,24 +173,24 @@ pub async fn handle_file_upload(
     }
 
     // Write file content to disk.
-    tokio::fs::write(&storage_path, &file_content)
+    storage
+        .write(&storage_path, &file_content)
         .await
         .map_err(|e| AppError::FileOperation(format!("Failed to write file: {}", e)))?;
 
     // Get file metadata for response
-    let metadata = tokio::fs::metadata(&storage_path)
+    let metadata = storage
+        .metadata(&storage_path)
         .await
         .map_err(|e| AppError::FileOperation(format!("Failed to read file metadata: {}", e)))?;
 
     let created = metadata
-        .created()
-        .ok()
+        .created
         .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339())
         .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
 
     let modified = metadata
-        .modified()
-        .ok()
+        .modified
         .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339())
         .unwrap_or(created.clone());
 

@@ -52,7 +52,8 @@ pub async fn body_limit_middleware(
     if bytes.len() > max_size {
         return Err(AppError::Body(format!(
             "Request body size {} exceeds maximum allowed size {}",
-            bytes.len(), max_size
+            bytes.len(),
+            max_size
         )));
     }
 

@@ -5,9 +5,8 @@ use axum::response::IntoResponse;
 use axum::response::Response;
 
 use crate::error::AppError;
-use crate::handlers::static_files::utils::{
-    apply_static_headers, format_modified, format_size, html_escape,
-};
+use crate::handlers::static_files::utils::{apply_static_headers, format_size, html_escape};
+use crate::storage::Storage;
 use percent_encoding::percent_decode_str;
 
 /// Metadata collected for a single directory entry.
@@ -24,34 +23,27 @@ pub struct DirEntryInfo {
 
 /// Generate an HTML directory listing for the given directory.
 pub async fn generate_directory_listing(
+    storage: &dyn Storage,
     dir: &Path,
     request_path: &str,
 ) -> Result<Response, AppError> {
-    let mut entries = tokio::fs::read_dir(dir)
+    let entries = storage
+        .list(dir)
         .await
         .map_err(|e| AppError::Internal(format!("Failed to read directory: {e}")))?;
 
     let mut items: Vec<DirEntryInfo> = Vec::new();
-    while let Ok(Some(entry)) = entries.next_entry().await {
-        let name = entry.file_name().to_string_lossy().to_string();
-        let metadata = entry.metadata().await.ok();
-        let is_dir = metadata.as_ref().is_some_and(std::fs::Metadata::is_dir);
-        let size = metadata.as_ref().map_or(0, std::fs::Metadata::len);
-        let modified = metadata.as_ref().and_then(|m| m.modified().ok());
+    for entry in entries {
+        let is_dir = !entry.is_file();
+        let size = entry.size;
         items.push(DirEntryInfo {
-            name,
+            name: entry.name,
             is_dir,
             size,
-            modified,
-            mode: metadata
-                .as_ref()
-                .map_or(0, std::os::unix::fs::MetadataExt::mode),
-            uid: metadata
-                .as_ref()
-                .map_or(0, std::os::unix::fs::MetadataExt::uid),
-            gid: metadata
-                .as_ref()
-                .map_or(0, std::os::unix::fs::MetadataExt::gid),
+            modified: None,
+            mode: 0,
+            uid: 0,
+            gid: 0,
         });
     }
     items.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.cmp(&b.name)));
@@ -106,23 +98,10 @@ pub async fn generate_directory_listing(
         } else {
             format_size(item.size)
         };
-        let modified_str = item
-            .modified
-            .map_or_else(|| "-".to_string(), format_modified);
 
         html.push_str("<tr>");
-        {
-            let perms = format_permissions(item.mode, item.is_dir);
-            let owner = resolve_username(item.uid);
-            let group = resolve_group(item.gid);
-            html.push_str(&format!(
-                "<td class=\"perms\">{perms}</td><td>{}</td><td>{}</td>",
-                html_escape(&owner),
-                html_escape(&group)
-            ));
-        }
         html.push_str(&format!(
-            "<td class=\"size\">{size_str}</td><td>{modified_str}</td><td>{link}</td></tr>\n"
+            "<td class=\"size\">{size_str}</td><td>{link}</td></tr>\n"
         ));
     }
 

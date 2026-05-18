@@ -20,20 +20,21 @@ use crate::error::AppError;
 use crate::handlers::static_files::routing::StaticGetContext;
 use crate::handlers::static_files::utils::{apply_static_headers, mime_from_path};
 use crate::server::AppState;
+use crate::storage::Storage;
 
 /// Handle GET requests - serve files with optional image resize or streaming.
 pub async fn handle_static_get(
     state: State<AppState>,
     ctx: StaticGetContext<'_>,
 ) -> Result<Response, AppError> {
-    let _ = state;
+    let storage = &state.storage;
     let resolved = if ctx.relative.is_empty() {
         ctx.root.to_path_buf()
     } else {
         let r = ctx.root.join(ctx.relative);
         if let (Ok(canonical), Ok(root_canonical)) = (
-            tokio::fs::canonicalize(&r).await,
-            tokio::fs::canonicalize(ctx.root).await,
+            storage.canonicalize(&r).await,
+            storage.canonicalize(ctx.root).await,
         ) && !canonical.starts_with(&root_canonical)
         {
             return Err(AppError::Forbidden("Path traversal denied".to_string()));
@@ -41,27 +42,23 @@ pub async fn handle_static_get(
         r
     };
 
-    let resolved_meta = tokio::fs::metadata(&resolved).await.ok();
-    if resolved_meta
-        .as_ref()
-        .is_some_and(std::fs::Metadata::is_dir)
-    {
+    let resolved_meta = storage.metadata(&resolved).await.ok();
+    if resolved_meta.as_ref().is_some_and(|m| !m.is_file) {
         let index_path = resolved.join(&ctx.config.index);
-        let index_exists = tokio::fs::metadata(&index_path)
-            .await
-            .is_ok_and(|m| m.is_file());
+        let index_exists = storage.metadata(&index_path).await.is_ok_and(|m| m.is_file);
         if index_exists {
-            return serve_file(&index_path, ctx.config, None, ctx.headers).await;
+            return serve_file(storage, &index_path, ctx.config, None, ctx.headers).await;
         }
         if ctx.config.directory_listing {
             return crate::handlers::static_files::directory::generate_directory_listing(
+                storage,
                 &resolved,
                 ctx.request_path,
             )
             .await;
         }
         if ctx.config.spa_fallback {
-            return serve_spa_fallback(ctx.root, &ctx.config.index, ctx.config).await;
+            return serve_spa_fallback(storage, ctx.root, &ctx.config.index, ctx.config).await;
         }
         return Err(AppError::NotFound(format!(
             "File not found: {0}",
@@ -118,26 +115,27 @@ pub async fn handle_static_get(
 
         let final_resolved = ctx.root.join(&user_resolved);
 
-        // Canonicalize and check for path traversal.
-        if let (Ok(canonical), Ok(root_canonical)) = (
-            tokio::fs::canonicalize(&final_resolved).await,
-            tokio::fs::canonicalize(ctx.root).await,
-        ) && !canonical.starts_with(&root_canonical)
-        {
-            return Err(AppError::Forbidden("Path traversal denied".to_string()));
-        }
+         // Canonicalize and check for path traversal.
+         if let (Ok(canonical), Ok(root_canonical)) = (
+             storage.canonicalize(&final_resolved).await,
+             storage.canonicalize(ctx.root).await,
+         ) && !canonical.starts_with(&root_canonical)
+         {
+             return Err(AppError::Forbidden("Path traversal denied".to_string()));
+         }
 
-        let meta = tokio::fs::metadata(&final_resolved)
-            .await
-            .map_err(|_| AppError::NotFound(format!("File not found: {0}", ctx.request_path)))?;
-        if !meta.is_file() {
-            return Err(AppError::NotFound(format!(
-                "File not found: {0}",
-                ctx.request_path
-            )));
-        }
+         let meta = storage.metadata(&final_resolved)
+             .await
+             .map_err(|_| AppError::NotFound(format!("File not found: {0}", ctx.request_path)))?;
+         if !meta.is_file {
+             return Err(AppError::NotFound(format!(
+                 "File not found: {0}",
+                 ctx.request_path
+             )));
+         }
 
         return serve_file(
+            storage,
             &final_resolved,
             ctx.config,
             Some(ctx.query.map(|q| q.0.clone()).unwrap_or_default()),
@@ -147,6 +145,7 @@ pub async fn handle_static_get(
     }
 
     serve_file(
+        storage,
         &resolved,
         ctx.config,
         ctx.query.map(|q| q.0.clone()),
@@ -157,16 +156,18 @@ pub async fn handle_static_get(
 
 /// Serve a single file with optional image resize or streaming.
 pub async fn serve_file(
+    storage: &dyn Storage,
     path: &Path,
     config: &StaticFilesConfig,
     query_params: Option<HashMap<String, String>>,
     headers: &axum::http::HeaderMap,
 ) -> Result<Response, AppError> {
-    let meta = tokio::fs::metadata(path)
+    let meta = storage
+        .metadata(path)
         .await
         .map_err(|_| AppError::NotFound(format!("File not found: {}", path.display())))?;
 
-    let file_size = meta.len();
+    let file_size = meta.size;
     let content_type = mime_from_path(path);
 
     // Check if Range header is present for partial content.
@@ -176,6 +177,7 @@ pub async fn serve_file(
         && streaming_config.enabled
         && file_size > streaming_config.threshold
         && let Some(partial_response) = handle_range_request(
+            storage,
             path,
             range_str,
             &content_type,
@@ -192,7 +194,7 @@ pub async fn serve_file(
         && image_config.enabled
         && is_image_path(path)
         && let Some(resized) =
-            handle_image_resize(path, query_params.as_ref(), image_config).await?
+            handle_image_resize(storage, path, query_params.as_ref(), image_config).await?
     {
         return Ok(resized);
     }
@@ -202,12 +204,19 @@ pub async fn serve_file(
         && streaming_config.enabled
         && file_size > streaming_config.threshold
     {
-        return serve_file_streaming(path, &content_type, config.cache_max_age, streaming_config)
-            .await;
+        return serve_file_streaming(
+            storage,
+            path,
+            &content_type,
+            config.cache_max_age,
+            streaming_config,
+        )
+        .await;
     }
 
     // Default: read entire file into memory.
-    let contents = tokio::fs::read(path)
+    let contents = storage
+        .read(path)
         .await
         .map_err(|_| AppError::NotFound(format!("File not found: {}", path.display())))?;
 
@@ -218,12 +227,14 @@ pub async fn serve_file(
 
 /// Serve a file using streaming response.
 pub async fn serve_file_streaming(
+    storage: &dyn Storage,
     path: &Path,
     content_type: &str,
     cache_max_age: u64,
     config: &StreamingConfig,
 ) -> Result<Response, AppError> {
-    let file = tokio::fs::File::open(path)
+    let file = storage
+        .open(path)
         .await
         .map_err(|_| AppError::NotFound(format!("File not found: {}", path.display())))?;
 
@@ -250,6 +261,7 @@ pub async fn serve_file_streaming(
 ///
 /// Returns None if no Range header is present, or if the range cannot be satisfied.
 async fn handle_range_request(
+    storage: &dyn Storage,
     path: &Path,
     range_header: &str,
     content_type: &str,
@@ -265,10 +277,10 @@ async fn handle_range_request(
         .split_once('-')
         .ok_or_else(|| AppError::BadRequest("Invalid Range format".to_string()))?;
 
-    let file_size = tokio::fs::metadata(path)
+    let file_size = storage
+        .size(path)
         .await
-        .map_err(|_| AppError::NotFound("File not found".to_string()))?
-        .len();
+        .map_err(|_| AppError::NotFound("File not found".to_string()))?;
 
     // Parse start position
     let start: u64 = start_str
@@ -294,7 +306,8 @@ async fn handle_range_request(
     }
 
     // Open file and seek to start position
-    let mut file = tokio::fs::File::open(path)
+    let mut file = storage
+        .open(path)
         .await
         .map_err(|_| AppError::NotFound("File not found".to_string()))?;
 
@@ -368,6 +381,7 @@ fn build_range_not_satisfiable_response(file_size: u64, cache_max_age: u64) -> R
 
 /// Handle image resize if parameters are present.
 pub async fn handle_image_resize(
+    storage: &dyn Storage,
     path: &Path,
     query_params: Option<&HashMap<String, String>>,
     config: &ImageResizeConfig,
@@ -385,7 +399,8 @@ pub async fn handle_image_resize(
     }
 
     // Read the original image.
-    let image_data = tokio::fs::read(path)
+    let image_data = storage
+        .read(path)
         .await
         .map_err(|_| AppError::NotFound(format!("File not found: {}", path.display())))?;
 
@@ -468,12 +483,14 @@ pub fn is_image_path(path: &Path) -> bool {
 
 /// Serve the index file as a SPA fallback.
 pub async fn serve_spa_fallback(
+    storage: &dyn Storage,
     root: &Path,
     index: &str,
     config: &StaticFilesConfig,
 ) -> Result<Response, AppError> {
     let index_path = root.join(index);
-    let contents = tokio::fs::read(&index_path)
+    let contents = storage
+        .read(&index_path)
         .await
         .map_err(|_| AppError::NotFound(format!("Index file not found: {index}")))?;
     let mut response = (StatusCode::OK, contents).into_response();
