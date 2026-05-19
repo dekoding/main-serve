@@ -139,29 +139,20 @@ logging:
 # CORS (Global defaults - can be overridden per-endpoint)
 # -----------------------------------------------------------------------------
 cors:
-  # Allowed origins. Use ["*"] to allow all.
+  # Allowed origins. Use ["*"] to allow all. Empty or omitted = no cross-origin access.
   # Type: list of strings
-  # Default: ["*"]
-  allowed_origins:
-    - "*"
+  # Default: [] (no cross-origin access by default)
+  allowed_origins: []
 
   # Allowed HTTP methods.
   # Type: list of strings (GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD)
-  # Default: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]
-  allowed_methods:
-    - "GET"
-    - "POST"
-    - "PUT"
-    - "PATCH"
-    - "DELETE"
-    - "OPTIONS"
-    - "HEAD"
+  # Default: [] (inherited from allowed_origins pattern or explicit config)
+  allowed_methods: []
 
   # Allowed request headers.
   # Type: list of strings
-  # Default: ["*"]
-  allowed_headers:
-    - "*"
+  # Default: [] (inherited from allowed_origins pattern or explicit config)
+  allowed_headers: []
 
   # Whether to allow credentials (cookies, authorization headers).
   # Type: boolean
