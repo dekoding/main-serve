@@ -10,7 +10,12 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
 
-use axum::{http::{HeaderMap, Request}, body::Body, middleware::Next, response::Response, extract::Extension};
+use axum::{
+    body::Body,
+    http::{HeaderMap, Request},
+    middleware::Next,
+    response::Response,
+};
 use tokio::sync::Mutex;
 
 use crate::config::types::{RateLimitConfig, RateLimitKeyStrategy};
@@ -117,38 +122,61 @@ fn extract_key(
             .get("authorization")
             .and_then(|v| v.to_str().ok())
             .unwrap_or("unknown")
-    .to_string(),
+            .to_string(),
     }
 }
 
 /// Axum middleware wrapper for rate limiting.
 ///
 /// Runs after auth middleware so it can use auth info (token) for rate limiting.
+///
+/// This version accepts the rate_limiter directly, which is useful for the coordinator pattern.
+pub async fn rate_limit_middleware_with_limiter(
+    limiter: RateLimiter,
+    config: RateLimitConfig,
+    req: Request<Body>,
+    next: Next,
+) -> Result<Response, AppError> {
+    let remote_addr = req.extensions().get::<SocketAddr>().copied();
+
+    let headers = req.headers().clone();
+
+    // Use the passed rate limiter
+    limiter
+        .check_rate_limit(&config, &headers, remote_addr)
+        .await?;
+
+    Ok(next.run(req).await)
+}
+
+/// Axum middleware wrapper for rate limiting that reads config from AppState.
+///
+/// Runs after auth middleware so it can use auth info (token) for rate limiting.
+///
+/// This version reads the endpoint config from the router's endpoint_configs
+/// to determine rate limit settings per-endpoint.
 pub async fn rate_limit_middleware(
     state: axum::extract::State<crate::server::state::AppState>,
     req: Request<Body>,
     next: Next,
 ) -> Result<Response, AppError> {
-    let remote_addr = req
-        .extensions()
-        .get::<Extension<SocketAddr>>()
-        .map(|ext| ext.0);
-    
-    let _path = req.uri().path().to_string();
-    let endpoint_config = req
-        .extensions()
-        .get::<crate::config::types::EndpointConfig>()
-        .cloned();
-    
-    let config = state.0.config.read().await;
+    let remote_addr = req.extensions().get::<SocketAddr>().copied();
+
+    let path = req.uri().path().to_string();
+    let endpoint_config = state.get_endpoint_config(&path).await;
+
+    let config = state.config.read().await;
     let rl_config = endpoint_config
         .and_then(|e| e.rate_limit)
         .unwrap_or(config.rate_limit.clone());
     drop(config);
-    
+
     let headers = req.headers().clone();
-    state.rate_limiter.check_rate_limit(&rl_config, &headers, remote_addr).await?;
-    
+    state
+        .rate_limiter
+        .check_rate_limit(&rl_config, &headers, remote_addr)
+        .await?;
+
     Ok(next.run(req).await)
 }
 

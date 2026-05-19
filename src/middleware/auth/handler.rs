@@ -11,8 +11,10 @@ use axum::{
 };
 
 use crate::{
-    middleware::auth::validators::oauth2::{cleanup_expired, exchange_code, fetch_userinfo, generate_pkce_pair},
     error::AppError,
+    middleware::auth::validators::oauth2::{
+        cleanup_expired, exchange_code, fetch_userinfo, generate_pkce_pair,
+    },
     server::state::AppState,
 };
 

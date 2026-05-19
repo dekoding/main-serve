@@ -13,7 +13,6 @@ use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetReques
 
 use super::reload::{handle_health, handle_reload};
 use super::state::AppState;
-use crate::middleware::auth::{auth_middleware, handler::{handle_oauth2_authorize, handle_oauth2_callback}};
 use crate::config::AppConfig;
 use crate::config::types::{EndpointAction, EndpointConfig, HttpMethod as ConfigHttpMethod};
 use crate::error::AppError;
@@ -21,6 +20,10 @@ use crate::handlers::crud::handle_crud;
 use crate::handlers::custom_response::handle_custom_response;
 use crate::handlers::proxy::handle_proxy;
 use crate::handlers::static_files::routing::{handle_file_upload_route, handle_static_files};
+use crate::middleware::auth::{
+    auth_middleware,
+    handler::{handle_oauth2_authorize, handle_oauth2_callback},
+};
 use crate::middleware::body_limit::body_limit_middleware;
 use crate::middleware::compression::build_compression_layer;
 use crate::middleware::cors::build_cors_layer;
@@ -90,30 +93,116 @@ pub async fn build_router(config: &AppConfig, state: AppState) -> Router {
         // - Otherwise, fall back to global CORS config
         let endpoint_cors = endpoint.cors.as_ref().unwrap_or(&config.cors);
 
+        // Combine all methods into a single route to enable CORS preflight support
+        // and avoid CORS conflicts from multiple route_layer calls
+        let mut combined_router = Router::new();
         for method in &endpoint.methods {
-            router = add_endpoint_route(router, &path, *method, endpoint, Some(endpoint_cors));
+            combined_router = add_endpoint_route(
+                combined_router,
+                &path,
+                *method,
+                endpoint,
+                Some(endpoint_cors),
+            );
         }
+
+        // Apply CORS layer to the combined router for this endpoint
+        let combined_router = combined_router.layer(build_cors_layer(endpoint_cors));
+
+        router = router.merge(combined_router);
 
         if endpoint.action == EndpointAction::Static && path.ends_with("{*rest}") {
             let bare = path.trim_end_matches("{*rest}").trim_end_matches('/');
             if bare.is_empty() {
+                let mut combined_router = Router::new();
                 for method in &endpoint.methods {
-                    router =
-                        add_endpoint_route(router, "/", *method, endpoint, Some(endpoint_cors));
+                    combined_router = add_endpoint_route(
+                        combined_router,
+                        "/",
+                        *method,
+                        endpoint,
+                        Some(endpoint_cors),
+                    );
                 }
-            } else {
+                if !endpoint.methods.contains(&ConfigHttpMethod::Options) {
+                    combined_router = add_endpoint_route(
+                        combined_router,
+                        "/",
+                        ConfigHttpMethod::Options,
+                        endpoint,
+                        Some(endpoint_cors),
+                    );
+                }
+                let combined_router = combined_router.layer(build_cors_layer(endpoint_cors));
+                router = router.merge(combined_router);
+
+                let with_slash = format!("{bare}/");
+                let mut combined_router = Router::new();
                 for method in &endpoint.methods {
-                    router =
-                        add_endpoint_route(router, bare, *method, endpoint, Some(endpoint_cors));
-                    let with_slash = format!("{bare}/");
-                    router = add_endpoint_route(
-                        router,
+                    combined_router = add_endpoint_route(
+                        combined_router,
                         &with_slash,
                         *method,
                         endpoint,
                         Some(endpoint_cors),
                     );
                 }
+                if !endpoint.methods.contains(&ConfigHttpMethod::Options) {
+                    combined_router = add_endpoint_route(
+                        combined_router,
+                        &with_slash,
+                        ConfigHttpMethod::Options,
+                        endpoint,
+                        Some(endpoint_cors),
+                    );
+                }
+                let combined_router = combined_router.layer(build_cors_layer(endpoint_cors));
+                router = router.merge(combined_router);
+            } else {
+                let mut combined_router = Router::new();
+                for method in &endpoint.methods {
+                    combined_router = add_endpoint_route(
+                        combined_router,
+                        bare,
+                        *method,
+                        endpoint,
+                        Some(endpoint_cors),
+                    );
+                }
+                if !endpoint.methods.contains(&ConfigHttpMethod::Options) {
+                    combined_router = add_endpoint_route(
+                        combined_router,
+                        bare,
+                        ConfigHttpMethod::Options,
+                        endpoint,
+                        Some(endpoint_cors),
+                    );
+                }
+                let combined_router = combined_router.layer(build_cors_layer(endpoint_cors));
+                router = router.merge(combined_router);
+
+                let with_slash = format!("{bare}/");
+                let mut combined_router = Router::new();
+                for method in &endpoint.methods {
+                    combined_router = add_endpoint_route(
+                        combined_router,
+                        &with_slash,
+                        *method,
+                        endpoint,
+                        Some(endpoint_cors),
+                    );
+                }
+                if !endpoint.methods.contains(&ConfigHttpMethod::Options) {
+                    combined_router = add_endpoint_route(
+                        combined_router,
+                        &with_slash,
+                        ConfigHttpMethod::Options,
+                        endpoint,
+                        Some(endpoint_cors),
+                    );
+                }
+                let combined_router = combined_router.layer(build_cors_layer(endpoint_cors));
+                router = router.merge(combined_router);
             }
         }
     }
@@ -135,8 +224,7 @@ pub async fn build_router(config: &AppConfig, state: AppState) -> Router {
         router
     };
 
-     // Apply global CORS as a base layer.
-    let router = router.layer(build_cors_layer(&config.cors));
+    // Apply global CORS as a base layer.
 
     // Auth middleware must run before body logging so auth info is available in
     // request extensions for logging. Auth info is also needed for token-based
@@ -153,7 +241,7 @@ pub async fn build_router(config: &AppConfig, state: AppState) -> Router {
         rate_limit_middleware,
     ));
 
-      router
+    router
         .layer(build_compression_layer())
         .layer(build_trace_layer())
         .layer(PropagateRequestIdLayer::x_request_id())
@@ -518,20 +606,22 @@ async fn run_pre_checks(
     headers: &HeaderMap,
     query_params: &HashMap<String, String>,
     endpoint: &EndpointConfig,
-    remote_addr: Option<std::net::SocketAddr>,
+    _remote_addr: Option<std::net::SocketAddr>,
 ) -> Result<crate::middleware::auth::validate::AuthInfo, AppError> {
-    let config = state.0.config.read().await;
-    let rl_config = endpoint.rate_limit.as_ref().unwrap_or(&config.rate_limit);
-    state
-        .rate_limiter
-        .check_rate_limit(rl_config, headers, remote_addr)
-        .await?;
-
     if endpoint.auth == "none" {
         return Ok(crate::middleware::auth::validate::AuthInfo::default());
     }
 
-    let auth_info = crate::middleware::auth::validate::authenticate(&endpoint.auth, &config.auth, headers, query_params).await?;
+    let config = state.0.config.read().await;
+
+    let auth_info = crate::middleware::auth::validate::authenticate(
+        &endpoint.auth,
+        &config.auth,
+        headers,
+        query_params,
+    )
+    .await?;
+
     drop(config);
 
     crate::middleware::auth::validate::check_roles(&auth_info, &endpoint.roles)?;

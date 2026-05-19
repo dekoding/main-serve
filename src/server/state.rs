@@ -9,10 +9,10 @@ use std::sync::Arc;
 
 use tokio::sync::{Mutex, RwLock};
 
-use crate::middleware::auth::validators::oauth2::PendingOAuth2;
 use crate::config::AppConfig;
 use crate::config::types::EndpointConfig;
 use crate::db::pool::DatabasePool;
+use crate::middleware::auth::validators::oauth2::PendingOAuth2;
 use crate::middleware::rate_limit::RateLimiter;
 use crate::storage::backend::native::NativeStorage;
 

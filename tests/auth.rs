@@ -10,9 +10,9 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use tower::ServiceExt;
 
-use main_serve::middleware::auth::validators::jwt::create_token;
 use main_serve::config::load_config;
 use main_serve::config::types::JwtConfig;
+use main_serve::middleware::auth::validators::jwt::create_token;
 
 use support::db::{TestDatabase, enabled_backends};
 use support::{json_body, setup_server, start_mock_idp};

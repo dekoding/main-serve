@@ -1,5 +1,5 @@
+use axum::http::{HeaderValue, header};
 use axum::response::Response;
-use http::{HeaderValue, header};
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 
 use crate::config::types::CorsConfig;

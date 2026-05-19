@@ -4,8 +4,8 @@ pub mod handler;
 pub mod validate;
 pub mod validators;
 
-use axum::{body::Body, http::Request, response::Response};
 use axum::middleware::Next;
+use axum::{body::Body, http::Request, response::Response};
 
 use crate::context::RequestContext;
 use crate::error::AppError;
@@ -33,70 +33,78 @@ pub async fn auth_middleware(
     next: Next,
 ) -> Result<Response, AppError> {
     let path = req.uri().path().to_string();
-    
+
     if SKIP_ROUTES.iter().any(|skip| path.starts_with(skip)) {
         return Ok(next.run(req).await);
     }
-    
-  let endpoint_config = {
+
+    let endpoint_config = {
         let configs = state.0.endpoint_configs.read().await;
         configs.get(req.uri().path()).cloned()
     };
-    
-    let auth_type = endpoint_config.as_ref().map(|e| e.auth.clone()).unwrap_or_else(|| "none".to_string());
-    
+
+    let auth_type = endpoint_config
+        .as_ref()
+        .map(|e| e.auth.clone())
+        .unwrap_or_else(|| "none".to_string());
+
     let auth_config = if auth_type == "none" {
         None
     } else {
         Some(state.0.config.read().await.auth.clone())
     };
-    
-   let headers = req.headers().clone();
+
+    let headers = req.headers().clone();
     let query_params: std::collections::HashMap<String, String> = req
         .uri()
         .query()
         .map(|q| {
             q.split('&')
-                .filter_map(|p| p.split_once('=').map(|(k, v)| (k.to_string(), v.to_string())))
+                .filter_map(|p| {
+                    p.split_once('=')
+                        .map(|(k, v)| (k.to_string(), v.to_string()))
+                })
                 .collect()
         })
         .unwrap_or_default();
-    
-    let required_roles = endpoint_config.as_ref().map(|e| e.roles.clone()).unwrap_or_default();
-    
+
+    let required_roles = endpoint_config
+        .as_ref()
+        .map(|e| e.roles.clone())
+        .unwrap_or_default();
+
     if auth_type == "none" {
         return Ok(next.run(req).await);
     }
-    
-    let auth_config = auth_config.ok_or_else(|| {
-        AppError::Config("Auth required but no auth config provided".to_string())
-    })?;
-    
-    let auth_info = crate::middleware::auth::validate::authenticate(&auth_type, &auth_config, &headers, &query_params)
-        .await?;
-    
+
+    let auth_config = auth_config
+        .ok_or_else(|| AppError::Config("Auth required but no auth config provided".to_string()))?;
+
+    let auth_info = crate::middleware::auth::validate::authenticate(
+        &auth_type,
+        &auth_config,
+        &headers,
+        &query_params,
+    )
+    .await?;
+
     crate::middleware::auth::validate::check_roles(&auth_info, &required_roles)?;
-    
+
     let context = RequestContext {
         user_id: Some(auth_info.subject.clone()),
         user_role: auth_info.role.clone(),
         headers: headers
             .iter()
-            .map(|(k, v)| {
-                (
-                    k.to_string(),
-                    v.to_str().unwrap_or("").to_string(),
-                )
-            })
+            .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
             .collect(),
         method: req.method().to_string(),
         path: path.clone(),
         query_params: query_params.clone(),
     };
-    
+
     req.extensions_mut().insert(auth_info);
     req.extensions_mut().insert(context);
-    
+
     Ok(next.run(req).await)
 }
 

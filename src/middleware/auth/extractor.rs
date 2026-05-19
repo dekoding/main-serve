@@ -55,9 +55,16 @@ where
 {
     type Rejection = (StatusCode, String);
 
-    async fn from_request_parts(_parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        // This will be implemented in Phase 2 when the middleware populates extensions
-        unimplemented!("RequireAuth extractor requires auth middleware to be in place")
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let auth_info = parts.extensions.get::<AuthInfo>().cloned();
+
+        match auth_info {
+            Some(info) => Ok(RequireAuth(info)),
+            None => Err((
+                StatusCode::UNAUTHORIZED,
+                "Missing authentication".to_string(),
+            )),
+        }
     }
 }
 
@@ -67,9 +74,9 @@ where
 {
     type Rejection = Infallible;
 
-    async fn from_request_parts(_parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        // This will be implemented in Phase 2 when the middleware populates extensions
-        unimplemented!("OptionalAuth extractor requires auth middleware to be in place")
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let auth_info = parts.extensions.get::<AuthInfo>().cloned();
+        Ok(OptionalAuth(auth_info))
     }
 }
 
