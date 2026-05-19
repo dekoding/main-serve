@@ -10,7 +10,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Instant;
 
-use axum::http::HeaderMap;
+use axum::{http::{HeaderMap, Request}, body::Body, middleware::Next, response::Response, extract::Extension};
 use tokio::sync::Mutex;
 
 use crate::config::types::{RateLimitConfig, RateLimitKeyStrategy};
@@ -117,8 +117,39 @@ fn extract_key(
             .get("authorization")
             .and_then(|v| v.to_str().ok())
             .unwrap_or("unknown")
-            .to_string(),
+    .to_string(),
     }
+}
+
+/// Axum middleware wrapper for rate limiting.
+///
+/// Runs after auth middleware so it can use auth info (token) for rate limiting.
+pub async fn rate_limit_middleware(
+    state: axum::extract::State<crate::server::state::AppState>,
+    req: Request<Body>,
+    next: Next,
+) -> Result<Response, AppError> {
+    let remote_addr = req
+        .extensions()
+        .get::<Extension<SocketAddr>>()
+        .map(|ext| ext.0);
+    
+    let _path = req.uri().path().to_string();
+    let endpoint_config = req
+        .extensions()
+        .get::<crate::config::types::EndpointConfig>()
+        .cloned();
+    
+    let config = state.0.config.read().await;
+    let rl_config = endpoint_config
+        .and_then(|e| e.rate_limit)
+        .unwrap_or(config.rate_limit.clone());
+    drop(config);
+    
+    let headers = req.headers().clone();
+    state.rate_limiter.check_rate_limit(&rl_config, &headers, remote_addr).await?;
+    
+    Ok(next.run(req).await)
 }
 
 #[cfg(test)]

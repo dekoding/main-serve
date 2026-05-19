@@ -20,7 +20,7 @@ pub struct CorsConfig {
 impl Default for CorsConfig {
     fn default() -> Self {
         Self {
-            allowed_origins: vec!["*".to_string()],
+            allowed_origins: vec![],
             allowed_methods: vec![
                 "GET".to_string(),
                 "POST".to_string(),
@@ -30,7 +30,7 @@ impl Default for CorsConfig {
                 "OPTIONS".to_string(),
                 "HEAD".to_string(),
             ],
-            allowed_headers: vec!["*".to_string()],
+            allowed_headers: vec![],
             allow_credentials: false,
             max_age: 86400,
         }

@@ -13,8 +13,7 @@ use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetReques
 
 use super::reload::{handle_health, handle_reload};
 use super::state::AppState;
-use crate::auth::middleware::{authenticate, check_roles};
-use crate::auth::oauth2::{handle_oauth2_authorize, handle_oauth2_callback};
+use crate::middleware::auth::{auth_middleware, handler::{handle_oauth2_authorize, handle_oauth2_callback}};
 use crate::config::AppConfig;
 use crate::config::types::{EndpointAction, EndpointConfig, HttpMethod as ConfigHttpMethod};
 use crate::error::AppError;
@@ -26,6 +25,7 @@ use crate::middleware::body_limit::body_limit_middleware;
 use crate::middleware::compression::build_compression_layer;
 use crate::middleware::cors::build_cors_layer;
 use crate::middleware::logging::{body_logging_middleware, build_trace_layer};
+use crate::middleware::rate_limit::rate_limit_middleware;
 
 pub async fn build_router(config: &AppConfig, state: AppState) -> Router {
     let mut endpoint_configs = std::collections::HashMap::new();
@@ -135,10 +135,25 @@ pub async fn build_router(config: &AppConfig, state: AppState) -> Router {
         router
     };
 
-    // Per-endpoint CORS is now applied in add_endpoint_route for all endpoints.
-    // No global CORS layer needed.
+     // Apply global CORS as a base layer.
+    let router = router.layer(build_cors_layer(&config.cors));
 
-    router
+    // Auth middleware must run before body logging so auth info is available in
+    // request extensions for logging. Auth info is also needed for token-based
+    // rate limiting which runs after this.
+    let router = router.layer(axum::middleware::from_fn_with_state(
+        state.clone(),
+        auth_middleware,
+    ));
+
+    // Rate limiting must run after auth so it can use auth info (token) for
+    // token-based rate limiting keys.
+    let router = router.layer(axum::middleware::from_fn_with_state(
+        state.clone(),
+        rate_limit_middleware,
+    ));
+
+      router
         .layer(build_compression_layer())
         .layer(build_trace_layer())
         .layer(PropagateRequestIdLayer::x_request_id())
@@ -322,6 +337,7 @@ async fn handle_custom_response_route(
 }
 
 #[debug_handler]
+#[allow(clippy::too_many_arguments)]
 async fn handle_crud_route(
     state: State<AppState>,
     matched_path: MatchedPath,
@@ -392,6 +408,7 @@ async fn handle_crud_route(
 }
 
 #[debug_handler]
+#[allow(clippy::too_many_arguments)]
 async fn handle_proxy_route(
     state: State<AppState>,
     matched_path: MatchedPath,
@@ -424,6 +441,7 @@ async fn handle_proxy_route(
 }
 
 #[debug_handler]
+#[allow(clippy::too_many_arguments)]
 async fn handle_upload_route(
     state: State<AppState>,
     matched_path: MatchedPath,
@@ -501,7 +519,7 @@ async fn run_pre_checks(
     query_params: &HashMap<String, String>,
     endpoint: &EndpointConfig,
     remote_addr: Option<std::net::SocketAddr>,
-) -> Result<crate::auth::middleware::AuthInfo, AppError> {
+) -> Result<crate::middleware::auth::validate::AuthInfo, AppError> {
     let config = state.0.config.read().await;
     let rl_config = endpoint.rate_limit.as_ref().unwrap_or(&config.rate_limit);
     state
@@ -510,13 +528,13 @@ async fn run_pre_checks(
         .await?;
 
     if endpoint.auth == "none" {
-        return Ok(crate::auth::middleware::AuthInfo::default());
+        return Ok(crate::middleware::auth::validate::AuthInfo::default());
     }
 
-    let auth_info = authenticate(&endpoint.auth, &config.auth, headers, query_params).await?;
+    let auth_info = crate::middleware::auth::validate::authenticate(&endpoint.auth, &config.auth, headers, query_params).await?;
     drop(config);
 
-    check_roles(&auth_info, &endpoint.roles)?;
+    crate::middleware::auth::validate::check_roles(&auth_info, &endpoint.roles)?;
 
     Ok(auth_info)
 }

@@ -115,24 +115,25 @@ pub async fn handle_static_get(
 
         let final_resolved = ctx.root.join(&user_resolved);
 
-         // Canonicalize and check for path traversal.
-         if let (Ok(canonical), Ok(root_canonical)) = (
-             storage.canonicalize(&final_resolved).await,
-             storage.canonicalize(ctx.root).await,
-         ) && !canonical.starts_with(&root_canonical)
-         {
-             return Err(AppError::Forbidden("Path traversal denied".to_string()));
-         }
+        // Canonicalize and check for path traversal.
+        if let (Ok(canonical), Ok(root_canonical)) = (
+            storage.canonicalize(&final_resolved).await,
+            storage.canonicalize(ctx.root).await,
+        ) && !canonical.starts_with(&root_canonical)
+        {
+            return Err(AppError::Forbidden("Path traversal denied".to_string()));
+        }
 
-         let meta = storage.metadata(&final_resolved)
-             .await
-             .map_err(|_| AppError::NotFound(format!("File not found: {0}", ctx.request_path)))?;
-         if !meta.is_file {
-             return Err(AppError::NotFound(format!(
-                 "File not found: {0}",
-                 ctx.request_path
-             )));
-         }
+        let meta = storage
+            .metadata(&final_resolved)
+            .await
+            .map_err(|_| AppError::NotFound(format!("File not found: {0}", ctx.request_path)))?;
+        if !meta.is_file {
+            return Err(AppError::NotFound(format!(
+                "File not found: {0}",
+                ctx.request_path
+            )));
+        }
 
         return serve_file(
             storage,

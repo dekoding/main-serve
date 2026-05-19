@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use tokio::sync::{Mutex, RwLock};
 
-use crate::auth::oauth2::PendingOAuth2;
+use crate::middleware::auth::validators::oauth2::PendingOAuth2;
 use crate::config::AppConfig;
 use crate::config::types::EndpointConfig;
 use crate::db::pool::DatabasePool;

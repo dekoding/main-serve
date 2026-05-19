@@ -8,11 +8,11 @@ use http::HeaderValue;
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::auth::middleware::AuthInfo;
 use crate::config::types::EndpointConfig;
 use crate::config::types::StaticFilesConfig;
 use crate::error::AppError;
 use crate::handlers::static_files::delete::handle_file_delete;
+use crate::middleware::auth::extractor::AuthInfo;
 use crate::middleware::cors;
 use crate::server::state::AppState;
 use crate::storage::Storage;
@@ -38,7 +38,7 @@ pub async fn extract_auth_info(
     if endpoint.auth == "none" {
         return Ok(AuthInfo::default());
     }
-    crate::auth::middleware::authenticate(
+    crate::middleware::auth::validate::authenticate(
         &endpoint.auth,
         &state.config.read().await.auth,
         headers,

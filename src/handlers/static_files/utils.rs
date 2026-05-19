@@ -4,8 +4,6 @@ use axum::http::HeaderValue;
 use axum::response::Response;
 use http::header;
 
-use crate::error::AppError;
-
 /// Apply Content-Type and Cache-Control headers to a response.
 pub fn apply_static_headers(response: &mut Response, content_type: &str, cache_max_age: u64) {
     response.headers_mut().insert(
@@ -80,24 +78,4 @@ pub fn format_size(bytes: u64) -> String {
 pub fn format_modified(time: std::time::SystemTime) -> String {
     let dt: chrono::DateTime<chrono::Local> = time.into();
     dt.format("%Y-%m-%d %H:%M").to_string()
-}
-
-/// Extract authentication info from request for file operations.
-/// This is a helper to be used by the router when calling file handlers.
-pub async fn extract_auth_for_files(
-    state: &crate::server::state::AppState,
-    endpoint: &crate::config::types::EndpointConfig,
-    headers: &axum::http::HeaderMap,
-    query_params: &std::collections::HashMap<String, String>,
-) -> Result<crate::auth::middleware::AuthInfo, AppError> {
-    if endpoint.auth == "none" {
-        return Ok(crate::auth::middleware::AuthInfo::default());
-    }
-    crate::auth::middleware::authenticate(
-        &endpoint.auth,
-        &state.config.read().await.auth,
-        headers,
-        query_params,
-    )
-    .await
 }

@@ -19,7 +19,7 @@ use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
 use tower::ServiceExt;
 
-use main_serve::auth::jwt::create_token;
+use main_serve::middleware::auth::validators::jwt::create_token;
 use main_serve::config::load_config;
 use main_serve::config::types::JwtConfig;
 use main_serve::server::{AppState, build_router};
