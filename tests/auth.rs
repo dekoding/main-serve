@@ -11,24 +11,11 @@ use axum::http::{Request, StatusCode};
 use tower::ServiceExt;
 
 use main_serve::config::load_config;
-use main_serve::config::types::JwtConfig;
 use main_serve::middleware::auth::validators::jwt::create_token;
 
-use support::db::{TestDatabase, enabled_backends};
+use support::db::{TestBackend, TestDatabase, enabled_backends};
 use support::{json_body, setup_server, start_mock_idp};
-
-use crate::support::db::TestBackend;
-
-fn jwt_config() -> JwtConfig {
-    JwtConfig {
-        secret: "test-jwt-secret-key-long-enough".to_string(),
-        algorithm: main_serve::config::types::JwtAlgorithm::HS256,
-        issuer: "test-issuer".to_string(),
-        audience: "test-audience".to_string(),
-        expiry: 3600,
-        role_claim: "role".to_string(),
-    }
-}
+use support::helpers::jwt_config;
 
 // =============================================================================
 // JWT Auth

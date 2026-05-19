@@ -40,7 +40,23 @@ pub async fn build_router(config: &AppConfig, state: AppState) -> Router {
             let trimmed = path.trim_end_matches('/');
             path = format!("{trimmed}/{{*rest}}");
         }
-        endpoint_configs.insert(path.clone(), endpoint.clone());
+        
+        // Store endpoint config with path#method key for each method
+        // This allows different auth settings per method for the same path
+        for method in &endpoint.methods {
+            let method_str = match method {
+                crate::config::types::HttpMethod::Get => "GET",
+                crate::config::types::HttpMethod::Post => "POST",
+                crate::config::types::HttpMethod::Put => "PUT",
+                crate::config::types::HttpMethod::Patch => "PATCH",
+                crate::config::types::HttpMethod::Delete => "DELETE",
+                crate::config::types::HttpMethod::Head => "HEAD",
+                crate::config::types::HttpMethod::Options => "OPTIONS",
+            };
+            let method_path = format!("{}#{}", path, method_str);
+            endpoint_configs.insert(method_path, endpoint.clone());
+        }
+        
         if endpoint.action == EndpointAction::Static {
             let bare = path.trim_end_matches("{*rest}").trim_end_matches('/');
             if !bare.is_empty() {
@@ -396,6 +412,7 @@ fn add_endpoint_route(
 #[debug_handler]
 async fn handle_custom_response_route(
     state: State<AppState>,
+    method: axum::http::Method,
     matched_path: MatchedPath,
     remote_addr: Option<Extension<SocketAddr>>,
     headers: HeaderMap,
@@ -405,7 +422,7 @@ async fn handle_custom_response_route(
     let path_str = matched_path.as_str();
 
     let endpoint = state
-        .get_endpoint_config(path_str)
+        .get_endpoint_config_for_method(path_str, &method)
         .await
         .or_else(|| find_prefix_match(&state, path_str).now_or_never().flatten())
         .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
@@ -440,7 +457,7 @@ async fn handle_crud_route(
     let path_str = matched_path.as_str();
 
     let endpoint = state
-        .get_endpoint_config(path_str)
+        .get_endpoint_config_for_method(path_str, &method)
         .await
         .or_else(|| find_prefix_match(&state, path_str).now_or_never().flatten())
         .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
@@ -511,7 +528,7 @@ async fn handle_proxy_route(
     let path_str = matched_path.as_str();
 
     let endpoint = state
-        .get_endpoint_config(path_str)
+        .get_endpoint_config_for_method(path_str, &method)
         .await
         .or_else(|| find_prefix_match(&state, path_str).now_or_never().flatten())
         .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
@@ -544,7 +561,7 @@ async fn handle_upload_route(
     let path_str = matched_path.as_str();
 
     let endpoint = state
-        .get_endpoint_config(path_str)
+        .get_endpoint_config_for_method(path_str, &method)
         .await
         .or_else(|| find_prefix_match(&state, path_str).now_or_never().flatten())
         .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
@@ -575,7 +592,7 @@ async fn handle_static_files_route(
     let path_str = matched_path.as_str();
 
     let endpoint = state
-        .get_endpoint_config(path_str)
+        .get_endpoint_config_for_method(path_str, &method)
         .await
         .or_else(|| find_prefix_match(&state, path_str).now_or_never().flatten())
         .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;

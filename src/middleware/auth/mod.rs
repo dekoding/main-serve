@@ -39,8 +39,7 @@ pub async fn auth_middleware(
     }
 
     let endpoint_config = {
-        let configs = state.0.endpoint_configs.read().await;
-        configs.get(req.uri().path()).cloned()
+        state.0.get_endpoint_config_for_method(req.uri().path(), req.method()).await
     };
 
     let auth_type = endpoint_config

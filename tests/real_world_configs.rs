@@ -26,6 +26,7 @@ use main_serve::server::{AppState, build_router};
 
 use support::db::{TestDatabase, create_pools_and_migrate, enabled_backends};
 use support::{json_body, setup_server, start_mock_idp};
+use support::helpers::jwt_config;
 
 // =============================================================================
 // Helpers
@@ -49,17 +50,6 @@ static COMBINED_YAML: LazyLock<String> = LazyLock::new(|| read_config("combined.
 static OAUTH2_YAML: LazyLock<String> = LazyLock::new(|| read_config("oauth2.yaml"));
 static PROXY_YAML: LazyLock<String> = LazyLock::new(|| read_config("proxy.yaml"));
 static CRUD_API_YAML: LazyLock<String> = LazyLock::new(|| read_config("crud_api.yaml"));
-
-fn jwt_config() -> JwtConfig {
-    JwtConfig {
-        secret: "real-world-test-secret-key-32ch".to_string(),
-        algorithm: main_serve::config::types::JwtAlgorithm::HS256,
-        issuer: "main-serve".to_string(),
-        audience: "my-app".to_string(),
-        expiry: 3600,
-        role_claim: "role".to_string(),
-    }
-}
 
 fn basic_auth_hash() -> String {
     use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
