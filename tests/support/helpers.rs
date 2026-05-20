@@ -1,5 +1,5 @@
-use std::io::Write;
 use main_serve::config::types::JwtConfig;
+use std::io::Write;
 use tempfile::NamedTempFile;
 
 /// Helper: Write YAML to a temp file and load it.

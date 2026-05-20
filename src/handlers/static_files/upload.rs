@@ -113,13 +113,13 @@ pub async fn handle_file_upload(
         }
 
         // Optional: Validate image magic bytes if it's an image
-        if let Some(ext) = std::path::Path::new(&original_filename)
-            .extension()
-            .and_then(|e| e.to_str())
-            && is_image_extension(ext)
-        {
-            validate_image_magic_bytes(&file_content)?;
-        }
+   if let Some(ext) = std::path::Path::new(&original_filename)
+        .extension()
+        .and_then(|e| e.to_str())
+        && is_image_extension(ext)
+    {
+        validate_image_magic_bytes(&file_content)?;
+    }
     }
 
     if !found_file {
@@ -197,11 +197,17 @@ pub async fn handle_file_upload(
     let mime_type = mime_from_path(&storage_path);
 
     // Return success response with detailed file metadata.
+    // Return the path relative to root for client use
+    let relative_path = storage_path
+        .strip_prefix(root)
+        .map(|p| format!("/{}", p.to_string_lossy()))
+        .unwrap_or_else(|_| format!("/{}", sanitized_filename));
+    
     Ok((
         StatusCode::CREATED,
         axum::Json(serde_json::json!({
             "success": true,
-            "path": format!("/{}", sanitized_filename),
+            "path": relative_path,
             "name": sanitized_filename,
             "size": file_content.len(),
             "type": mime_type,
@@ -253,7 +259,7 @@ fn generate_upload_filename(
         Ok(uuid.to_string())
     } else {
         // Include extension: UUID.extension
-        Ok(format!("{}_{}", uuid, extension))
+        Ok(format!("{}.{}", uuid, extension))
     }
 }
 
@@ -282,7 +288,7 @@ pub fn sanitize_filename(name: &str, is_upload: bool) -> Result<String, AppError
     // This also prevents directory traversal via filename manipulation.
     if is_upload {
         let uuid = Uuid::new_v4();
-        return Ok(format!("{}_{}", uuid, sanitized).to_lowercase());
+        return Ok(format!("{}.{}", uuid, sanitized).to_lowercase());
     }
 
     // For GET requests, just return the sanitized name.

@@ -195,9 +195,9 @@ pub enum SortOrder {
 }
 
 /// Join configuration for CRUD endpoints.
-    #[derive(Debug, Clone, PartialEq, Deserialize)]
-    #[serde(deny_unknown_fields)]
-    pub struct JoinConfig {
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct JoinConfig {
     /// Table to join.
     pub table: String,
     /// Join condition (e.g. `"users.id = posts.user_id"`).
@@ -224,9 +224,9 @@ pub enum JoinType {
 }
 
 /// A computed (virtual) field defined by a SQL expression.
-    #[derive(Debug, Clone, PartialEq, Deserialize)]
-    #[serde(deny_unknown_fields)]
-    pub struct ComputedFieldConfig {
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ComputedFieldConfig {
     /// Alias name for the computed field.
     pub name: String,
     /// SQL expression (e.g. `"COALESCE(first_name, '')"`).

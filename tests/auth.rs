@@ -14,8 +14,8 @@ use main_serve::config::load_config;
 use main_serve::middleware::auth::validators::jwt::create_token;
 
 use support::db::{TestBackend, TestDatabase, enabled_backends};
-use support::{json_body, setup_server, start_mock_idp};
 use support::helpers::jwt_config;
+use support::{json_body, setup_server, start_mock_idp};
 
 // =============================================================================
 // JWT Auth
@@ -137,7 +137,7 @@ async fn test_jwt_role_required_correct_role() {
 async fn test_jwt_role_required_wrong_role() {
     let (app, _f) = setup_server(JWT_CONFIG).await;
 
-  let token = create_token("user1", Some("viewer"), &jwt_config(JWT_CONFIG)).unwrap();
+    let token = create_token("user1", Some("viewer"), &jwt_config(JWT_CONFIG)).unwrap();
 
     let req = Request::builder()
         .uri("/api/admin")
@@ -489,7 +489,7 @@ async fn test_jwt_auth_on_crud_endpoint() {
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
     // With valid token -> 200.
- let token = create_token("user1", None, &jwt_config(JWT_CONFIG)).unwrap();
+    let token = create_token("user1", None, &jwt_config(JWT_CONFIG)).unwrap();
     let req = Request::builder()
         .uri("/api/items")
         .header("authorization", format!("Bearer {token}"))
@@ -516,7 +516,7 @@ async fn test_jwt_auth_on_crud_endpoint_across_backends() {
             "backend: {backend}"
         );
 
-       let token = create_token("user1", None, &jwt_config(JWT_CONFIG)).unwrap();
+        let token = create_token("user1", None, &jwt_config(JWT_CONFIG)).unwrap();
         let req = Request::builder()
             .uri("/api/items")
             .header("authorization", format!("Bearer {token}"))

@@ -40,7 +40,7 @@ pub async fn build_router(config: &AppConfig, state: AppState) -> Router {
             let trimmed = path.trim_end_matches('/');
             path = format!("{trimmed}/{{*rest}}");
         }
-        
+
         // Store endpoint config with path#method key for each method
         // This allows different auth settings per method for the same path
         for method in &endpoint.methods {
@@ -56,7 +56,7 @@ pub async fn build_router(config: &AppConfig, state: AppState) -> Router {
             let method_path = format!("{}#{}", path, method_str);
             endpoint_configs.insert(method_path, endpoint.clone());
         }
-        
+
         if endpoint.action == EndpointAction::Static {
             let bare = path.trim_end_matches("{*rest}").trim_end_matches('/');
             if !bare.is_empty() {
@@ -153,27 +153,29 @@ pub async fn build_router(config: &AppConfig, state: AppState) -> Router {
                 router = router.merge(combined_router);
 
                 let with_slash = format!("{bare}/");
-                let mut combined_router = Router::new();
-                for method in &endpoint.methods {
-                    combined_router = add_endpoint_route(
-                        combined_router,
-                        &with_slash,
-                        *method,
-                        endpoint,
-                        Some(endpoint_cors),
-                    );
+                if !bare.is_empty() {
+                    let mut combined_router = Router::new();
+                    for method in &endpoint.methods {
+                        combined_router = add_endpoint_route(
+                            combined_router,
+                            &with_slash,
+                            *method,
+                            endpoint,
+                            Some(endpoint_cors),
+                        );
+                    }
+                    if !endpoint.methods.contains(&ConfigHttpMethod::Options) {
+                        combined_router = add_endpoint_route(
+                            combined_router,
+                            &with_slash,
+                            ConfigHttpMethod::Options,
+                            endpoint,
+                            Some(endpoint_cors),
+                        );
+                    }
+                    let combined_router = combined_router.layer(build_cors_layer(endpoint_cors));
+                    router = router.merge(combined_router);
                 }
-                if !endpoint.methods.contains(&ConfigHttpMethod::Options) {
-                    combined_router = add_endpoint_route(
-                        combined_router,
-                        &with_slash,
-                        ConfigHttpMethod::Options,
-                        endpoint,
-                        Some(endpoint_cors),
-                    );
-                }
-                let combined_router = combined_router.layer(build_cors_layer(endpoint_cors));
-                router = router.merge(combined_router);
             } else {
                 let mut combined_router = Router::new();
                 for method in &endpoint.methods {
@@ -368,13 +370,13 @@ fn add_endpoint_route(
             if has_upload {
                 let handler = handle_upload_route;
                 let method_router = match method {
-                    ConfigHttpMethod::Get => axum::routing::get(handler),
                     ConfigHttpMethod::Post => axum::routing::post(handler),
                     ConfigHttpMethod::Put => axum::routing::put(handler),
                     ConfigHttpMethod::Patch => axum::routing::patch(handler),
-                    ConfigHttpMethod::Delete => axum::routing::delete(handler),
-                    ConfigHttpMethod::Head => axum::routing::head(handler),
-                    ConfigHttpMethod::Options => axum::routing::options(handler),
+                    ConfigHttpMethod::Delete => axum::routing::delete(handle_static_files_route),
+                    ConfigHttpMethod::Head => axum::routing::head(handle_static_files_route),
+                    ConfigHttpMethod::Options => axum::routing::options(handle_static_files_route),
+                    ConfigHttpMethod::Get => axum::routing::get(handle_static_files_route),
                 };
 
                 if let Some(cors_config) = cors {

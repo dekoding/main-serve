@@ -20,14 +20,6 @@ pub struct AuthInfo {
 ///
 /// Returns `AuthInfo` if the user is authenticated, or returns a 401 Unauthorized
 /// response if authentication is missing or invalid.
-///
-/// # Examples
-///
-/// ```rust
-/// async fn protected_handler(auth_info: RequireAuth) -> String {
-///     format!("Hello, {}!", auth_info.0.subject)
-/// }
-/// ```
 #[derive(Debug)]
 pub struct RequireAuth(pub AuthInfo);
 
@@ -35,17 +27,6 @@ pub struct RequireAuth(pub AuthInfo);
 ///
 /// Returns `Option<AuthInfo>` - `Some(AuthInfo)` if authenticated, or `None`
 /// if authentication is not present or invalid.
-///
-/// # Examples
-///
-/// ```rust
-/// async fn optional_handler(auth_info: OptionalAuth) -> String {
-///     match auth_info.0 {
-///         Some(info) => format!("Hello, {}!", info.subject),
-///         None => "Hello, guest!".to_string(),
-///     }
-/// }
-/// ```
 #[derive(Debug)]
 pub struct OptionalAuth(pub Option<AuthInfo>);
 

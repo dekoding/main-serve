@@ -77,7 +77,7 @@ pub async fn handle_file_delete(
         .map_err(|e| AppError::FileOperation(format!("Failed to delete file: {e}")))?;
 
     Ok((
-        StatusCode::OK,
+        StatusCode::NO_CONTENT,
         axum::Json(serde_json::json!({
             "success": true,
             "message": "File deleted successfully"

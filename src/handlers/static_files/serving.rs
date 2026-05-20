@@ -43,7 +43,7 @@ pub async fn handle_static_get(
     };
 
     let resolved_meta = storage.metadata(&resolved).await.ok();
-    
+
     // If path points to a directory (not a file), try index file or directory listing
     if resolved_meta.as_ref().is_some_and(|m| !m.is_file) {
         let index_path = resolved.join(&ctx.config.index);
@@ -60,14 +60,14 @@ pub async fn handle_static_get(
             .await;
         }
     }
-    
+
     // If path doesn't point to a file, check for spa_fallback
     // This handles both non-existent files and directories without index
     let file_exists = resolved_meta.as_ref().is_some_and(|m| m.is_file);
     if !file_exists && ctx.config.spa_fallback {
         return serve_spa_fallback(storage, ctx.root, &ctx.config.index, ctx.config).await;
     }
-    
+
     if !file_exists {
         return Err(AppError::NotFound(format!(
             "File not found: {0}",

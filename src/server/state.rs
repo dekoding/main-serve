@@ -67,12 +67,12 @@ impl AppState {
     /// to handle wildcard patterns like `/app/{*rest}` and path parameters.
     pub async fn get_endpoint_config(&self, path: &str) -> Option<EndpointConfig> {
         let configs = self.endpoint_configs.read().await;
-        
+
         // First try exact match
         if let Some(endpoint) = configs.get(path) {
             return Some(endpoint.clone());
         }
-        
+
         // Try prefix matching for paths without wildcards
         let mut current = path;
         while !current.is_empty() {
@@ -85,46 +85,60 @@ impl AppState {
                 break;
             }
         }
-        
+
         // Check for wildcard pattern matches (e.g., /app/{*rest} matches /app/foo/bar)
         for (stored_path, endpoint) in configs.iter() {
-            if let Some(pattern_base) = stored_path.split_once('{').map(|(base, _)| base.trim_end_matches('/')) {
-                if path.starts_with(pattern_base) && (path.len() == pattern_base.len() || path[pattern_base.len()..].starts_with('/')) {
-                    return Some(endpoint.clone());
-                }
+            if let Some(pattern_base) = stored_path
+                .split_once('{')
+                .map(|(base, _)| base.trim_end_matches('/'))
+                && path.starts_with(pattern_base)
+                && (path.len() == pattern_base.len()
+                    || path[pattern_base.len()..].starts_with('/'))
+            {
+                return Some(endpoint.clone());
             }
         }
-        
+
         None
     }
-    
+
     /// Get the endpoint configuration for a given path and method.
     /// This is used by the auth middleware to find the correct endpoint config.
     /// Also handles method-specific keys like `/path#POST`.
-    pub async fn get_endpoint_config_for_method(&self, path: &str, method: &axum::http::Method) -> Option<EndpointConfig> {
+    pub async fn get_endpoint_config_for_method(
+        &self,
+        path: &str,
+        method: &axum::http::Method,
+    ) -> Option<EndpointConfig> {
         let configs = self.endpoint_configs.read().await;
         let method_str = method.as_str().to_uppercase();
-        
+
         // First try method-specific key (e.g., /api/articles#POST)
         let method_key = format!("{}#{}", path, method_str);
         if let Some(endpoint) = configs.get(&method_key) {
             return Some(endpoint.clone());
         }
-        
+
         // Then try exact match on path
-        if let Some(endpoint) = configs.get(path) {
-            if endpoint.methods.iter().any(|m| matches_http_method(m, method)) {
-                return Some(endpoint.clone());
-            }
+        if let Some(endpoint) = configs.get(path)
+            && endpoint
+                .methods
+                .iter()
+                .any(|m| matches_http_method(m, method))
+        {
+            return Some(endpoint.clone());
         }
-        
+
         // Try prefix matching for paths without wildcards
         let mut current = path;
         while !current.is_empty() {
-            if let Some(endpoint) = configs.get(current) {
-                if endpoint.methods.iter().any(|m| matches_http_method(m, method)) {
-                    return Some(endpoint.clone());
-                }
+            if let Some(endpoint) = configs.get(current)
+                && endpoint
+                    .methods
+                    .iter()
+                    .any(|m| matches_http_method(m, method))
+            {
+                return Some(endpoint.clone());
             }
             if let Some(pos) = current.rfind('/') {
                 current = &current[..pos];
@@ -132,29 +146,39 @@ impl AppState {
                 break;
             }
         }
-        
+
         // Check for wildcard pattern matches (e.g., /app/{*rest} matches /app/foo/bar)
         // Also handles method-specific keys like /app/{*rest}#GET
         for (stored_path, endpoint) in configs.iter() {
             // Extract the base path (without method suffix)
-            let path_without_method = stored_path.split_once('#').map(|(base, _)| base).unwrap_or(stored_path);
-            
-            if let Some(pattern_base) = path_without_method.split_once('{').map(|(base, _)| base.trim_end_matches('/')) {
+            let path_without_method = stored_path
+                .split_once('#')
+                .map(|(base, _)| base)
+                .unwrap_or(stored_path);
+
+            if let Some(pattern_base) = path_without_method
+                .split_once('{')
+                .map(|(base, _)| base.trim_end_matches('/'))
                 // Match only if path equals pattern_base exactly, or starts with pattern_base + '/'
                 // This prevents /api/authors from matching /api/authors/{id}
-                if path == pattern_base || path.starts_with(&(pattern_base.to_string() + "/")) {
-                    if endpoint.methods.iter().any(|m| matches_http_method(m, method)) {
-                        return Some(endpoint.clone());
-                    }
-                }
+                && (path == pattern_base || path.starts_with(&(pattern_base.to_string() + "/")))
+                && endpoint
+                    .methods
+                    .iter()
+                    .any(|m| matches_http_method(m, method))
+            {
+                return Some(endpoint.clone());
             }
         }
-        
+
         None
     }
 }
 
-fn matches_http_method(config_method: &crate::config::types::HttpMethod, req_method: &axum::http::Method) -> bool {
+fn matches_http_method(
+    config_method: &crate::config::types::HttpMethod,
+    req_method: &axum::http::Method,
+) -> bool {
     use axum::http::Method;
     match config_method {
         crate::config::types::HttpMethod::Get => req_method == Method::GET,
