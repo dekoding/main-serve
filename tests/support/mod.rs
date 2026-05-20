@@ -37,6 +37,11 @@ pub async fn json_body(response: axum::http::Response<Body>) -> serde_json::Valu
     serde_json::from_slice(&body).unwrap()
 }
 
+/// Parse a JSON response body from bytes.
+pub async fn json_body_from_bytes(body: bytes::Bytes) -> serde_json::Value {
+    serde_json::from_slice(&body).unwrap()
+}
+
 /// Standard CRUD config template used by multiple test files.
 ///
 /// Contains `__DB_DRIVER__`, `__DB_URL__`, and `__TABLE_NAME__` placeholders

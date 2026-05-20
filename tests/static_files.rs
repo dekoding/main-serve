@@ -10,8 +10,9 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use http::Method;
 use http_body_util::BodyExt;
+use main_serve::middleware::auth::validators::jwt::create_token;
 use support::db::{TestDatabase, enabled_backends};
-use support::{CRUD_CONFIG, json_body};
+use support::{CRUD_CONFIG, json_body, helpers::jwt_config};
 use tower::ServiceExt;
 
 // =============================================================================
@@ -1290,21 +1291,20 @@ endpoints:
         root = upload_dir.display()
     );
 
-    let (app, _f) = support::setup_server(&yaml).await;
+ let (app, _f) = support::setup_server(&yaml).await;
 
     let png_data = create_minimal_png();
 
     // Create multipart form data using axum's multipart extraction
-    let body = format!(
-        "--boundary\r\n\
-         Content-Disposition: form-data; name=\"file\"; filename=\"test_image.png\"\r\n\
-         Content-Type: image/png\r\n\r\n\
-         {}\r\n\
-         --boundary--",
-        String::from_utf8_lossy(&png_data)
-    );
+    let mut body = Vec::new();
+    body.extend_from_slice(b"--boundary\r\n");
+    body.extend_from_slice(b"Content-Disposition: form-data; name=\"file\"; filename=\"test_image.png\"\r\n");
+    body.extend_from_slice(b"Content-Type: image/png\r\n\r\n");
+    body.extend_from_slice(&png_data);
+    body.extend_from_slice(b"\r\n");
+    body.extend_from_slice(b"--boundary--");
 
-    let token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLTEyMyIsInJvbGUiOiJ1c2VyIiwiZXhwIjo5OTk5OTk5OTk5fQ.dummy-signature";
+    let token = create_token("user-123", Some("user"), &jwt_config(&yaml)).unwrap();
 
     let req = Request::builder()
         .method(Method::POST)
@@ -1324,12 +1324,8 @@ endpoints:
 
     let json_body = json_body(response).await;
     assert!(json_body["success"].as_bool().unwrap());
-    assert!(
-        json_body["path"]
-            .as_str()
-            .unwrap()
-            .contains("test_image.png")
-    );
+    let path = json_body["path"].as_str().unwrap();
+    assert!(path.ends_with(".png"), "Path should end with .png, got: {}", path);
     assert_eq!(json_body["size"].as_u64().unwrap(), png_data.len() as u64);
 }
 
@@ -1376,7 +1372,7 @@ endpoints:
 
     let (app, _f) = support::setup_server(&yaml).await;
 
-    let token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLTEyMyIsInJvbGUiOiJ1c2VyIiwiZXhwIjo5OTk5OTk5OTk5fQ.dummy";
+    let token = create_token("user-123", Some("user"), &jwt_config(&yaml)).unwrap();
 
     // Create multipart with no file field (just text data)
     let body = "some_data";
@@ -1450,7 +1446,7 @@ endpoints:
 
     let (app, _f) = support::setup_server(&yaml).await;
 
-    let token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLTEyMyIsInJvbGUiOiJ1c2VyIiwiZXhwIjo5OTk5OTk5OTk5fQ.dummy";
+    let token = create_token("user-123", Some("user"), &jwt_config(&yaml)).unwrap();
 
     // Create a file larger than 1024 bytes
     let large_data = vec![0x41; 2048]; // 2KB of 'A' characters
@@ -1534,7 +1530,7 @@ endpoints:
 
     let (app, _f) = support::setup_server(&yaml).await;
 
-    let token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLTEyMyIsInJvbGUiOiJ1c2VyIiwiZXhwIjo5OTk5OTk5OTk5fQ.dummy";
+    let token = create_token("user-123", Some("user"), &jwt_config(&yaml)).unwrap();
 
     // Create a file larger than 1024 bytes without content-length header
     let large_data = vec![0x41; 2048];
@@ -1609,7 +1605,7 @@ endpoints:
 
     let (app, _f) = support::setup_server(&yaml).await;
 
-    let token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLTEyMyIsInJvbGUiOiJ1c2VyIiwiZXhwIjo5OTk5OTk5OTk5fQ.dummy";
+    let token = create_token("user-123", Some("user"), &jwt_config(&yaml)).unwrap();
 
     // Try to upload a file with disallowed extension
     let file_data = b"fake image content".to_vec();
@@ -1692,7 +1688,7 @@ endpoints:
 
     let (app, _f) = support::setup_server(&yaml).await;
 
-    let token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLTEyMyIsInJvbGUiOiJ1c2VyIiwiZXhwIjo5OTk5OTk5OTk5fQ.dummy";
+    let token = create_token("user-123", Some("user"), &jwt_config(&yaml)).unwrap();
 
     // Try to upload a fake PNG (text file with .png extension)
     let fake_png_data = b"This is not a PNG file, just text!".to_vec();
@@ -1774,7 +1770,7 @@ endpoints:
 
     let (app, _f) = support::setup_server(&yaml).await;
 
-    let token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLTEyMyIsInJvbGUiOiJ1c2VyIiwiZXhwIjo5OTk5OTk5OTk5fQ.dummy";
+    let token = create_token("user-123", Some("user"), &jwt_config(&yaml)).unwrap();
 
     let file_data = b"first upload".to_vec();
 
@@ -1883,7 +1879,7 @@ endpoints:
 
     let (app, _f) = support::setup_server(&yaml).await;
 
-    let token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLTEyMyIsInJvbGUiOiJ1c2VyIiwiZXhwIjo5OTk5OTk5OTk5fQ.dummy";
+    let token = create_token("user-123", Some("user"), &jwt_config(&yaml)).unwrap();
 
     let file_data = b"nested file content".to_vec();
 
@@ -1969,19 +1965,18 @@ endpoints:
 
     let (app, _f) = support::setup_server(&yaml).await;
 
-    let token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLTEyMyIsInJvbGUiOiJ1c2VyIiwiZXhwIjo5OTk5OTk5OTk5fQ.dummy";
+    let token = create_token("user-123", Some("user"), &jwt_config(&yaml)).unwrap();
 
     // First upload - should succeed
     let file_data = b"first file".to_vec();
 
-    let body1 = format!(
-        "--boundary\r\n\
-         Content-Disposition: form-data; name=\"file\"; filename=\"test.png\"\r\n\
-         Content-Type: image/png\r\n\r\n\
-         {}\r\n\
-         --boundary--",
-        String::from_utf8_lossy(&file_data.clone())
-    );
+    let mut body1 = Vec::new();
+    body1.extend_from_slice(b"--boundary\r\n");
+    body1.extend_from_slice(b"Content-Disposition: form-data; name=\"file\"; filename=\"test.png\"\r\n");
+    body1.extend_from_slice(b"Content-Type: image/png\r\n\r\n");
+    body1.extend_from_slice(&file_data);
+    body1.extend_from_slice(b"\r\n");
+    body1.extend_from_slice(b"--boundary--");
 
     let req1 = Request::builder()
         .method(Method::POST)
@@ -1998,14 +1993,13 @@ endpoints:
     let filename = response1_json["path"].as_str().unwrap().to_string();
 
     // Second upload with same UUID-based filename - should fail with 409
-    let body2 = format!(
-        "--boundary\r\n\
-         Content-Disposition: form-data; name=\"file\"; filename=\"test.png\"\r\n\
-         Content-Type: image/png\r\n\r\n\
-         {}\r\n\
-         --boundary--",
-        String::from_utf8_lossy(&file_data)
-    );
+    let mut body2 = Vec::new();
+    body2.extend_from_slice(b"--boundary\r\n");
+    body2.extend_from_slice(b"Content-Disposition: form-data; name=\"file\"; filename=\"test.png\"\r\n");
+    body2.extend_from_slice(b"Content-Type: image/png\r\n\r\n");
+    body2.extend_from_slice(&file_data);
+    body2.extend_from_slice(b"\r\n");
+    body2.extend_from_slice(b"--boundary--");
 
     let req2 = Request::builder()
         .method(Method::POST)
@@ -2075,7 +2069,7 @@ endpoints:
 
     let (app, _f) = support::setup_server(&yaml).await;
 
-    let token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLTEyMyIsInJvbGUiOiJ1c2VyIiwiZXhwIjo5OTk5OTk5OTk5fQ.dummy";
+    let token = create_token("user-123", Some("user"), &jwt_config(&yaml)).unwrap();
 
     // First, upload a file
     let file_data = b"file to delete".to_vec();
@@ -2169,7 +2163,7 @@ endpoints:
     let (app, _f) = support::setup_server(&yaml).await;
 
     // User with "user" role tries to delete
-    let token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyLTQ1NiIsInJvbGUiOiJ1c2VyIiwiZXhwIjo5OTk5OTk5OTk5fQ.dummy";
+    let token = create_token("user-456", Some("user"), &jwt_config(&yaml)).unwrap();
 
     let delete_req = Request::builder()
         .method(Method::DELETE)
