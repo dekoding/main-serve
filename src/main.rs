@@ -188,7 +188,7 @@ async fn async_main(cli: Cli, config: main_serve::config::AppConfig, config_path
     }
 
     let config_guard = state.config.read().await;
-    let app = build_router(&config_guard, state.clone());
+    let app = build_router(&config_guard, state.clone()).await;
     drop(config_guard);
 
     // Bind the TCP listener.

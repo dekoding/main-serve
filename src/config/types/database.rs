@@ -53,8 +53,10 @@ pub enum DatabaseDriver {
 
 /// Schema for a single database table (used for migrations and query building).
 #[derive(Debug, Clone, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(deny_unknown_fields)]
 pub struct TableConfig {
+    /// Name of the table as it appears in the database.
+    pub name: String,
     /// Name of the database this table belongs to.
     pub database: String,
     /// Column definitions.
@@ -65,12 +67,18 @@ pub struct TableConfig {
     pub foreign_keys: Vec<ForeignKeyConfig>,
 }
 
-impl Default for TableConfig {
-    fn default() -> Self {
+/// A unique identifier for a table (name + database combination).
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct TableIdentifier {
+    pub name: String,
+    pub database: String,
+}
+
+impl TableIdentifier {
+    pub fn new(name: impl Into<String>, database: impl Into<String>) -> Self {
         Self {
-            database: "main".to_string(),
-            columns: Vec::new(),
-            foreign_keys: Vec::new(),
+            name: name.into(),
+            database: database.into(),
         }
     }
 }

@@ -195,7 +195,7 @@ pub enum SortOrder {
 }
 
 /// Join configuration for CRUD endpoints.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct JoinConfig {
     /// Table to join.
@@ -224,7 +224,7 @@ pub enum JoinType {
 }
 
 /// A computed (virtual) field defined by a SQL expression.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ComputedFieldConfig {
     /// Alias name for the computed field.
@@ -309,6 +309,19 @@ pub struct StaticFilesConfig {
     pub cache_max_age: u64,
     /// Whether to serve the index file for unmatched routes (SPA mode).
     pub spa_fallback: bool,
+
+    /// File upload configuration (optional).
+    #[serde(default)]
+    pub upload: Option<UploadConfig>,
+    /// User scoping configuration (optional).
+    #[serde(default)]
+    pub user_scope: Option<UserScopeConfig>,
+    /// Image resize configuration (optional).
+    #[serde(default)]
+    pub image_resize: Option<ImageResizeConfig>,
+    /// Streaming configuration (optional).
+    #[serde(default)]
+    pub streaming: Option<StreamingConfig>,
 }
 
 impl Default for StaticFilesConfig {
@@ -319,6 +332,119 @@ impl Default for StaticFilesConfig {
             directory_listing: false,
             cache_max_age: 3600,
             spa_fallback: false,
+            upload: None,
+            user_scope: None,
+            image_resize: None,
+            streaming: None,
+        }
+    }
+}
+
+/// File upload configuration.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct UploadConfig {
+    /// Whether uploads are enabled.
+    pub enabled: bool,
+    /// Maximum upload size in bytes.
+    pub max_size: u64,
+    /// Allowed file extensions (empty = all).
+    pub allowed_extensions: Vec<String>,
+    /// Subdirectory pattern for organizing uploads.
+    /// Available placeholders: {user_id}, {year}, {month}, {day}, {uuid}
+    pub create_subdirectory: Option<String>,
+    /// Role required to upload files (optional).
+    pub required_role: Option<String>,
+}
+
+impl Default for UploadConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_size: 10 * 1024 * 1024, // 10 MiB
+            allowed_extensions: Vec::new(),
+            create_subdirectory: None,
+            required_role: None,
+        }
+    }
+}
+
+/// User scoping configuration.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct UserScopeConfig {
+    /// Enable user-scoped file browsing.
+    pub enabled: bool,
+    /// Role required to access user-scoped files.
+    pub required_role: Option<String>,
+    /// Pattern for user-specific directories.
+    /// Default: "{user_id}"
+    pub directory_pattern: String,
+    /// Whether the root directory is exposed when user_scope is enabled.
+    pub expose_root: bool,
+}
+
+impl Default for UserScopeConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            required_role: None,
+            directory_pattern: "{user_id}".to_string(),
+            expose_root: false,
+        }
+    }
+}
+
+/// Image resize configuration.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ImageResizeConfig {
+    /// Whether on-demand resizing is enabled.
+    pub enabled: bool,
+    /// Maximum dimension for auto-resize.
+    pub max_dimension: usize,
+    /// Supported formats for conversion.
+    pub supported_formats: Vec<String>,
+    /// Cache directory for resized images (optional).
+    /// Defaults to "cache/resized" under the root directory.
+    #[serde(default)]
+    pub cache_dir: Option<String>,
+}
+
+impl Default for ImageResizeConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_dimension: 4096,
+            supported_formats: vec![
+                "jpg".to_string(),
+                "jpeg".to_string(),
+                "png".to_string(),
+                "webp".to_string(),
+            ],
+            cache_dir: None,
+        }
+    }
+}
+
+/// Streaming configuration.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct StreamingConfig {
+    /// Enable chunked streaming for large files.
+    pub enabled: bool,
+    /// Chunk size in bytes (default: 64 KiB).
+    pub buffer_size: usize,
+    /// Threshold for enabling streaming (files > this size use streaming).
+    pub threshold: u64,
+}
+
+impl Default for StreamingConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            buffer_size: 65536,     // 64 KiB
+            threshold: 1024 * 1024, // 1 MiB
         }
     }
 }

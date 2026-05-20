@@ -552,7 +552,8 @@
                 },
                 "database": {
                     "type": "string",
-                    "description": "Which named database to use (must match a key in `databases`). Optional.\nIf not set, inherited from the table's `database` setting, or 'main' if neither is set."
+                    "description": "Which named database to use (must match a key in `databases`).\nRequired.",
+                    "default": null
                 },
                 "fields": {
                     "type": "array",
@@ -603,7 +604,8 @@
                 }
             },
             "required": [
-                "table"
+                "table",
+                "database"
             ],
             "title": "CRUD"
         },
@@ -895,6 +897,22 @@
                     "type": "boolean",
                     "description": "SPA fallback: if true, 404s for non-file paths return the index file\nThis enables display of SPAs, such as those created with React, Angular, and other frameworks/libraries.",
                     "default": false
+                },
+                "upload": {
+                    "$ref": "#/definitions/FileUpload",
+                    "description": "File upload configuration (optional)."
+                },
+                "user_scope": {
+                    "$ref": "#/definitions/UserScope",
+                    "description": "User-scoped file browsing configuration (optional)."
+                },
+                "image_resize": {
+                    "$ref": "#/definitions/ImageResize",
+                    "description": "On-demand image resizing configuration (optional)."
+                },
+                "streaming": {
+                    "$ref": "#/definitions/Streaming",
+                    "description": "Chunked streaming configuration for large files (optional)."
                 }
             },
             "required": [
@@ -1012,7 +1030,7 @@
                 },
                 "max_body_size": {
                     "type": "integer",
-                    "description": "Maximum request body size in bytes. Requests exceeding this are rejected with 413.",
+                    "description": "Maximum request body size in bytes. Requests exceeding this are rejected with 413.\nNot applied to file uploads - those are configured under static_files.upload.\nNot applied to proxied requests - those are configured under proxy.max_response_size.",
                     "default": 10485760
                 },
                 "keep_alive": {
@@ -1058,13 +1076,10 @@
             "title": "TLS"
         },
         "Tables": {
-            "type": "object",
-            "additionalProperties": false,
-            "patternProperties": {
-                "^.*$": {
-                    "$ref": "#/definitions/Table",
-                    "description": "Each key is the table name."
-                }
+            "type": "array",
+            "description": "Array of database tables. Each table must specify a unique combination of name and database.\nUsed for auto-migration and CRUD query generation.",
+            "items": {
+                "$ref": "#/definitions/Table"
             },
             "title": "Tables"
         },
@@ -1072,6 +1087,10 @@
             "type": "object",
             "additionalProperties": false,
             "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Name of the table as it appears in the database."
+                },
                 "database": {
                     "type": "string",
                     "description": "Which named database this table belongs to (must match a key in `databases`)."
@@ -1092,6 +1111,7 @@
                 }
             },
             "required": [
+                "name",
                 "columns",
                 "database"
             ],
@@ -1205,6 +1225,122 @@
                 "references_table",
                 "references_column"
             ]
+        },
+        "FileUpload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Whether file uploads are enabled for this endpoint. Uploads will be checked for valid extensions and checked with mime sniffing to prevent malicious files from being uploaded.",
+                    "default": false
+                },
+                "max_size": {
+                    "type": "integer",
+                    "description": "Maximum upload size in bytes.",
+                    "default": 10485760
+                },
+                "allowed_extensions": {
+                    "type": "array",
+                    "description": "Allowed file extensions (empty = all extensions allowed).",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": []
+                },
+                "create_subdirectory": {
+                    "type": [ "string", "null" ],
+                    "description": "Subdirectory pattern for organizing uploads.\nAvailable placeholders: {user_id}, {year}, {month}, {day}, {uuid}\nIf not set, files are stored directly in the root directory.",
+                    "default": null
+                },
+                "required_role": {
+                    "type": [ "string", "null" ],
+                    "description": "Role required to upload files. If not set, any authenticated user can upload.",
+                    "default": null
+                }
+            },
+            "title": "FileUpload"
+        },
+        "UserScope": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Enable user-scoped file browsing. When enabled, each user can only access their own directory.",
+                    "default": false
+                },
+                "required_role": {
+                    "type": [ "string", "null" ],
+                    "description": "Role required to access user-scoped files. If not set, any authenticated user can access their own files.",
+                    "default": null
+                },
+                "directory_pattern": {
+                    "type": "string",
+                    "description": "Pattern for user-specific directories.\nAvailable placeholders: {user_id}\nDefault: \"{user_id}\"",
+                    "default": "{user_id}"
+                },
+                "expose_root": {
+                    "type": "boolean",
+                    "description": "Whether the root directory is exposed when user_scope is enabled.\nWhen false, users can only access their own subdirectory.\nWhen true, users can also access the root directory.",
+                    "default": false
+                }
+            },
+            "title": "UserScope"
+        },
+        "ImageResize": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Whether on-demand image resizing is enabled.",
+                    "default": false
+                },
+                "max_dimension": {
+                    "type": "integer",
+                    "description": "Maximum dimension (width or height) for auto-resize.\nImages larger than this will be scaled down.",
+                    "default": 4096
+                },
+                "supported_formats": {
+                    "type": "array",
+                    "description": "Supported formats for image conversion.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [ "jpg", "jpeg", "png", "webp" ]
+                },
+                "cache_dir": {
+                    "type": [ "string", "null" ],
+                    "description": "Cache directory for resized images. If not set, resized images are returned on each request.",
+                    "default": null
+                }
+            },
+            "title": "ImageResize"
+        },
+        "Streaming": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Enable chunked streaming for large files.",
+                    "default": false
+                },
+                "buffer_size": {
+                    "type": "integer",
+                    "description": "Chunk size in bytes for streaming. Must be lower than threshold.",
+                    "default": 65536
+                },
+                "threshold": {
+                    "type": "integer",
+                    "description": "Threshold for enabling streaming (files larger than this use streaming).\nFiles below this threshold are read entirely into memory.",
+                    "default": 1048576
+                }
+            },
+            "title": "Streaming"
         }
     }
 }
+
+

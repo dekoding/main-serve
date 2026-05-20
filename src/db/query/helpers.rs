@@ -670,6 +670,7 @@ mod tests {
 
     fn test_table() -> TableConfig {
         TableConfig {
+            name: "posts".to_string(),
             database: "main".to_string(),
             columns: vec![
                 ColumnConfig {

@@ -84,7 +84,7 @@ databases:
     max_connections: 10
 
 tables:
-  __TABLE_NAME__:
+  - name: "__TABLE_NAME__"
     database: "main"
     columns:
       - name: "id"

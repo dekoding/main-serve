@@ -19,12 +19,13 @@ use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
 use tower::ServiceExt;
 
-use main_serve::auth::jwt::create_token;
 use main_serve::config::load_config;
 use main_serve::config::types::JwtConfig;
+use main_serve::middleware::auth::validators::jwt::create_token;
 use main_serve::server::{AppState, build_router};
 
 use support::db::{TestDatabase, create_pools_and_migrate, enabled_backends};
+use support::helpers::jwt_config;
 use support::{json_body, setup_server, start_mock_idp};
 
 // =============================================================================
@@ -49,17 +50,6 @@ static COMBINED_YAML: LazyLock<String> = LazyLock::new(|| read_config("combined.
 static OAUTH2_YAML: LazyLock<String> = LazyLock::new(|| read_config("oauth2.yaml"));
 static PROXY_YAML: LazyLock<String> = LazyLock::new(|| read_config("proxy.yaml"));
 static CRUD_API_YAML: LazyLock<String> = LazyLock::new(|| read_config("crud_api.yaml"));
-
-fn jwt_config() -> JwtConfig {
-    JwtConfig {
-        secret: "real-world-test-secret-key-32ch".to_string(),
-        algorithm: main_serve::config::types::JwtAlgorithm::HS256,
-        issuer: "main-serve".to_string(),
-        audience: "my-app".to_string(),
-        expiry: 3600,
-        role_claim: "role".to_string(),
-    }
-}
 
 fn basic_auth_hash() -> String {
     use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
@@ -102,7 +92,7 @@ async fn setup_static_server(
     let config = load_config(&config_file).expect("load config");
     let state = AppState::new(config, config_file, "test-token".to_string());
     let config_guard = state.config.read().await;
-    let app = build_router(&config_guard, state.clone());
+    let app = build_router(&config_guard, state.clone()).await;
     drop(config_guard);
 
     (app, dir)
@@ -133,7 +123,7 @@ async fn setup_combined_app(
         *pool_lock = pools;
     }
     let config_guard = state.config.read().await;
-    let app = build_router(&config_guard, state.clone());
+    let app = build_router(&config_guard, state.clone()).await;
     drop(config_guard);
 
     (app, dir)
@@ -770,11 +760,12 @@ async fn test_auth_public_health_check_needs_no_auth() {
 
 #[tokio::test]
 async fn test_auth_jwt_crud_read_any_role() {
-    let yaml = auth_config();
+    let yaml_template = auth_config();
 
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "rw_auth_jwt_read");
-        let (app, _state, _pool) = test_db.setup_app(&yaml, "auth_jwt.yaml").await;
+        let yaml = test_db.render_yaml(&yaml_template);
+        let (app, _state, _pool) = test_db.setup_app(&yaml_template, "auth_jwt.yaml").await;
 
         // No token -> 401
         let resp = app
@@ -794,7 +785,7 @@ async fn test_auth_jwt_crud_read_any_role() {
         );
 
         // Valid token (any role) -> 200 for list endpoint
-        let token = create_token("reader1", Some("reader"), &jwt_config()).unwrap();
+        let token = create_token("reader1", Some("reader"), &jwt_config(&yaml)).unwrap();
         let resp = app
             .clone()
             .oneshot(
@@ -809,7 +800,7 @@ async fn test_auth_jwt_crud_read_any_role() {
         assert_eq!(resp.status(), StatusCode::OK, "backend: {backend}");
 
         // Create an article with a non-admin token (list endpoint has no role restriction)
-        let token = create_token("writer1", Some("writer"), &jwt_config()).unwrap();
+        let token = create_token("writer1", Some("writer"), &jwt_config(&yaml)).unwrap();
         let resp = app
             .clone()
             .oneshot(
@@ -836,14 +827,15 @@ async fn test_auth_jwt_crud_read_any_role() {
 
 #[tokio::test]
 async fn test_auth_jwt_crud_admin_only_endpoint() {
-    let yaml = auth_config();
+    let yaml_template = auth_config();
 
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "rw_auth_jwt_admin");
-        let (app, _state, _pool) = test_db.setup_app(&yaml, "auth_admin.yaml").await;
+        let yaml = test_db.render_yaml(&yaml_template);
+        let (app, _state, _pool) = test_db.setup_app(&yaml_template, "auth_admin.yaml").await;
 
         // First create an article via the list endpoint (no role restriction)
-        let admin_token = create_token("admin1", Some("admin"), &jwt_config()).unwrap();
+        let admin_token = create_token("admin1", Some("admin"), &jwt_config(&yaml)).unwrap();
         let resp = app
             .clone()
             .oneshot(
@@ -878,7 +870,7 @@ async fn test_auth_jwt_crud_admin_only_endpoint() {
         let id = list["data"][0]["id"].as_i64().unwrap();
 
         // Non-admin token -> 403 on single-resource endpoint
-        let reader_token = create_token("reader1", Some("reader"), &jwt_config()).unwrap();
+        let reader_token = create_token("reader1", Some("reader"), &jwt_config(&yaml)).unwrap();
         let resp = app
             .clone()
             .oneshot(
@@ -1205,11 +1197,12 @@ async fn test_combined_public_health_check() {
 
 #[tokio::test]
 async fn test_combined_jwt_crud_full_lifecycle() {
-    let yaml = &*COMBINED_YAML;
+    let yaml_template = &*COMBINED_YAML;
 
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "rw_combined_crud");
-        let (app, _dir) = setup_combined_app(&test_db, yaml, COMBINED_SITE_FILES).await;
+        let yaml = test_db.render_yaml(yaml_template);
+        let (app, _dir) = setup_combined_app(&test_db, yaml_template, COMBINED_SITE_FILES).await;
 
         // Unauthenticated -> 401
         let resp = app
@@ -1229,7 +1222,7 @@ async fn test_combined_jwt_crud_full_lifecycle() {
         );
 
         // Create a user (JWT, any role)
-        let admin_token = create_token("admin1", Some("admin"), &jwt_config()).unwrap();
+        let admin_token = create_token("admin1", Some("admin"), &jwt_config(&yaml)).unwrap();
         let resp = app
             .clone()
             .oneshot(
@@ -1269,7 +1262,7 @@ async fn test_combined_jwt_crud_full_lifecycle() {
         let user_id = list["data"][0]["id"].as_i64().unwrap();
 
         // List users (any JWT holder)
-        let viewer_token = create_token("viewer1", Some("viewer"), &jwt_config()).unwrap();
+        let viewer_token = create_token("viewer1", Some("viewer"), &jwt_config(&yaml)).unwrap();
         let resp = app
             .clone()
             .oneshot(
@@ -1455,13 +1448,14 @@ async fn test_combined_basic_auth_admin_panel() {
 
 #[tokio::test]
 async fn test_combined_where_clause_filters_inactive() {
-    let yaml = &*COMBINED_YAML;
+    let yaml_template = &*COMBINED_YAML;
 
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "rw_combined_where");
-        let (app, _dir) = setup_combined_app(&test_db, yaml, COMBINED_SITE_FILES).await;
+        let yaml = test_db.render_yaml(yaml_template);
+        let (app, _dir) = setup_combined_app(&test_db, yaml_template, COMBINED_SITE_FILES).await;
 
-        let token = create_token("admin1", Some("admin"), &jwt_config()).unwrap();
+        let token = create_token("admin1", Some("admin"), &jwt_config(&yaml)).unwrap();
 
         // Create an active user
         let resp = app
@@ -1529,14 +1523,15 @@ async fn test_combined_where_clause_filters_inactive() {
 async fn test_combined_cross_auth_isolation() {
     // Verify that auth types don't bleed across endpoints:
     // JWT token should not work on api_key endpoint, and vice versa.
-    let yaml = &*COMBINED_YAML;
+    let yaml_template = &*COMBINED_YAML;
 
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "rw_combined_iso");
-        let (app, _dir) = setup_combined_app(&test_db, yaml, COMBINED_SITE_FILES).await;
+        let yaml = test_db.render_yaml(yaml_template);
+        let (app, _dir) = setup_combined_app(&test_db, yaml_template, COMBINED_SITE_FILES).await;
 
         // JWT token on api_key endpoint -> 401
-        let jwt_token = create_token("user1", Some("service"), &jwt_config()).unwrap();
+        let jwt_token = create_token("user1", Some("service"), &jwt_config(&yaml)).unwrap();
         let resp = app
             .clone()
             .oneshot(

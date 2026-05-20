@@ -20,6 +20,7 @@ use main_serve::db::query::types::QueryParams;
 
 fn setup_test_env() -> (TableConfig, CrudConfig) {
     let table = TableConfig {
+        name: "posts".to_string(),
         database: "test".to_string(),
         columns: vec![
             ColumnConfig {

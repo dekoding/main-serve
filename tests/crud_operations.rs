@@ -21,7 +21,7 @@ databases:
     auto_migrate: true
 
 tables:
-  __TABLE_NAME__:
+  - name: "__TABLE_NAME__"
     database: "main"
     columns:
       - name: "id"
@@ -215,7 +215,7 @@ databases:
     auto_migrate: true
 
 tables:
-  {authors_table}:
+  - name: "{authors_table}"
     database: "main"
     columns:
       - name: "id"
@@ -225,7 +225,7 @@ tables:
         type: "text"
         nullable: false
 
-  {posts_table}:
+  - name: "{posts_table}"
     database: "main"
     columns:
       - name: "id"
@@ -386,7 +386,7 @@ databases:
     auto_migrate: true
 
 tables:
-  __TABLE_NAME__:
+  - name: "__TABLE_NAME__"
     database: "main"
     columns:
       - name: "id"
@@ -655,7 +655,7 @@ databases:
     auto_migrate: true
 
 tables:
-  __TABLE_NAME__:
+  - name: "__TABLE_NAME__"
     database: "main"
     columns:
       - name: "id"

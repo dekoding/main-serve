@@ -53,7 +53,7 @@ pub struct AppConfig {
     pub databases: HashMap<String, DatabaseConfig>,
     /// Table schemas for auto-migration and query building.
     #[serde(default)]
-    pub tables: HashMap<String, TableConfig>,
+    pub tables: Vec<TableConfig>,
     /// Authentication provider configurations.
     #[serde(default)]
     pub auth: AuthConfig,

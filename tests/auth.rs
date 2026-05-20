@@ -10,25 +10,12 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use tower::ServiceExt;
 
-use main_serve::auth::jwt::create_token;
 use main_serve::config::load_config;
-use main_serve::config::types::JwtConfig;
+use main_serve::middleware::auth::validators::jwt::create_token;
 
-use support::db::{TestDatabase, enabled_backends};
+use support::db::{TestBackend, TestDatabase, enabled_backends};
+use support::helpers::jwt_config;
 use support::{json_body, setup_server, start_mock_idp};
-
-use crate::support::db::TestBackend;
-
-fn jwt_config() -> JwtConfig {
-    JwtConfig {
-        secret: "test-jwt-secret-key-long-enough".to_string(),
-        algorithm: main_serve::config::types::JwtAlgorithm::HS256,
-        issuer: "test-issuer".to_string(),
-        audience: "test-audience".to_string(),
-        expiry: 3600,
-        role_claim: "role".to_string(),
-    }
-}
 
 // =============================================================================
 // JWT Auth
@@ -118,7 +105,7 @@ async fn test_jwt_required_invalid_token() {
 async fn test_jwt_valid_token() {
     let (app, _f) = setup_server(JWT_CONFIG).await;
 
-    let token = create_token("user1", Some("viewer"), &jwt_config()).unwrap();
+    let token = create_token("user1", Some("viewer"), &jwt_config(JWT_CONFIG)).unwrap();
 
     let req = Request::builder()
         .uri("/api/private")
@@ -134,7 +121,7 @@ async fn test_jwt_valid_token() {
 async fn test_jwt_role_required_correct_role() {
     let (app, _f) = setup_server(JWT_CONFIG).await;
 
-    let token = create_token("admin1", Some("admin"), &jwt_config()).unwrap();
+    let token = create_token("admin1", Some("admin"), &jwt_config(JWT_CONFIG)).unwrap();
 
     let req = Request::builder()
         .uri("/api/admin")
@@ -150,7 +137,7 @@ async fn test_jwt_role_required_correct_role() {
 async fn test_jwt_role_required_wrong_role() {
     let (app, _f) = setup_server(JWT_CONFIG).await;
 
-    let token = create_token("user1", Some("viewer"), &jwt_config()).unwrap();
+    let token = create_token("user1", Some("viewer"), &jwt_config(JWT_CONFIG)).unwrap();
 
     let req = Request::builder()
         .uri("/api/admin")
@@ -169,7 +156,7 @@ async fn test_jwt_role_required_wrong_role() {
 async fn test_jwt_role_required_no_role() {
     let (app, _f) = setup_server(JWT_CONFIG).await;
 
-    let token = create_token("user1", None, &jwt_config()).unwrap();
+    let token = create_token("user1", None, &jwt_config(JWT_CONFIG)).unwrap();
 
     let req = Request::builder()
         .uri("/api/admin")
@@ -427,7 +414,7 @@ databases:
     auto_migrate: true
 
 tables:
-  __TABLE_NAME__:
+  - name: "__TABLE_NAME__"
     database: "main"
     columns:
       - name: "id"
@@ -465,7 +452,7 @@ databases:
     auto_migrate: true
 
 tables:
-  __TABLE_NAME__:
+  - name: "__TABLE_NAME__"
     database: "main"
     columns:
       - name: "id"
@@ -502,7 +489,7 @@ async fn test_jwt_auth_on_crud_endpoint() {
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
     // With valid token -> 200.
-    let token = create_token("user1", None, &jwt_config()).unwrap();
+    let token = create_token("user1", None, &jwt_config(JWT_CONFIG)).unwrap();
     let req = Request::builder()
         .uri("/api/items")
         .header("authorization", format!("Bearer {token}"))
@@ -529,7 +516,7 @@ async fn test_jwt_auth_on_crud_endpoint_across_backends() {
             "backend: {backend}"
         );
 
-        let token = create_token("user1", None, &jwt_config()).unwrap();
+        let token = create_token("user1", None, &jwt_config(JWT_CONFIG)).unwrap();
         let req = Request::builder()
             .uri("/api/items")
             .header("authorization", format!("Bearer {token}"))
@@ -869,7 +856,7 @@ endpoints:
 
     let (app, _f) = setup_server(yaml).await;
 
-    let token = create_token("cookie-user", Some("admin"), &jwt_config()).unwrap();
+    let token = create_token("cookie-user", Some("admin"), &jwt_config(JWT_CONFIG)).unwrap();
 
     // Without any auth -> 401.
     let req = Request::builder()

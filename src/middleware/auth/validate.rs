@@ -1,9 +1,8 @@
-/// Auth middleware dispatcher: routes to the correct auth handler based on config.
+/// Authentication validation functions used by the auth middleware.
 ///
-/// This module provides the `authenticate` function that is called before each
-/// endpoint handler. It reads the endpoint's `auth` field to determine which
-/// auth provider to use, then validates the request and returns an `AuthInfo`
-/// containing the authenticated user's identity and role.
+/// These functions perform the actual credential validation and role checking
+/// but do not contain middleware logic. They're designed to be called from
+/// middleware layers or handlers.
 use std::collections::HashMap;
 
 use axum::http::HeaderMap;
@@ -11,19 +10,13 @@ use axum::http::HeaderMap;
 use crate::config::types::AuthConfig;
 use crate::error::AppError;
 
-use super::api_key::validate_api_key;
-use super::basic::{extract_basic_auth, validate_basic_auth};
-use super::jwt::{extract_bearer_token, validate_token};
-use super::oauth2::{extract_cookie, validate_oauth2_token};
+use crate::middleware::auth::validators::api_key::validate_api_key;
+use crate::middleware::auth::validators::basic::{extract_basic_auth, validate_basic_auth};
+use crate::middleware::auth::validators::jwt::{extract_bearer_token, validate_token};
+use crate::middleware::auth::validators::oauth2::{extract_cookie, validate_oauth2_token};
 
-/// Information about the authenticated user.
-#[derive(Debug, Clone, Default)]
-pub struct AuthInfo {
-    /// The authenticated user's identifier (sub claim, username, key id, etc.).
-    pub subject: String,
-    /// The user's role, if any.
-    pub role: Option<String>,
-}
+/// Re-export AuthInfo for convenience
+pub use crate::middleware::auth::extractor::AuthInfo;
 
 /// Authenticate a request based on the endpoint's auth type.
 ///
@@ -172,5 +165,52 @@ pub fn check_roles(auth_info: &AuthInfo, required_roles: &[String]) -> Result<()
         None => Err(AppError::Forbidden(
             "No role assigned, but this endpoint requires one".to_string(),
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_check_roles_empty_allows_all() {
+        let auth_info = AuthInfo {
+            subject: "user1".to_string(),
+            role: Some("user".to_string()),
+        };
+        let required_roles: Vec<String> = vec![];
+        assert!(check_roles(&auth_info, &required_roles).is_ok());
+    }
+
+    #[test]
+    fn test_check_roles_allows_matching_role() {
+        let auth_info = AuthInfo {
+            subject: "user1".to_string(),
+            role: Some("admin".to_string()),
+        };
+        let required_roles = vec!["admin".to_string(), "user".to_string()];
+        assert!(check_roles(&auth_info, &required_roles).is_ok());
+    }
+
+    #[test]
+    fn test_check_roles_denies_non_matching_role() {
+        let auth_info = AuthInfo {
+            subject: "user1".to_string(),
+            role: Some("guest".to_string()),
+        };
+        let required_roles = vec!["admin".to_string(), "user".to_string()];
+        let result = check_roles(&auth_info, &required_roles);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_check_roles_denies_no_role() {
+        let auth_info = AuthInfo {
+            subject: "user1".to_string(),
+            role: None,
+        };
+        let required_roles = vec!["admin".to_string()];
+        let result = check_roles(&auth_info, &required_roles);
+        assert!(result.is_err());
     }
 }

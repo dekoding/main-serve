@@ -64,7 +64,7 @@ databases:
     driver: "sqlite"
     url: "sqlite://test.db"
 tables:
-  users:
+  - name: "users"
     database: "main"
     columns:
       - name: "id"
@@ -76,7 +76,7 @@ tables:
         unique: true
 "#;
     let config = load_yaml(yaml).unwrap();
-    let table = config.tables.get("users").unwrap();
+    let table = config.tables.iter().find(|t| t.name == "users").unwrap();
     assert_eq!(table.columns.len(), 2);
     assert_eq!(table.columns[0].name, "id");
     assert!(table.columns[0].primary_key);
@@ -91,7 +91,7 @@ databases:
     driver: "sqlite"
     url: "sqlite://test.db"
 tables:
-  posts:
+  - name: "posts"
     database: "main"
     columns:
       - name: "id"
@@ -233,7 +233,7 @@ endpoints:
 fn test_validation_missing_db_ref() {
     let yaml = r#"
 tables:
-  posts:
+  - name: "posts"
     database: "nonexistent"
     columns:
       - name: "id"
@@ -257,7 +257,7 @@ databases:
     driver: "sqlite"
     url: "sqlite://test.db"
 tables:
-  posts:
+  - name: "posts"
     database: "main"
     columns:
       - name: "title"
