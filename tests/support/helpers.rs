@@ -9,14 +9,15 @@ pub fn load_yaml(yaml: &str) -> Result<main_serve::config::AppConfig, main_serve
     main_serve::config::load_config(f.path())
 }
 
-/// Helper: Create dummy JWT.
-pub fn jwt_config() -> JwtConfig {
-    JwtConfig {
-        secret: "test-jwt-secret-key-long-enough".to_string(),
-        algorithm: main_serve::config::types::JwtAlgorithm::HS256,
-        issuer: "test-issuer".to_string(),
-        audience: "test-audience".to_string(),
-        expiry: 3600,
-        role_claim: "role".to_string(),
-    }
+/// Helper: Extract JWT config from YAML.
+///
+/// Parses the auth.jwt section from a YAML config string and returns a JwtConfig
+/// that matches the server's configuration. This ensures tokens created with
+/// this config will validate correctly against endpoints using that YAML config.
+pub fn jwt_config(yaml: &str) -> JwtConfig {
+    let config = load_yaml(yaml).expect("failed to parse YAML for jwt_config");
+    config
+        .auth
+        .jwt
+        .expect("YAML config must have auth.jwt configured")
 }
