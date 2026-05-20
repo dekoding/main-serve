@@ -1935,7 +1935,7 @@ endpoints:
 
     let json_body = json_body(response).await;
     assert!(json_body["success"].as_bool().unwrap());
-    
+
     // Verify the file exists in the expected nested path
     let path_str = json_body["path"].as_str().unwrap();
     let file_path = upload_dir.join(path_str.trim_start_matches('/'));
@@ -2228,8 +2228,13 @@ endpoints:
         "User without required role should be forbidden"
     );
 
-   let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
     let json_body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
     // Check error structure: {"error": {"code": "...", "message": "..."}}
-    assert!(json_body["error"]["message"].as_str().unwrap().contains("admin"));
+    assert!(
+        json_body["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("admin")
+    );
 }

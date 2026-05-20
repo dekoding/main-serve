@@ -92,8 +92,7 @@ impl AppState {
                 .split_once('{')
                 .map(|(base, _)| base.trim_end_matches('/'))
                 && path.starts_with(pattern_base)
-                && (path.len() == pattern_base.len()
-                    || path[pattern_base.len()..].starts_with('/'))
+                && (path.len() == pattern_base.len() || path[pattern_base.len()..].starts_with('/'))
             {
                 return Some(endpoint.clone());
             }

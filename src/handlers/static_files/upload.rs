@@ -113,13 +113,13 @@ pub async fn handle_file_upload(
         }
 
         // Optional: Validate image magic bytes if it's an image
-   if let Some(ext) = std::path::Path::new(&original_filename)
-        .extension()
-        .and_then(|e| e.to_str())
-        && is_image_extension(ext)
-    {
-        validate_image_magic_bytes(&file_content)?;
-    }
+        if let Some(ext) = std::path::Path::new(&original_filename)
+            .extension()
+            .and_then(|e| e.to_str())
+            && is_image_extension(ext)
+        {
+            validate_image_magic_bytes(&file_content)?;
+        }
     }
 
     if !found_file {
@@ -202,7 +202,7 @@ pub async fn handle_file_upload(
         .strip_prefix(root)
         .map(|p| format!("/{}", p.to_string_lossy()))
         .unwrap_or_else(|_| format!("/{}", sanitized_filename));
-    
+
     Ok((
         StatusCode::CREATED,
         axum::Json(serde_json::json!({
