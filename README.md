@@ -11,6 +11,7 @@ Never write boilerplate CRUD endpoints again! **Main Serve** is an extremely hig
 - **Role-based authorization** - Define per-endpoint role restrictions.
 - **Reverse proxy** - Implement upstream forwarding with path rewriting and header injection.
 - **Static file serving** - Directory/HTML serving with SPA fallback support for frontend routing.
+- **Static file management** - Upload files and retrieve images in specified resolutions.
 - **CORS** - Set global and per-endpoint CORS policies.
 - **Rate limiting** - Configurable per-endpoint or globally, keyed by IP/header/token.
 - **Hot reload** - Update config without restarting the server or dropping connections.
@@ -43,7 +44,7 @@ databases:
     auto_migrate: true
 
 tables:
-  todos:
+  - name: "todos"
     database: "main"
     columns:
       - name: "id"
@@ -156,9 +157,11 @@ logging:
 
 ### Table Schemas
 
+The `tables` section is an array where each entry defines a table:
+
 ```yaml
 tables:
-  users:
+  - name: "users"
     database: "my_db"
     columns:
       - name: "id"
@@ -170,6 +173,7 @@ tables:
         unique: true
       - name: "name"
         type: "varchar"
+    foreign_keys: []
 ```
 
 Supported column types: `integer`, `bigint`, `smallint`, `serial`, `bigserial`, `varchar`, `char`, `text`, `boolean`, `float`, `double`, `decimal`, `date`, `timestamp`, `timestamptz`, `uuid`, `json`, `jsonb`, `bytea`, `blob`.
@@ -231,6 +235,37 @@ endpoints:
       root: "./public"
       index: "index.html"
       spa_fallback: true
+      directory_listing: false
+      cache_max_age: 3600
+      upload:
+        enabled: true
+        max_size: 10485760
+        allowed_extensions:
+          - ".jpg"
+          - ".jpeg"
+          - ".png"
+          - ".gif"
+          - ".pdf"
+        create_subdirectory: "{user_id}/{year}/{month}"
+        required_role: "admin"
+      user_scope:
+        enabled: true
+        required_role: null
+        directory_pattern: "{user_id}"
+        expose_root: false
+      image_resize:
+        enabled: true
+        max_dimension: 4096
+        supported_formats:
+          - "jpg"
+          - "jpeg"
+          - "png"
+          - "webp"
+        cache_dir: null
+      streaming:
+        enabled: true
+        buffer_size: 65536
+        threshold: 1048576
     auth: "none"
 ```
 

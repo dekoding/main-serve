@@ -358,11 +358,11 @@ When `auto_migrate` is `true`, Main Serve compares the YAML-defined table schema
 
 ## Table Schemas
 
-Define database tables for auto-migration and CRUD query generation. Each key is the table name.
+Define database tables for auto-migration and CRUD query generation. The `tables` section is an array where each entry defines a table.
 
 ```yaml
 tables:
-  users:
+  - name: "users"
     database: "main"
     columns:
       - name: "id"
@@ -381,7 +381,8 @@ tables:
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `database` | string | `"main"` | Which named database this table belongs to. Must match a key in the `databases` section. |
+| `name` | string | *(required)* | Table name as it appears in the database. |
+| `database` | string | *(required)* | Which named database this table belongs to. Must match a key in the `databases` section. |
 | `columns` | list | *(required)* | Column definitions. See [Columns](#columns). |
 | `foreign_keys` | list | `[]` | Foreign key constraints. See [Foreign Keys](#foreign-keys). |
 
@@ -432,7 +433,7 @@ Define referential integrity constraints between tables.
 
 ```yaml
 tables:
-  posts:
+  - name: "posts"
     database: "main"
     columns:
       - name: "id"
@@ -799,7 +800,7 @@ Forward requests to an upstream server. The request path, headers, and body are 
 
 ### Static File Endpoints
 
-Serve files from a directory on disk.
+Serve files from a directory on disk, with optional file upload support, user scoping, image resizing, and streaming.
 
 ```yaml
 - path: "/static/*"
@@ -811,6 +812,26 @@ Serve files from a directory on disk.
     directory_listing: false
     cache_max_age: 3600
     spa_fallback: false
+    upload:
+      enabled: true
+      max_size: 10485760
+      allowed_extensions: []
+      create_subdirectory: null
+      required_role: null
+    user_scope:
+      enabled: true
+      required_role: null
+      directory_pattern: "{user_id}"
+      expose_root: false
+    image_resize:
+      enabled: true
+      max_dimension: 4096
+      supported_formats: ["jpg", "jpeg", "png", "webp"]
+      cache_dir: null
+    streaming:
+      enabled: true
+      buffer_size: 65536
+      threshold: 1048576
 ```
 
 | Field | Type | Default | Description |
@@ -820,6 +841,42 @@ Serve files from a directory on disk.
 | `directory_listing` | boolean | `false` | Show a listing of directory contents when no index file is found. **Security note:** be cautious enabling this in production. |
 | `cache_max_age` | integer | `3600` (1 hour) | Value for the `Cache-Control: max-age=` response header, in seconds. Set to `0` to disable client-side caching. |
 | `spa_fallback` | boolean | `false` | When `true`, requests for paths that don't match a real file return the `index` file instead of 404. Essential for single-page applications with client-side routing (React, Vue, Angular, etc.). |
+
+**File Upload Configuration:**
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `upload.enabled` | boolean | `false` | Enable file uploads for this endpoint. When enabled, POST requests create files and DELETE requests remove them. |
+| `upload.max_size` | integer | `10485760` (10 MiB) | Maximum upload size in bytes. |
+| `upload.allowed_extensions` | list of strings | `[]` | Allowed file extensions (starting with dots). Empty list allows all extensions. |
+| `upload.create_subdirectory` | string | `null` | Subdirectory pattern for organizing uploads. Placeholders: `{user_id}`, `{year}`, `{month}`, `{day}`, `{uuid}`. |
+| `upload.required_role` | string | `null` | Role required to upload files. If unset, any authenticated user can upload. |
+
+**User Scoping Configuration:**
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `user_scope.enabled` | boolean | `false` | Enable user-scoped file browsing. When enabled, each user can only access their own directory. |
+| `user_scope.required_role` | string | `null` | Role required to access user-scoped files. If unset, any authenticated user can access their own files. |
+| `user_scope.directory_pattern` | string | `"{user_id}"` | Pattern for user-specific directories. Available placeholder: `{user_id}`. |
+| `user_scope.expose_root` | boolean | `false` | When `true`, users can also access the root directory in addition to their own subdirectory. |
+
+**Image Resizing Configuration:**
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `image_resize.enabled` | boolean | `false` | Enable on-demand image resizing. |
+| `image_resize.max_dimension` | integer | `4096` | Maximum dimension (width or height) for auto-resize. Images larger than this are scaled down. |
+| `image_resize.supported_formats` | list of strings | `["jpg", "jpeg", "png", "webp"]` | Supported formats for image conversion. |
+| `image_resize.cache_dir` | string | `null` | Cache directory for resized images (relative to root). If unset, resized images are regenerated on each request. |
+
+**Streaming Configuration:**
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `streaming.enabled` | boolean | `false` | Enable chunked streaming for large files. |
+| `streaming.buffer_size` | integer | `65536` (64 KiB) | Chunk size in bytes for streaming. Must be lower than `threshold`. |
+| `streaming.threshold` | integer | `1048576` (1 MiB) | Files larger than this threshold use streaming. Smaller files are read entirely into memory. |
 
 ### Custom Response Endpoints
 
@@ -935,7 +992,7 @@ databases:
     url: "sqlite://data.db?mode=rwc"
 
 tables:
-  items:
+  - name: "items"
     columns:
       - name: "id"
         type: "integer"
