@@ -41,7 +41,7 @@ databases:
     auto_migrate: true
 
 tables:
-  todos:
+  - name: "todos"
     database: "main"
     columns:
       - name: "id"
