@@ -23,6 +23,11 @@ use crate::server::AppState;
 use crate::storage::Storage;
 
 /// Handle GET requests - serve files with optional image resize or streaming.
+///
+/// # Errors
+///
+/// Returns `AppError::Forbidden` if path traversal is detected.
+/// Returns `AppError::NotFound` if the file is not found.
 pub async fn handle_static_get(
     state: State<AppState>,
     ctx: StaticGetContext<'_>,

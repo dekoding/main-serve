@@ -172,6 +172,7 @@ impl DatabasePool {
 /// # Errors
 ///
 /// Returns `AppError::Config` if any pool fails to connect.
+#[allow(clippy::implicit_hasher)]
 pub async fn create_pools(
     databases: &HashMap<String, DatabaseConfig>,
 ) -> Result<HashMap<String, DatabasePool>, AppError> {
@@ -186,6 +187,7 @@ pub async fn create_pools(
 }
 
 /// Gracefully close all pools.
+#[allow(clippy::implicit_hasher)]
 pub async fn close_pools(pools: &HashMap<String, DatabasePool>) {
     for (name, pool) in pools {
         tracing::info!("Closing database pool '{name}'...");
