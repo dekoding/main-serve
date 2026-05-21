@@ -28,11 +28,12 @@ pub use crate::middleware::auth::extractor::AuthInfo;
 /// Returns `AppError::Config` if the auth type requires a config section that
 /// is missing. Returns `AppError::Auth` or `AppError::AuthChallenge` if
 /// credentials are missing or invalid.
-pub async fn authenticate(
-    auth_type: &str,
-    auth_config: &AuthConfig,
-    headers: &HeaderMap,
-    query_params: &HashMap<String, String>,
+#[allow(clippy::implicit_hasher)]
+pub async fn authenticate<'a>(
+    auth_type: &'a str,
+    auth_config: &'a AuthConfig,
+    headers: &'a HeaderMap,
+    query_params: &'a HashMap<String, String>,
 ) -> Result<AuthInfo, AppError> {
     match auth_type {
         "none" => Ok(AuthInfo::default()),

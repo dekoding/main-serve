@@ -29,6 +29,12 @@ pub struct StaticGetContext<'a> {
 }
 
 /// Extract authentication info from request.
+///
+/// # Errors
+///
+/// Returns `AppError::Auth` if authentication fails.
+/// Returns `AppError::Config` if the auth config is missing.
+#[allow(clippy::implicit_hasher)]
 pub async fn extract_auth_info(
     state: &AppState,
     endpoint: &EndpointConfig,
@@ -38,9 +44,10 @@ pub async fn extract_auth_info(
     if endpoint.auth == "none" {
         return Ok(AuthInfo::default());
     }
+    let auth_config = state.config.read().await.auth.clone();
     crate::middleware::auth::validate::authenticate(
         &endpoint.auth,
-        &state.config.read().await.auth,
+        &auth_config,
         headers,
         query_params,
     )
@@ -84,6 +91,7 @@ pub fn check_upload_role(
 /// Returns `AppError::Internal` if the static config is missing or the root
 /// directory does not exist. Returns `AppError::NotFound` if the requested
 /// file cannot be found. Returns `AppError::Forbidden` on path traversal attempts.
+#[allow(clippy::implicit_hasher)]
 pub async fn handle_static_files(
     state: State<AppState>,
     method: Method,

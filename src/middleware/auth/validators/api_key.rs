@@ -15,6 +15,7 @@ use crate::error::AppError;
 /// # Errors
 ///
 /// Returns `AppError::Auth` if the key is missing or invalid.
+#[allow(clippy::implicit_hasher)]
 pub fn validate_api_key(
     headers: &HeaderMap,
     query_params: &HashMap<String, String>,

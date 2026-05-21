@@ -34,6 +34,7 @@ use crate::error::AppError;
 ///
 /// Returns `AppError::Database` if any SQL statement fails, or `AppError::Internal`
 /// if a referenced database pool is missing.
+#[allow(clippy::implicit_hasher)]
 pub async fn run_migrations(
     tables: &[TableConfig],
     pools: &HashMap<String, DatabasePool>,
