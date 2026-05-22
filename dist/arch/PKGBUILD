@@ -15,14 +15,19 @@ source=("$pkgname-$pkgver::https://github.com/dekoding/main-serve/archive/refs/t
 sha256sums=()
 
 build() {
-    cd "$pkgname-$pkgver"
+    cd "$srcdir/$pkgname-$pkgver"
     export LIBSQLITE3_SYS_USE_PKG_CONFIG=1
     export CARGO_INCREMENTAL=0
+    export CFLAGS="-march=x86-64 -mtune=generic -O2 -pipe -fno-plt -fexceptions -fstack-clash-protection -fcf-protection -fno-omit-frame-pointer -g"
+    export CXXFLAGS="$CFLAGS"
+    export LDFLAGS="-Wl,-O1 -Wl,--sort-common -Wl,--as-needed -Wl,-z,relro -Wl,-z,now -Wl,-z,pack-relative-relocs"
+    export RUSTFLAGS="--remap-path-prefix=$PWD=/usr/src/debug/$pkgname"
+    cargo clean
     cargo build --release
 }
 
 package() {
-    cd "$pkgname-$pkgver"
+    cd "$srcdir/$pkgname-$pkgver"
     install -Dm755 "target/release/main-serve" "$pkgdir/usr/bin/main-serve"
     install -Dm644 "config/config.yaml" "$pkgdir/etc/main-serve/config.yaml"
     install -Dm644 "dist/main-serve.service" "$pkgdir/usr/lib/systemd/system/main-serve.service"
