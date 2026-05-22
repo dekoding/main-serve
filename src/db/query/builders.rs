@@ -148,14 +148,28 @@ pub fn build_update(
         ));
     }
 
-    let sql = format!(
-        "UPDATE {} SET {} WHERE {} = {}",
-        table_name,
-        set_parts.join(", "),
-        pk_col,
-        placeholder(driver, param_idx)
-    );
-    params.push(coerce_pk_value(table_config, pk_value));
+    let pk_val = coerce_pk_value(table_config, pk_value);
+    let is_coercion_sentinel = pk_val
+        .as_number()
+        .is_some_and(|n| n.as_i64() == Some(i64::MIN));
+    let sql = if is_coercion_sentinel {
+        format!(
+            "UPDATE {} SET {} WHERE 1 = 0",
+            table_name,
+            set_parts.join(", ")
+        )
+    } else {
+        format!(
+            "UPDATE {} SET {} WHERE {} = {}",
+            table_name,
+            set_parts.join(", "),
+            pk_col,
+            placeholder(driver, param_idx)
+        )
+    };
+    if !is_coercion_sentinel {
+        params.push(pk_val);
+    }
 
     Ok(BuiltQuery { sql, params })
 }
@@ -172,15 +186,25 @@ pub fn build_delete(
     driver: DatabaseDriver,
 ) -> Result<BuiltQuery, AppError> {
     let pk_col = find_pk_column(table_config)?;
+    let pk_val = coerce_pk_value(table_config, pk_value);
+    let is_coercion_sentinel = pk_val
+        .as_number()
+        .is_some_and(|n| n.as_i64() == Some(i64::MIN));
 
-    let sql = format!(
-        "DELETE FROM {} WHERE {} = {}",
-        table_name,
-        pk_col,
-        placeholder(driver, 1)
-    );
-
-    let params = vec![coerce_pk_value(table_config, pk_value)];
+    let (sql, params) = if is_coercion_sentinel {
+        (
+            format!("DELETE FROM {} WHERE 1 = 0", table_name),
+            Vec::new(),
+        )
+    } else {
+        let sql = format!(
+            "DELETE FROM {} WHERE {} = {}",
+            table_name,
+            pk_col,
+            placeholder(driver, 1)
+        );
+        (sql, vec![pk_val])
+    };
 
     Ok(BuiltQuery { sql, params })
 }

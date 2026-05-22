@@ -217,7 +217,7 @@ pub fn coerce_pk_value(table: &crate::config::types::TableConfig, raw: &str) -> 
             | crate::config::types::ColumnType::Serial
             | crate::config::types::ColumnType::Bigserial,
         ) => raw.parse::<i64>().map_or_else(
-            |_| serde_json::Value::String(raw.to_string()),
+            |_| serde_json::Value::Number(serde_json::Number::from(i64::MIN)),
             |n| serde_json::json!(n),
         ),
         Some(
@@ -749,11 +749,11 @@ mod tests {
     #[test]
     fn test_coerce_pk_value_string() {
         let table = test_table();
-        // If the table had a string PK, it would remain a string
-        // For this test table with integer PK, string input stays as string if parse fails
+        // For this test table with integer PK, non-parseable input returns
+        // i64::MIN as a sentinel that signals the caller to use a no-match condition
         assert_eq!(
             coerce_pk_value(&table, "not_a_number"),
-            serde_json::json!("not_a_number")
+            serde_json::Value::Number(serde_json::Number::from(i64::MIN))
         );
     }
 }
