@@ -1,21 +1,26 @@
 # dist/PKGBUILD
 pkgname=main-serve
-pkgver=0.1.1
+pkgver=0.2.0
 pkgrel=1
 pkgdesc="A high-performance, YAML-configured web server"
 arch=('x86_64')
 url="https://github.com/dekoding/main-serve"
 license=('MIT')
-depends=('gcc-libs')
+depends=('gcc-libs' 'systemd')
 makedepends=('rust' 'cargo')
 backup=('etc/main-serve/config.yaml')
 install=main-serve.install
-source=("$pkgname-$pkgver.tar.gz")
+conflicts=('main-serve-bin')
+source=("::https://github.com/dekoding/main-serve/archive/refs/tags/v${pkgver}.tar.gz")
 sha256sums=('SKIP')
 
 build() {
     cd "$pkgname-$pkgver"
-    cargo build --release --locked
+    export LIBSQLITE3_SYS_USE_PKG_CONFIG=1
+    export CARGO_INCREMENTAL=0
+    export CFLAGS="-march=x86-64-v3 -O2 -pipe -fno-plt"
+    export CXXFLAGS="$CFLAGS"
+    cargo build --release
 }
 
 package() {

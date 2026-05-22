@@ -49,19 +49,29 @@ build_rpm() {
 
 check_arch() {
     echo "==> Validating Arch PKGBUILD..."
-    if [ ! -f "dist/PKGBUILD" ]; then
-        echo "    ERROR: dist/PKGBUILD not found"
+    if [ ! -f "dist/arch/PKGBUILD" ]; then
+        echo "    ERROR: dist/arch/PKGBUILD not found"
         return 1
     fi
     if [ ! -f "dist/main-serve.install" ]; then
         echo "    ERROR: dist/main-serve.install not found"
         return 1
     fi
+    if [ ! -f "dist/main-serve.service" ]; then
+        echo "    ERROR: dist/main-serve.service not found"
+        return 1
+    fi
+    if [ ! -f "dist/main-serve.sysusers" ]; then
+        echo "    ERROR: dist/main-serve.sysusers not found"
+        return 1
+    fi
+    if [ ! -f "dist/main-serve.tmpfiles" ]; then
+        echo "    ERROR: dist/main-serve.tmpfiles not found"
+        return 1
+    fi
     # Basic syntax check
-    bash -n "dist/PKGBUILD" 2>&1
+    bash -n "dist/arch/PKGBUILD" 2>&1
     echo "    PKGBUILD syntax: OK"
-    echo "    To build: copy dist/PKGBUILD and dist/main-serve.install to a clean directory,"
-    echo "    place the source tarball there, and run 'makepkg -si'"
 }
 
 TARGET="${1:-all}"

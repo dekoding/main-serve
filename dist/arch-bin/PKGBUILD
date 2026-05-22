@@ -1,17 +1,18 @@
 # dist/PKGBUILD-BIN
 pkgname=main-serve-bin
-pkgver=0.1.1
+pkgver=0.2.0
 pkgrel=1
 pkgdesc="A high-performance, YAML-configured web server"
 arch=('x86_64')
 url="https://github.com/dekoding/main-serve"
 license=('MIT')
 depends=('gcc-libs')
+conflicts=('main-serve')
 source=(
     'main-serve::https://github.com/dekoding/main-serve/releases/download/v'$pkgver'/main-serve'
     "$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz"
 )
-sha256sums=('b2318f0a510a409aa118011e15dfa27580142e9082f63cec229bd91499778c52' 'SKIP')
+sha256sums=('SKIP' 'SKIP')
 
 package() {
     install -Dm755 "main-serve" "$pkgdir/usr/bin/main-serve"
