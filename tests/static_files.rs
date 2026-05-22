@@ -12,7 +12,7 @@ use http::Method;
 use http_body_util::BodyExt;
 use main_serve::middleware::auth::validators::jwt::create_token;
 use support::db::{TestDatabase, enabled_backends};
-use support::{CRUD_CONFIG, helpers::jwt_config, json_body};
+use support::{configs::crud_operations_configs::CRUD_CONFIG, helpers::jwt_config, json_body};
 use tower::ServiceExt;
 
 // =============================================================================

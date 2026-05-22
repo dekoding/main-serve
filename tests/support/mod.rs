@@ -42,60 +42,6 @@ pub async fn json_body_from_bytes(body: bytes::Bytes) -> serde_json::Value {
     serde_json::from_slice(&body).unwrap()
 }
 
-/// Standard CRUD config template used by multiple test files.
-///
-/// Contains `__DB_DRIVER__`, `__DB_URL__`, and `__TABLE_NAME__` placeholders
-/// that `TestDatabase::setup_app()` replaces automatically.
-pub const CRUD_CONFIG: &str = r#"
-server:
-  host: "127.0.0.1"
-  port: 0
-
-databases:
-  main:
-    driver: "__DB_DRIVER__"
-    url: "__DB_URL__"
-    auto_migrate: true
-
-tables:
-  - name: "__TABLE_NAME__"
-    database: "main"
-    columns:
-      - name: "id"
-        type: "serial"
-        primary_key: true
-      - name: "title"
-        type: "text"
-        nullable: false
-      - name: "body"
-        type: "text"
-        nullable: true
-      - name: "author"
-        type: "varchar"
-        nullable: false
-
-endpoints:
-  - path: "/api/posts"
-    methods: ["get", "post"]
-    action: "crud"
-    crud:
-      table: "__TABLE_NAME__"
-      database: "main"
-      fields: ["id", "title", "body", "author"]
-      writable_fields: ["title", "body", "author"]
-    auth: "none"
-
-  - path: "/api/posts/{id}"
-    methods: ["get", "put", "delete"]
-    action: "crud"
-    crud:
-      table: "__TABLE_NAME__"
-      database: "main"
-      fields: ["id", "title", "body", "author"]
-      writable_fields: ["title", "body", "author"]
-    auth: "none"
-"#;
-
 /// Start a mock OAuth2 identity provider that handles /token and /userinfo.
 ///
 /// The mock returns different user profiles based on the Bearer token:

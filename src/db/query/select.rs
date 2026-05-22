@@ -548,14 +548,26 @@ impl SelectBuilder {
     }
 
     /// Add a single PK equality condition.
+    ///
+    /// If the pk_value is the sentinel `i64::MIN` (indicating coercion failed
+    /// for an integer PK), uses `1 = 0` to ensure no rows match, avoiding
+    /// type mismatch errors on PostgreSQL when binding a non-numeric string
+    /// to an integer column.
     pub fn apply_pk_condition(&mut self, pk_col: &str, pk_value: serde_json::Value) {
-        self.conditions.push(format!(
-            "{} = {}",
-            pk_col,
-            placeholder(self.driver, self.param_idx)
-        ));
-        self.params.push(pk_value);
-        self.param_idx += 1;
+        let is_coercion_sentinel = pk_value
+            .as_number()
+            .is_some_and(|n| n.as_i64() == Some(i64::MIN));
+        if is_coercion_sentinel {
+            self.conditions.push("1 = 0".to_string());
+        } else {
+            self.conditions.push(format!(
+                "{} = {}",
+                pk_col,
+                placeholder(self.driver, self.param_idx)
+            ));
+            self.params.push(pk_value);
+            self.param_idx += 1;
+        }
     }
 
     /// Set the ORDER BY clause from config + request params.

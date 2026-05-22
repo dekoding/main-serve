@@ -8,7 +8,11 @@
 
 mod support;
 
-use crate::support::configs::{CORS_CONFIG, MINIMAL_CONFIG};
+use crate::support::configs::middleware_configs::{
+    CORS_CONFIG, CORS_PER_ENDPOINT_CONFIG, RESPONSE_BODY_LOGGING_CONFIG,
+    RESPONSE_BODY_LOGGING_DISABLED_CONFIG,
+};
+use crate::support::configs::shared_configs::MINIMAL_CONFIG;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
@@ -201,41 +205,7 @@ async fn test_no_compression_without_accept_encoding() {
 
 #[tokio::test]
 async fn test_per_endpoint_cors_override() {
-    let yaml = r#"
-server:
-  port: 0
-
-cors:
-  allowed_origins:
-    - "https://global.example.com"
-  allowed_methods:
-    - "GET"
-
-endpoints:
-  - path: "/global"
-    methods: ["get"]
-    action: "custom_response"
-    custom_response:
-      status: 200
-      body: "global"
-    auth: "none"
-
-  - path: "/custom"
-    methods: ["get"]
-    action: "custom_response"
-    custom_response:
-      status: 200
-      body: "custom"
-    cors:
-      allowed_origins:
-        - "https://special.example.com"
-      allowed_methods:
-        - "GET"
-        - "POST"
-      max_age: 600
-    auth: "none"
-"#;
-    let (app, _f) = support::setup_server(yaml).await;
+    let (app, _f) = support::setup_server(CORS_PER_ENDPOINT_CONFIG).await;
 
     // Global endpoint should accept the global origin.
     let req = Request::builder()
@@ -422,25 +392,7 @@ endpoints:
 /// returned to the client intact.
 #[tokio::test]
 async fn test_body_logging_preserves_response_body() {
-    let yaml = r#"
-server:
-  port: 0
-
-logging:
-  log_request_body: false
-  log_response_body: true
-
-endpoints:
-  - path: "/info"
-    methods: ["get"]
-    action: custom_response
-    custom_response:
-      status: 200
-      content_type: "application/json"
-      body: '{"msg":"hello from body logging test"}'
-    auth: none
-"#;
-    let (app, _f) = support::setup_server(yaml).await;
+    let (app, _f) = support::setup_server(RESPONSE_BODY_LOGGING_CONFIG).await;
 
     let req = Request::builder()
         .method("GET")
@@ -460,24 +412,7 @@ endpoints:
 /// Verify normal operation is unaffected.
 #[tokio::test]
 async fn test_body_logging_disabled_no_effect() {
-    let yaml = r#"
-server:
-  port: 0
-
-logging:
-  log_request_body: false
-  log_response_body: false
-
-endpoints:
-  - path: "/ping"
-    methods: ["get"]
-    action: custom_response
-    custom_response:
-      status: 200
-      body: "pong"
-    auth: none
-"#;
-    let (app, _f) = support::setup_server(yaml).await;
+    let (app, _f) = support::setup_server(RESPONSE_BODY_LOGGING_DISABLED_CONFIG).await;
 
     let req = Request::builder()
         .method("GET")

@@ -3,147 +3,18 @@ mod support;
 use main_serve::db::migration::run_migrations;
 use main_serve::db::pool::{DatabasePool, create_pools};
 
+use support::configs::db_migrations_configs::{
+    INDEX_CONFIG, MIGRATION_ADD_COLUMN_V1, MIGRATION_ADD_COLUMN_V2, MIGRATION_DROP_COLUMN_BASE,
+    MIGRATION_DROP_COLUMN_TARGET_DESTRUCTIVE,
+};
 use support::db::{TestDatabase, enabled_backends};
-
-const ADD_COLUMN_V1: &str = r#"
-server:
-  port: 0
-
-databases:
-  main:
-    driver: "__DB_DRIVER__"
-    url: "__DB_URL__"
-    auto_migrate: true
-    allow_destructive: false
-
-tables:
-  - name: "__TABLE_NAME__"
-    database: "main"
-    columns:
-      - name: "id"
-        type: "serial"
-        primary_key: true
-      - name: "title"
-        type: "text"
-        nullable: false
-
-endpoints: []
-"#;
-
-const ADD_COLUMN_V2: &str = r#"
-server:
-  port: 0
-
-databases:
-  main:
-    driver: "__DB_DRIVER__"
-    url: "__DB_URL__"
-    auto_migrate: true
-    allow_destructive: false
-
-tables:
-  - name: "__TABLE_NAME__"
-    database: "main"
-    columns:
-      - name: "id"
-        type: "serial"
-        primary_key: true
-      - name: "title"
-        type: "text"
-        nullable: false
-      - name: "status"
-        type: "varchar"
-        nullable: false
-        default: "'draft'"
-
-endpoints: []
-"#;
-
-const DROP_COLUMN_BASE: &str = r#"
-server:
-  port: 0
-
-databases:
-  main:
-    driver: "__DB_DRIVER__"
-    url: "__DB_URL__"
-    auto_migrate: true
-    allow_destructive: __ALLOW_DESTRUCTIVE__
-
-tables:
-  - name: "__TABLE_NAME__"
-    database: "main"
-    columns:
-      - name: "id"
-        type: "serial"
-        primary_key: true
-      - name: "title"
-        type: "text"
-        nullable: false
-      - name: "body"
-        type: "text"
-        nullable: true
-
-endpoints: []
-"#;
-
-const DROP_COLUMN_TARGET: &str = r#"
-server:
-  port: 0
-
-databases:
-  main:
-    driver: "__DB_DRIVER__"
-    url: "__DB_URL__"
-    auto_migrate: true
-    allow_destructive: __ALLOW_DESTRUCTIVE__
-
-tables:
-  - name: "__TABLE_NAME__"
-    database: "main"
-    columns:
-      - name: "id"
-        type: "serial"
-        primary_key: true
-      - name: "title"
-        type: "text"
-        nullable: false
-
-endpoints: []
-"#;
-
-const INDEX_CONFIG: &str = r#"
-server:
-  port: 0
-
-databases:
-  main:
-    driver: "__DB_DRIVER__"
-    url: "__DB_URL__"
-    auto_migrate: true
-    allow_destructive: false
-
-tables:
-  - name: "__TABLE_NAME__"
-    database: "main"
-    columns:
-      - name: "id"
-        type: "serial"
-        primary_key: true
-      - name: "email"
-        type: "varchar"
-        nullable: false
-        indexed: true
-
-endpoints: []
-"#;
 
 #[tokio::test]
 async fn test_add_column_with_default_across_backends() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "migration_add_column");
 
-        let v1_config = test_db.load_config(ADD_COLUMN_V1, "v1.yaml");
+        let v1_config = test_db.load_config(MIGRATION_ADD_COLUMN_V1, "v1.yaml");
         let pools = create_pools(&v1_config.databases)
             .await
             .expect("create pools");
@@ -161,7 +32,7 @@ async fn test_add_column_with_default_across_backends() {
             .await
             .expect("insert row");
 
-        let v2_config = test_db.load_config(ADD_COLUMN_V2, "v2.yaml");
+        let v2_config = test_db.load_config(MIGRATION_ADD_COLUMN_V2, "v2.yaml");
         run_migrations(&v2_config.tables, &pools, &v2_config.databases)
             .await
             .expect("run migrations v2");
@@ -186,8 +57,9 @@ async fn test_drop_column_requires_allow_destructive() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "migration_drop_column_safe");
 
-        let base_template = DROP_COLUMN_BASE.replace("__ALLOW_DESTRUCTIVE__", "false");
-        let target_template = DROP_COLUMN_TARGET.replace("__ALLOW_DESTRUCTIVE__", "false");
+        let base_template = MIGRATION_DROP_COLUMN_BASE.replace("__ALLOW_DESTRUCTIVE__", "false");
+        let target_template =
+            MIGRATION_DROP_COLUMN_TARGET_DESTRUCTIVE.replace("__ALLOW_DESTRUCTIVE__", "false");
 
         let base_config = test_db.load_config(&base_template, "safe_v1.yaml");
         let pools = create_pools(&base_config.databases)
@@ -217,8 +89,9 @@ async fn test_drop_column_with_allow_destructive() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "migration_drop_column_destructive");
 
-        let base_template = DROP_COLUMN_BASE.replace("__ALLOW_DESTRUCTIVE__", "true");
-        let target_template = DROP_COLUMN_TARGET.replace("__ALLOW_DESTRUCTIVE__", "true");
+        let base_template = MIGRATION_DROP_COLUMN_BASE.replace("__ALLOW_DESTRUCTIVE__", "true");
+        let target_template =
+            MIGRATION_DROP_COLUMN_TARGET_DESTRUCTIVE.replace("__ALLOW_DESTRUCTIVE__", "true");
 
         let base_config = test_db.load_config(&base_template, "destructive_v1.yaml");
         let pools = create_pools(&base_config.databases)
