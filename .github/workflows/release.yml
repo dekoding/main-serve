@@ -52,3 +52,11 @@ jobs:
             target/generate-rpm/*.rpm
             target/release/main-serve
             target/SHA256SUMS
+
+      - name: Push PKGBUILD to AUR
+        uses: dmmulroy/aur-action@v1
+        with:
+          email: ${{ secrets.AUR_EMAIL }}
+          private-key: ${{ secrets.AUR_SSH_KEY }}
+          host: aur.archlinux.org
+          package-dir: dist

@@ -959,17 +959,31 @@ No authentication required (they implement the authentication flow itself).
 ## CLI Reference
 
 ```
-main-serve [OPTIONS]
+Usage: main-serve [OPTIONS]
 
 Options:
-  -c, --config <PATH>    Path to YAML config file
-                         [default: ./config/config.yaml, then /etc/main-serve/config.yaml]
-  --admin-token <TOKEN>  Admin token for reload endpoint
-                         (overrides MAIN_SERVE_ADMIN_TOKEN env var)
-  --validate             Validate config and exit without starting the server
-  --dry-run              Parse config, print resolved endpoints, and exit
-  -h, --help             Print help
-  -V, --version          Print version
+  -c, --config <CONFIG>
+          Path to YAML config file.
+          
+          If not specified, checks `$HOME/.config/main-serve/config.yaml` then `/etc/main-serve/config.yaml`.
+
+      --admin-token <ADMIN_TOKEN>
+          Admin token for the reload endpoint (overrides `MAIN_SERVE_ADMIN_TOKEN` env var)
+          
+          [env: MAIN_SERVE_ADMIN_TOKEN=]
+          [default: ""]
+
+      --validate
+          Validate config and exit without starting the server
+
+      --dry-run
+          Parse config, print resolved endpoints, and exit
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version
 ```
 
 **`--validate`** is useful in CI/CD pipelines to catch config errors before deployment.

@@ -1,7 +1,7 @@
-use std::fmt;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process;
+use std::{env, fmt};
 
 use clap::Parser;
 use tokio::net::TcpListener;
@@ -18,7 +18,9 @@ use main_serve::server::{AppState, build_router, build_tls_acceptor};
 #[command(name = "main-serve", version, about)]
 struct Cli {
     /// Path to YAML config file.
-    /// If not specified, checks ./config/config.yaml then /etc/main-serve/config.yaml.
+    ///
+    /// If not specified, checks `$HOME/.config/main-serve/config.yaml` then
+    /// `/etc/main-serve/config.yaml`.
     #[arg(short, long)]
     config: Option<PathBuf>,
 
@@ -49,7 +51,7 @@ impl fmt::Debug for Cli {
 fn main() {
     let cli = Cli::parse();
 
-    // Resolve config path: explicit CLI flag -> ./config/config.yaml -> /etc/main-serve/config.yaml
+    // Resolve config path: explicit CLI flag -> $HOME/.config/main-serve/config.yaml -> /etc/main-serve/config.yaml
     let config_path = resolve_config_path(&cli.config);
 
     // Load config first (before tracing init) so we can use logging settings.
@@ -102,16 +104,18 @@ fn main() {
 
 /// Resolve the config file path using priority order:
 /// 1. Explicit CLI flag (if provided)
-/// 2. ./config/config.yaml (local development)
-/// 3. /etc/main-serve/config.yaml (system install)
+/// 2. `$HOME/.config/main-serve/config.yaml` (home directory config)
+/// 3. `/etc/main-serve/config.yaml` (system install)
 fn resolve_config_path(cli_path: &Option<PathBuf>) -> PathBuf {
     if let Some(explicit) = cli_path {
         return explicit.clone();
     }
 
-    let local = PathBuf::from("config/config.yaml");
-    if local.exists() {
-        return local;
+    if let Ok(home) = env::var("HOME") {
+        let local = PathBuf::from(format!("{home}/.config/main-serve/config.yaml"));
+        if local.exists() {
+            return local;
+        }
     }
 
     let system = PathBuf::from("/etc/main-serve/config.yaml");
@@ -119,8 +123,11 @@ fn resolve_config_path(cli_path: &Option<PathBuf>) -> PathBuf {
         return system;
     }
 
-    // Default to local path so the error message is helpful for new users.
-    local
+    // Default to home directory config path so the error message is helpful.
+    if let Ok(home) = env::var("HOME") {
+        return PathBuf::from(format!("{home}/.config/main-serve/config.yaml"));
+    }
+    PathBuf::from("$HOME/.config/main-serve/config.yaml")
 }
 
 async fn async_main(cli: Cli, config: main_serve::config::AppConfig, config_path: PathBuf) {
