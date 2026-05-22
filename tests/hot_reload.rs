@@ -14,168 +14,17 @@ use std::io::Write;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
+use support::configs::hot_reload_configs::{
+    HOT_RELOAD_MINIMAL_CONFIG, HOT_RELOAD_RELOAD_TARGET, RELOAD_DB_V1, RELOAD_DB_V1_DROP,
+    RELOAD_DB_V2_ADD, RELOAD_DB_V2_DROP,
+};
 use support::db::{TestDatabase, enabled_backends};
 use support::setup_server;
 use tower::ServiceExt;
 
-const MINIMAL_CONFIG: &str = r#"
-server:
-  host: "127.0.0.1"
-  port: 0
-
-endpoints:
-  - path: "/api/info"
-    methods: ["get"]
-    action: "custom_response"
-    custom_response:
-      status: 200
-      content_type: "application/json"
-      body: '{"test": true}'
-    auth: "none"
-"#;
-
-const RELOAD_DB_V1: &str = r#"
-server:
-  port: 0
-
-databases:
-  main:
-    driver: "__DB_DRIVER__"
-    url: "__DB_URL__"
-    auto_migrate: true
-    allow_destructive: false
-
-tables:
-  - name: "__TABLE_NAME__"
-    database: "main"
-    columns:
-      - name: "id"
-        type: "serial"
-        primary_key: true
-      - name: "title"
-        type: "text"
-        nullable: false
-
-endpoints:
-  - path: "/api/items"
-    methods: ["get"]
-    action: "crud"
-    crud:
-      table: "__TABLE_NAME__"
-      database: "main"
-      fields: ["id", "title"]
-    auth: "none"
-"#;
-
-const RELOAD_DB_V2_ADD: &str = r#"
-server:
-  port: 0
-
-databases:
-  main:
-    driver: "__DB_DRIVER__"
-    url: "__DB_URL__"
-    auto_migrate: true
-    allow_destructive: false
-
-tables:
-  - name: "__TABLE_NAME__"
-    database: "main"
-    columns:
-      - name: "id"
-        type: "serial"
-        primary_key: true
-      - name: "title"
-        type: "text"
-        nullable: false
-      - name: "status"
-        type: "varchar"
-        nullable: false
-        default: "'draft'"
-
-endpoints:
-  - path: "/api/items"
-    methods: ["get"]
-    action: "crud"
-    crud:
-      table: "__TABLE_NAME__"
-      database: "main"
-      fields: ["id", "title", "status"]
-    auth: "none"
-"#;
-
-const RELOAD_DB_V1_DROP: &str = r#"
-server:
-  port: 0
-
-databases:
-  main:
-    driver: "__DB_DRIVER__"
-    url: "__DB_URL__"
-    auto_migrate: true
-    allow_destructive: true
-
-tables:
-  - name: "__TABLE_NAME__"
-    database: "main"
-    columns:
-      - name: "id"
-        type: "serial"
-        primary_key: true
-      - name: "title"
-        type: "text"
-        nullable: false
-      - name: "body"
-        type: "text"
-        nullable: true
-
-endpoints:
-  - path: "/api/items"
-    methods: ["get"]
-    action: "crud"
-    crud:
-      table: "__TABLE_NAME__"
-      database: "main"
-      fields: ["id", "title", "body"]
-    auth: "none"
-"#;
-
-const RELOAD_DB_V2_DROP: &str = r#"
-server:
-  port: 0
-
-databases:
-  main:
-    driver: "__DB_DRIVER__"
-    url: "__DB_URL__"
-    auto_migrate: true
-    allow_destructive: true
-
-tables:
-  - name: "__TABLE_NAME__"
-    database: "main"
-    columns:
-      - name: "id"
-        type: "serial"
-        primary_key: true
-      - name: "title"
-        type: "text"
-        nullable: false
-
-endpoints:
-  - path: "/api/items"
-    methods: ["get"]
-    action: "crud"
-    crud:
-      table: "__TABLE_NAME__"
-      database: "main"
-      fields: ["id", "title"]
-    auth: "none"
-"#;
-
 #[tokio::test]
 async fn test_health_endpoint() {
-    let (app, _f) = setup_server(MINIMAL_CONFIG).await;
+    let (app, _f) = setup_server(HOT_RELOAD_MINIMAL_CONFIG).await;
 
     let req = Request::builder()
         .uri("/_main-serve/health")
@@ -193,7 +42,7 @@ async fn test_health_endpoint() {
 
 #[tokio::test]
 async fn test_reload_requires_auth() {
-    let (app, _f) = setup_server(MINIMAL_CONFIG).await;
+    let (app, _f) = setup_server(HOT_RELOAD_MINIMAL_CONFIG).await;
 
     let req = Request::builder()
         .method("POST")
@@ -207,7 +56,7 @@ async fn test_reload_requires_auth() {
 
 #[tokio::test]
 async fn test_reload_rejects_wrong_token() {
-    let (app, _f) = setup_server(MINIMAL_CONFIG).await;
+    let (app, _f) = setup_server(HOT_RELOAD_MINIMAL_CONFIG).await;
 
     let req = Request::builder()
         .method("POST")
@@ -222,35 +71,12 @@ async fn test_reload_rejects_wrong_token() {
 
 #[tokio::test]
 async fn test_reload_with_valid_token() {
-    let (app, mut f) = setup_server(MINIMAL_CONFIG).await;
+    let (app, mut f) = setup_server(HOT_RELOAD_MINIMAL_CONFIG).await;
 
     // Overwrite the temp file with a config that has 2 endpoints (was 1).
     f.as_file_mut().set_len(0).unwrap();
     std::io::Seek::seek(f.as_file_mut(), std::io::SeekFrom::Start(0)).unwrap();
-    f.write_all(
-        br#"
-server:
-  host: "127.0.0.1"
-  port: 0
-
-endpoints:
-  - path: "/api/info"
-    methods: ["get"]
-    action: "custom_response"
-    custom_response:
-      status: 200
-      body: '{"test": true}'
-    auth: "none"
-  - path: "/api/extra"
-    methods: ["get"]
-    action: "custom_response"
-    custom_response:
-      status: 200
-      body: '{"extra": true}'
-    auth: "none"
-"#,
-    )
-    .unwrap();
+    f.write_all(HOT_RELOAD_RELOAD_TARGET.as_bytes()).unwrap();
     f.flush().unwrap();
 
     let req = Request::builder()
@@ -289,7 +115,7 @@ endpoints:
 #[tokio::test]
 async fn test_reload_rejects_invalid_config() {
     // Start with a valid config, then overwrite the temp file with invalid YAML.
-    let (app, mut f) = setup_server(MINIMAL_CONFIG).await;
+    let (app, mut f) = setup_server(HOT_RELOAD_MINIMAL_CONFIG).await;
 
     // Overwrite config file with invalid content.
     f.as_file_mut().set_len(0).unwrap();
@@ -311,7 +137,7 @@ async fn test_reload_rejects_invalid_config() {
 
 #[tokio::test]
 async fn test_custom_response_endpoint() {
-    let (app, _f) = setup_server(MINIMAL_CONFIG).await;
+    let (app, _f) = setup_server(HOT_RELOAD_MINIMAL_CONFIG).await;
 
     let req = Request::builder()
         .uri("/api/info")
@@ -411,7 +237,7 @@ endpoints:
 
 #[tokio::test]
 async fn test_nonexistent_route_returns_404() {
-    let (app, _f) = setup_server(MINIMAL_CONFIG).await;
+    let (app, _f) = setup_server(HOT_RELOAD_MINIMAL_CONFIG).await;
 
     let req = Request::builder()
         .uri("/does-not-exist")

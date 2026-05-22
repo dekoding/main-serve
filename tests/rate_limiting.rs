@@ -1,4 +1,4 @@
-use crate::support::configs::RATE_LIMIT_CONFIG;
+use crate::support::configs::middleware_configs::RATE_LIMIT_CONFIG;
 use axum::{body::Body, extract::Request};
 use http::StatusCode;
 use tower::ServiceExt;

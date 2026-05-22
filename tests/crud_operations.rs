@@ -7,59 +7,7 @@ use tower::ServiceExt;
 use support::db::{TestDatabase, enabled_backends};
 use support::json_body;
 
-use crate::support::CRUD_CONFIG;
-
-const CRUD_FEATURES_CONFIG: &str = r#"
-server:
-  host: "127.0.0.1"
-  port: 0
-
-databases:
-  main:
-    driver: "__DB_DRIVER__"
-    url: "__DB_URL__"
-    auto_migrate: true
-
-tables:
-  - name: "__TABLE_NAME__"
-    database: "main"
-    columns:
-      - name: "id"
-        type: "serial"
-        primary_key: true
-      - name: "title"
-        type: "text"
-        nullable: false
-      - name: "body"
-        type: "text"
-        nullable: true
-      - name: "author"
-        type: "varchar"
-        nullable: false
-
-endpoints:
-  - path: "/api/posts"
-    methods: ["get", "post"]
-    action: "crud"
-    crud:
-      table: "__TABLE_NAME__"
-      database: "main"
-      fields: ["id", "title", "body", "author"]
-      writable_fields: ["title", "body", "author"]
-      pagination:
-        enabled: true
-        default_page_size: 2
-        max_page_size: 10
-      filtering:
-        enabled: true
-        allowed_fields: ["author"]
-      sorting:
-        enabled: true
-        allowed_fields: ["title", "id"]
-        default_field: "id"
-        default_order: "asc"
-    auth: "none"
-"#;
+use crate::support::configs::crud_operations_configs::{CRUD_CONFIG, JSONB_EXPRESSIONS_CONFIG};
 
 async fn seed_posts(app: &axum::Router, posts: &[(&str, &str)]) {
     for (title, author) in posts {
@@ -86,9 +34,7 @@ async fn seed_posts(app: &axum::Router, posts: &[(&str, &str)]) {
 async fn test_crud_pagination_across_backends() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "api_pagination");
-        let (app, _state, _pool) = test_db
-            .setup_app(CRUD_FEATURES_CONFIG, "crud_features.yaml")
-            .await;
+        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud_features.yaml").await;
 
         seed_posts(
             &app,
@@ -134,9 +80,7 @@ async fn test_crud_pagination_across_backends() {
 async fn test_crud_filtering_across_backends() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "api_filtering");
-        let (app, _state, _pool) = test_db
-            .setup_app(CRUD_FEATURES_CONFIG, "crud_features.yaml")
-            .await;
+        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud_features.yaml").await;
 
         seed_posts(&app, &[("A", "Alice"), ("B", "Bob")]).await;
 
@@ -157,9 +101,7 @@ async fn test_crud_filtering_across_backends() {
 async fn test_crud_sorting_across_backends() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "api_sorting");
-        let (app, _state, _pool) = test_db
-            .setup_app(CRUD_FEATURES_CONFIG, "crud_features.yaml")
-            .await;
+        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud_features.yaml").await;
 
         seed_posts(
             &app,
@@ -325,9 +267,7 @@ endpoints:
 async fn test_crud_filter_on_disallowed_field_rejected() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "api_filter_reject");
-        let (app, _state, _pool) = test_db
-            .setup_app(CRUD_FEATURES_CONFIG, "crud_features.yaml")
-            .await;
+        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud_features.yaml").await;
 
         seed_posts(&app, &[("Post", "Alice")]).await;
 
@@ -349,9 +289,7 @@ async fn test_crud_filter_on_disallowed_field_rejected() {
 async fn test_crud_sort_on_disallowed_field_rejected() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "api_sort_reject");
-        let (app, _state, _pool) = test_db
-            .setup_app(CRUD_FEATURES_CONFIG, "crud_features.yaml")
-            .await;
+        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud_features.yaml").await;
 
         seed_posts(&app, &[("Post", "Alice")]).await;
 
@@ -501,9 +439,7 @@ endpoints:
 async fn test_crud_pagination_clamps_page_size() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "api_page_clamp");
-        let (app, _state, _pool) = test_db
-            .setup_app(CRUD_FEATURES_CONFIG, "crud_features.yaml")
-            .await;
+        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud_features.yaml").await;
 
         // Seed 5 posts; max_page_size in config is 10, but test with 20.
         seed_posts(
@@ -544,9 +480,7 @@ async fn test_crud_pagination_clamps_page_size() {
 async fn test_sql_injection_prevention() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "sql_injection_test");
-        let (app, _state, _pool) = test_db
-            .setup_app(CRUD_FEATURES_CONFIG, "crud_features.yaml")
-            .await;
+        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud_features.yaml").await;
 
         // Seed some posts
         seed_posts(&app, &[("Normal Post", "Alice")]).await;
@@ -644,52 +578,9 @@ async fn test_crud_sort_jsonb_across_backends() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "api_sort_jsonb");
 
-        let template = r#"
-server:
-  port: 0
+        let template = JSONB_EXPRESSIONS_CONFIG;
 
-databases:
-  main:
-    driver: "__DB_DRIVER__"
-    url: "__DB_URL__"
-    auto_migrate: true
-
-tables:
-  - name: "__TABLE_NAME__"
-    database: "main"
-    columns:
-      - name: "id"
-        type: "serial"
-        primary_key: true
-      - name: "title"
-        type: "text"
-        nullable: false
-      - name: "metadata"
-        type: "jsonb"
-        nullable: true
-
-endpoints:
-  - path: "/api/posts"
-    methods: ["get", "post"]
-    action: "crud"
-    crud:
-      table: "__TABLE_NAME__"
-      database: "main"
-      fields: ["id", "title", "metadata"]
-      writable_fields: ["title", "metadata"]
-      filtering:
-        enabled: true
-        allowed_fields: ["metadata.role"]
-      sorting:
-        enabled: true
-        allowed_fields: ["metadata.role"]
-        default_field: "id"
-        default_order: "asc"
-    auth: "none"
-"#
-        .to_string();
-
-        let (app, _state, _pool) = test_db.setup_app(&template, "jsonb_sort.yaml").await;
+        let (app, _state, _pool) = test_db.setup_app(template, "jsonb_sort.yaml").await;
 
         // Seed posts with JSONB metadata containing role field
         let seed_data = vec![
@@ -765,9 +656,7 @@ endpoints:
 async fn test_crud_sort_jsonb_disallowed_field_rejected() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "api_sort_jsonb_reject");
-        let (app, _state, _pool) = test_db
-            .setup_app(CRUD_FEATURES_CONFIG, "crud_features.yaml")
-            .await;
+        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud_features.yaml").await;
 
         // metadata.tags is not in sorting.allowed_fields
         let req = Request::builder()

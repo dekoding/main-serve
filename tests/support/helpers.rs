@@ -21,3 +21,12 @@ pub fn jwt_config(yaml: &str) -> JwtConfig {
         .jwt
         .expect("YAML config must have auth.jwt configured")
 }
+
+/// Helper: Read a config template file (relative to the project root's config/templates/).
+pub fn read_config(name: &str) -> String {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("config/templates")
+        .join(name);
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("Failed to read {}: {e}", path.display()))
+}

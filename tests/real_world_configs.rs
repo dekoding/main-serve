@@ -25,21 +25,8 @@ use main_serve::middleware::auth::validators::jwt::create_token;
 use main_serve::server::{AppState, build_router};
 
 use support::db::{TestDatabase, create_pools_and_migrate, enabled_backends};
-use support::helpers::jwt_config;
+use support::helpers::{jwt_config, read_config};
 use support::{json_body, setup_server, start_mock_idp};
-
-// =============================================================================
-// Helpers
-// =============================================================================
-
-/// Read a config template file (relative to the project root's config/templates/).
-fn read_config(name: &str) -> String {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("config/templates")
-        .join(name);
-    std::fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("Failed to read {}: {e}", path.display()))
-}
 
 // Each config file is read from disk once and cached for the entire test binary.
 static STATIC_FILES_YAML: LazyLock<String> = LazyLock::new(|| read_config("static_files.yaml"));

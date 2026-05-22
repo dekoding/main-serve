@@ -20,59 +20,13 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use tower::ServiceExt;
 
+use crate::support::configs::crud_operations_configs::JSONB_EXPRESSIONS_CONFIG;
 use crate::support::db::enabled_backends;
 use crate::support::json_body;
 
 // =============================================================================
 // Test Configuration: JSONB-enabled table for expression testing
 // =============================================================================
-
-const JSONB_EXPRESSIONS_CONFIG: &str = r#"
-server:
-  port: 0
-
-databases:
-  main:
-    driver: "__DB_DRIVER__"
-    url: "__DB_URL__"
-    auto_migrate: true
-
-tables:
-  - name: "__TABLE_NAME__"
-    database: "main"
-    columns:
-      - name: "id"
-        type: "serial"
-        primary_key: true
-      - name: "title"
-        type: "text"
-        nullable: false
-      - name: "metadata"
-        type: "jsonb"
-        nullable: true
-      - name: "author"
-        type: "varchar"
-        nullable: false
-
-endpoints:
-  - path: "/api/posts"
-    methods: ["get", "post"]
-    action: "crud"
-    crud:
-      table: "__TABLE_NAME__"
-      database: "main"
-      fields: ["id", "title", "metadata", "author"]
-      writable_fields: ["title", "metadata", "author"]
-      filtering:
-        enabled: true
-        allowed_fields: ["title", "author"]
-      sorting:
-        enabled: true
-        allowed_fields: ["title", "author", "metadata"]
-        default_field: "id"
-        default_order: "asc"
-    auth: "none"
-"#;
 
 async fn seed_jsonb_posts(app: &axum::Router, posts: &[(&str, &str, &str)]) {
     for (title, author, metadata_json) in posts {

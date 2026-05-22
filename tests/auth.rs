@@ -13,6 +13,12 @@ use tower::ServiceExt;
 use main_serve::config::load_config;
 use main_serve::middleware::auth::validators::jwt::create_token;
 
+use support::configs::auth_configs::{
+    API_KEY_CONFIG, API_KEY_CRUD_CONFIG, API_KEY_QUERY_CONFIG, JWT_CONFIG,
+    JWT_COOKIE_FALLBACK_CONFIG, JWT_CRUD_CONFIG, OAUTH2_WITHOUT_JWT_CONFIG,
+    oauth2_code_flow_config, oauth2_introspection_config,
+};
+use support::configs::shared_configs::MINIMAL_JSON_CONFIG;
 use support::db::{TestBackend, TestDatabase, enabled_backends};
 use support::helpers::jwt_config;
 use support::{json_body, setup_server, start_mock_idp};
@@ -20,46 +26,6 @@ use support::{json_body, setup_server, start_mock_idp};
 // =============================================================================
 // JWT Auth
 // =============================================================================
-
-const JWT_CONFIG: &str = r#"
-server:
-  port: 0
-
-auth:
-  jwt:
-    secret: "test-jwt-secret-key-long-enough"
-    algorithm: "HS256"
-    issuer: "test-issuer"
-    audience: "test-audience"
-    expiry: 3600
-    role_claim: "role"
-
-endpoints:
-  - path: "/api/public"
-    methods: ["get"]
-    action: "custom_response"
-    custom_response:
-      status: 200
-      body: '{"msg": "public"}'
-    auth: "none"
-
-  - path: "/api/private"
-    methods: ["get"]
-    action: "custom_response"
-    custom_response:
-      status: 200
-      body: '{"msg": "private"}'
-    auth: "jwt"
-
-  - path: "/api/admin"
-    methods: ["get"]
-    action: "custom_response"
-    custom_response:
-      status: 200
-      body: '{"msg": "admin only"}'
-    auth: "jwt"
-    roles: ["admin"]
-"#;
 
 #[tokio::test]
 async fn test_public_endpoint_needs_no_auth() {
@@ -171,38 +137,6 @@ async fn test_jwt_role_required_no_role() {
 // =============================================================================
 // API Key Auth
 // =============================================================================
-
-const API_KEY_CONFIG: &str = r#"
-server:
-  port: 0
-
-auth:
-  api_key:
-    location: "header"
-    name: "X-API-Key"
-    keys:
-      - key: "secret-api-key-1"
-        role: "admin"
-      - key: "secret-api-key-2"
-
-endpoints:
-  - path: "/api/data"
-    methods: ["get"]
-    action: "custom_response"
-    custom_response:
-      status: 200
-      body: '{"data": "secured"}'
-    auth: "api_key"
-
-  - path: "/api/admin-data"
-    methods: ["get"]
-    action: "custom_response"
-    custom_response:
-      status: 200
-      body: '{"data": "admin"}'
-    auth: "api_key"
-    roles: ["admin"]
-"#;
 
 #[tokio::test]
 async fn test_api_key_missing() {
@@ -396,81 +330,6 @@ endpoints:
     )
 }
 
-const JWT_CRUD_CONFIG: &str = r#"
-server:
-  port: 0
-
-auth:
-  jwt:
-    secret: "test-jwt-secret-key-long-enough"
-    algorithm: "HS256"
-    issuer: "test-issuer"
-    audience: "test-audience"
-
-databases:
-  main:
-    driver: "__DB_DRIVER__"
-    url: "__DB_URL__"
-    auto_migrate: true
-
-tables:
-  - name: "__TABLE_NAME__"
-    database: "main"
-    columns:
-      - name: "id"
-        type: "serial"
-        primary_key: true
-      - name: "name"
-        type: "text"
-
-endpoints:
-  - path: "/api/items"
-    methods: ["get"]
-    action: "crud"
-    crud:
-      table: "__TABLE_NAME__"
-      database: "main"
-    auth: "jwt"
-"#;
-
-const API_KEY_CRUD_CONFIG: &str = r#"
-server:
-  port: 0
-
-auth:
-  api_key:
-    location: "header"
-    name: "X-API-Key"
-    keys:
-      - key: "secret-api-key-1"
-        role: "admin"
-
-databases:
-  main:
-    driver: "__DB_DRIVER__"
-    url: "__DB_URL__"
-    auto_migrate: true
-
-tables:
-  - name: "__TABLE_NAME__"
-    database: "main"
-    columns:
-      - name: "id"
-        type: "serial"
-        primary_key: true
-      - name: "name"
-        type: "text"
-
-endpoints:
-  - path: "/api/items"
-    methods: ["get"]
-    action: "crud"
-    crud:
-      table: "__TABLE_NAME__"
-      database: "main"
-    auth: "api_key"
-"#;
-
 // =============================================================================
 // Mixed: auth on CRUD endpoints
 // =============================================================================
@@ -566,49 +425,10 @@ async fn test_api_key_auth_on_crud_endpoint_across_backends() {
 // OAuth2 Code Flow
 // =============================================================================
 
-fn oauth2_config_yaml(idp_url: &str) -> String {
-    format!(
-        r#"
-server:
-  port: 0
-
-auth:
-  jwt:
-    secret: "test-jwt-secret-key-long-enough"
-    algorithm: "HS256"
-    issuer: "test-issuer"
-    audience: "test-audience"
-    expiry: 3600
-  oauth2:
-    provider: "test-idp"
-    authorization_url: "{idp_url}/authorize"
-    token_url: "{idp_url}/token"
-    userinfo_url: "{idp_url}/userinfo"
-    client_id: "test-client-id"
-    client_secret: "test-client-secret"
-    scopes:
-      - "openid"
-      - "profile"
-    redirect_url: "http://localhost:8080/_main-serve/oauth2/callback"
-    success_url: "/dashboard"
-    cookie_name: "test_token"
-
-endpoints:
-  - path: "/api/protected"
-    methods: ["get"]
-    action: "custom_response"
-    custom_response:
-      status: 200
-      body: '{{"msg": "protected"}}'
-    auth: "jwt"
-"#
-    )
-}
-
 #[tokio::test]
 async fn test_oauth2_authorize_redirect() {
     let (idp_url, _shutdown) = start_mock_idp().await;
-    let yaml = oauth2_config_yaml(&idp_url);
+    let yaml = oauth2_code_flow_config(&idp_url);
     let (app, _f) = setup_server(&yaml).await;
 
     let req = Request::builder()
@@ -641,7 +461,7 @@ async fn test_oauth2_authorize_redirect() {
 #[tokio::test]
 async fn test_oauth2_callback_missing_code() {
     let (idp_url, _shutdown) = start_mock_idp().await;
-    let yaml = oauth2_config_yaml(&idp_url);
+    let yaml = oauth2_code_flow_config(&idp_url);
     let (app, _f) = setup_server(&yaml).await;
 
     let req = Request::builder()
@@ -656,7 +476,7 @@ async fn test_oauth2_callback_missing_code() {
 #[tokio::test]
 async fn test_oauth2_callback_invalid_state() {
     let (idp_url, _shutdown) = start_mock_idp().await;
-    let yaml = oauth2_config_yaml(&idp_url);
+    let yaml = oauth2_code_flow_config(&idp_url);
     let (app, _f) = setup_server(&yaml).await;
 
     let req = Request::builder()
@@ -671,7 +491,7 @@ async fn test_oauth2_callback_invalid_state() {
 #[tokio::test]
 async fn test_oauth2_callback_idp_error_response() {
     let (idp_url, _shutdown) = start_mock_idp().await;
-    let yaml = oauth2_config_yaml(&idp_url);
+    let yaml = oauth2_code_flow_config(&idp_url);
     let (app, _f) = setup_server(&yaml).await;
 
     let req = Request::builder()
@@ -692,7 +512,7 @@ async fn test_oauth2_callback_idp_error_response() {
 #[tokio::test]
 async fn test_oauth2_full_code_flow() {
     let (idp_url, shutdown) = start_mock_idp().await;
-    let yaml = oauth2_config_yaml(&idp_url);
+    let yaml = oauth2_code_flow_config(&idp_url);
 
     let (app, _f) = setup_server(&yaml).await;
 
@@ -791,7 +611,7 @@ async fn test_oauth2_full_code_flow() {
 #[tokio::test]
 async fn test_oauth2_state_is_one_time_use() {
     let (idp_url, shutdown) = start_mock_idp().await;
-    let yaml = oauth2_config_yaml(&idp_url);
+    let yaml = oauth2_code_flow_config(&idp_url);
 
     let (app, _f) = setup_server(&yaml).await;
 
@@ -830,31 +650,7 @@ async fn test_oauth2_state_is_one_time_use() {
 
 #[tokio::test]
 async fn test_jwt_auth_via_cookie_fallback() {
-    let yaml = r#"
-server:
-  port: 0
-
-auth:
-  jwt:
-    secret: "test-jwt-secret-key-long-enough"
-    algorithm: "HS256"
-    issuer: "test-issuer"
-    audience: "test-audience"
-    expiry: 3600
-  oauth2:
-    cookie_name: "my_auth_cookie"
-
-endpoints:
-  - path: "/api/secure"
-    methods: ["get"]
-    action: "custom_response"
-    custom_response:
-      status: 200
-      body: '{"msg": "secure"}'
-    auth: "jwt"
-"#;
-
-    let (app, _f) = setup_server(yaml).await;
+    let (app, _f) = setup_server(JWT_COOKIE_FALLBACK_CONFIG).await;
 
     let token = create_token("cookie-user", Some("admin"), &jwt_config(JWT_CONFIG)).unwrap();
 
@@ -887,22 +683,9 @@ endpoints:
 
 #[tokio::test]
 async fn test_oauth2_code_flow_requires_jwt_config() {
-    let yaml = r#"
-server:
-  port: 0
-
-auth:
-  oauth2:
-    authorization_url: "https://idp.example.com/authorize"
-    token_url: "https://idp.example.com/token"
-    client_id: "my-client"
-    redirect_url: "http://localhost:8080/_main-serve/oauth2/callback"
-
-endpoints: []
-"#;
-
     let mut f = tempfile::NamedTempFile::new().expect("tempfile");
-    f.write_all(yaml.as_bytes()).expect("write");
+    f.write_all(OAUTH2_WITHOUT_JWT_CONFIG.as_bytes())
+        .expect("write");
     let result = load_config(f.path());
 
     assert!(result.is_err());
@@ -916,21 +699,7 @@ endpoints: []
 #[tokio::test]
 async fn test_oauth2_endpoints_not_registered_without_config() {
     // No OAuth2 configured -> OAuth2 endpoints should not exist.
-    let yaml = r#"
-server:
-  port: 0
-
-endpoints:
-  - path: "/api/public"
-    methods: ["get"]
-    action: "custom_response"
-    custom_response:
-      status: 200
-      body: '{"msg": "public"}'
-    auth: "none"
-"#;
-
-    let (app, _f) = setup_server(yaml).await;
+    let (app, _f) = setup_server(MINIMAL_JSON_CONFIG).await;
 
     let req = Request::builder()
         .uri("/_main-serve/oauth2/authorize")
@@ -954,29 +723,7 @@ endpoints:
 
 #[tokio::test]
 async fn test_api_key_query_param_on_custom_response() {
-    let yaml = r#"
-server:
-  port: 0
-
-auth:
-  api_key:
-    location: "query"
-    name: "api_key"
-    keys:
-      - key: "secret-query-key"
-        role: "admin"
-
-endpoints:
-  - path: "/api/data"
-    methods: ["get"]
-    action: "custom_response"
-    custom_response:
-      status: 200
-      body: '{"data": "secured"}'
-    auth: "api_key"
-"#;
-
-    let (app, _f) = setup_server(yaml).await;
+    let (app, _f) = setup_server(API_KEY_QUERY_CONFIG).await;
 
     // Without key -> 401.
     let req = Request::builder()
@@ -1007,33 +754,7 @@ endpoints:
 async fn test_oauth2_token_introspection_on_endpoint() {
     let (idp_url, shutdown) = start_mock_idp().await;
 
-    let yaml = format!(
-        r#"
-server:
-  port: 0
-
-auth:
-  jwt:
-    secret: "test-jwt-secret-key-long-enough"
-    algorithm: "HS256"
-    issuer: "test-issuer"
-    audience: "test-audience"
-  oauth2:
-    userinfo_url: "{idp_url}/userinfo"
-    client_id: "test-client"
-    client_secret: "test-secret"
-    redirect_url: "http://localhost:8080/_main-serve/oauth2/callback"
-
-endpoints:
-  - path: "/api/userdata"
-    methods: ["get"]
-    action: "custom_response"
-    custom_response:
-      status: 200
-      body: '{{"data": "user-specific"}}'
-    auth: "oauth2"
-"#
-    );
+    let yaml = oauth2_introspection_config(&idp_url);
 
     let (app, _f) = setup_server(&yaml).await;
 
