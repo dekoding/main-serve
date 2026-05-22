@@ -18,7 +18,7 @@ use main_serve::server::{AppState, build_router, build_tls_acceptor};
 #[command(name = "main-serve", version, about)]
 struct Cli {
     /// Path to YAML config file.
-    /// 
+    ///
     /// If not specified, checks `$HOME/.config/main-serve/config.yaml` then
     /// `/etc/main-serve/config.yaml`.
     #[arg(short, long)]
