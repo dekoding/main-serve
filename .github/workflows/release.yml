@@ -59,6 +59,12 @@ jobs:
           pkgname: main-serve
           pkgbuild: dist/arch/PKGBUILD
           updpkgsums: true
+          assets: |
+            dist/arch/main-serve.install
+            dist/main-serve.service
+            dist/main-serve.sysusers
+            dist/main-serve.tmpfiles
+
           commit_username: dekoding
           commit_email: ${{ secrets.AUR_EMAIL }}
           ssh_private_key: ${{ secrets.AUR_SSH_KEY }}
