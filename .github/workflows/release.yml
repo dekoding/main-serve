@@ -54,9 +54,11 @@ jobs:
             target/SHA256SUMS
 
       - name: Push PKGBUILD to AUR
-        uses: dmmulroy/aur-action@v1
+        uses: KSXGitHub/github-actions-deploy-aur@v4.1.3
         with:
-          email: ${{ secrets.AUR_EMAIL }}
-          private-key: ${{ secrets.AUR_SSH_KEY }}
-          host: aur.archlinux.org
-          package-dir: dist
+          pkgname: main-serve
+          pkgbuild: dist/arch/PKGBUILD
+          updpkgsums: true
+          commit_username: dekoding
+          commit_email: ${{ secrets.AUR_EMAIL }}
+          ssh_private_key: ${{ secrets.AUR_SSH_KEY }}

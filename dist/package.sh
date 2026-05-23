@@ -14,7 +14,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_DIR"
 
-VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+# Extract pkgname and pkgver from PKGBUILD, not Cargo.toml
+# PKGBUILD is what makepkg reads, so the versions must match
+PKGBUILD="dist/arch/PKGBUILD"
+PKGNAME=$(grep '^pkgname=' "$PKGBUILD" | head -1 | sed 's/^pkgname=//')
+PKGVER=$(grep '^pkgver=' "$PKGBUILD" | head -1 | sed 's/^pkgver=//')
+VERSION="$PKGVER"
 echo "==> Building main-serve v${VERSION} packages"
 
 build_release() {
@@ -48,20 +53,82 @@ build_rpm() {
 }
 
 check_arch() {
-    echo "==> Validating Arch PKGBUILD..."
-    if [ ! -f "dist/PKGBUILD" ]; then
-        echo "    ERROR: dist/PKGBUILD not found"
+    echo "==> Building Arch package..."
+    if ! command -v makepkg &>/dev/null; then
+        echo "    ERROR: makepkg not found. This script must be run in an Arch environment."
         return 1
     fi
-    if [ ! -f "dist/main-serve.install" ]; then
-        echo "    ERROR: dist/main-serve.install not found"
+    if [ ! -f "dist/arch/PKGBUILD" ]; then
+        echo "    ERROR: dist/arch/PKGBUILD not found"
+        return 1
+    fi
+    if [ ! -f "dist/arch/main-serve.install" ]; then
+        echo "    ERROR: dist/arch/main-serve.install not found"
+        return 1
+    fi
+    if [ ! -f "dist/main-serve.service" ]; then
+        echo "    ERROR: dist/main-serve.service not found"
+        return 1
+    fi
+    if [ ! -f "dist/main-serve.sysusers" ]; then
+        echo "    ERROR: dist/main-serve.sysusers not found"
+        return 1
+    fi
+    if [ ! -f "dist/main-serve.tmpfiles" ]; then
+        echo "    ERROR: dist/main-serve.tmpfiles not found"
         return 1
     fi
     # Basic syntax check
-    bash -n "dist/PKGBUILD" 2>&1
+    bash -n "dist/arch/PKGBUILD" 2>&1
     echo "    PKGBUILD syntax: OK"
-    echo "    To build: copy dist/PKGBUILD and dist/main-serve.install to a clean directory,"
-    echo "    place the source tarball there, and run 'makepkg -si'"
+
+    build_release
+
+    ORIGINAL_PKGBUILD="$(mktemp)"
+    TARBALL="$(mktemp --suffix=.tar.gz)"
+    PKGBUILD_DIR="$(cd dist/arch && pwd)"
+    LOCAL_TARBALL="${PKGBUILD_DIR}/${PKGNAME}-${PKGVER}.tar.gz"
+
+    cleanup() {
+        rm -f "${PKGBUILD_DIR}/${PKGNAME}-${PKGVER}.tar.gz" 2>/dev/null || true
+        rm -rf "${PKGBUILD_DIR}/src" "${PKGBUILD_DIR}/pkg" 2>/dev/null || true
+        if [ -f "$ORIGINAL_PKGBUILD" ]; then
+            cp "$ORIGINAL_PKGBUILD" "${PKGBUILD_DIR}/PKGBUILD" 2>/dev/null || true
+            rm -f "$ORIGINAL_PKGBUILD" 2>/dev/null || true
+        fi
+        rm -f "$TARBALL" 2>/dev/null || true
+    }
+    trap cleanup EXIT
+
+    cp "dist/arch/PKGBUILD" "$ORIGINAL_PKGBUILD"
+
+    echo "    Creating source tarball ($PKGNAME-$PKGVER)..."
+    git archive --prefix="${PKGNAME}-${PKGVER}/" -o "$TARBALL" HEAD
+
+    local hash
+    hash="$(sha256sum "$TARBALL" | awk '{print $1}')"
+
+    cp "$TARBALL" "${PKGBUILD_DIR}/${PKGNAME}-${PKGVER}.tar.gz"
+
+    echo "    Updating PKGBUILD for local tarball..."
+    sed -e "s|^source=.*|source=(\"${PKGNAME}-${PKGVER}.tar.gz\")|" \
+        -e "s|^sha256sums=.*|sha256sums=('$hash')|" \
+        "$ORIGINAL_PKGBUILD" > "${PKGBUILD_DIR}/PKGBUILD"
+
+    echo "    Running makepkg..."
+    pushd "$PKGBUILD_DIR" > /dev/null
+    if ! makepkg --noconfirm 2>&1; then
+        echo "    ERROR: makepkg failed"
+        popd > /dev/null
+        exit 1
+    fi
+    local pkgfile
+    pkgfile=$(ls -1t *.pkg.tar.* 2>/dev/null | head -1)
+    echo "    .pkg.tar.zst: $pkgfile"
+    popd > /dev/null
+
+    echo "    Restoring original PKGBUILD and cleaning up..."
+    cleanup
 }
 
 TARGET="${1:-all}"

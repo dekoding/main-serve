@@ -121,4 +121,6 @@ jobs:
       - name: Build .rpm
         run: cargo generate-rpm
       - name: Validate PKGBUILD syntax
-        run: bash -n dist/PKGBUILD
+        run: bash -n dist/arch/PKGBUILD
+      - name: Validate PKGBUILD (bin) syntax
+        run: bash -n dist/arch-bin/PKGBUILD
