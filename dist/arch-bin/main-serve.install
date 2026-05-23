@@ -1,4 +1,4 @@
-# dist/main-serve.install
+# dist/arch-bin/main-serve.install
 
 post_install() {
     systemctl daemon-reload >/dev/null 2>&1 || true
