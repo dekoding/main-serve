@@ -1,6 +1,6 @@
 [package]
 name = "main-serve"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 description = "A high-performance, YAML-configured web server with full API support"
 license = "MIT"
