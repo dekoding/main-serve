@@ -739,7 +739,7 @@ If sorting is enabled on a JSONB column, the API supports dot-notation and LHS b
 joins:
   - table: "organizations"
     on: "users.org_id = organizations.id"
-    type: "left"                # inner, left, right
+    join_type: "left"                # inner, left, right
     fields:
       - "organizations.name as org_name"
 ```
@@ -748,7 +748,7 @@ joins:
 |---|---|---|
 | `table` | string | Table to join with. |
 | `on` | string | JOIN condition (SQL expression). |
-| `type` | enum | Join type: `inner`, `left`, `right`. |
+| `join_type` | enum | Join type: `inner`, `left`, `right`. |
 | `fields` | list of strings | Columns to include from the joined table. Use `AS` aliases for clarity. |
 
 **Computed fields:**

@@ -29,7 +29,7 @@ build() {
 package() {
     cd "$srcdir/$pkgname-$pkgver"
     install -Dm755 "target/release/main-serve" "$pkgdir/usr/bin/main-serve"
-    install -Dm644 "config/config.yaml" "$pkgdir/etc/main-serve/config.yaml"
+    install -Dm644 "config/templates/default.yaml" "$pkgdir/etc/main-serve/config.yaml"
     install -Dm644 "dist/main-serve.service" "$pkgdir/usr/lib/systemd/system/main-serve.service"
     install -Dm644 "dist/main-serve.sysusers" "$pkgdir/usr/lib/sysusers.d/main-serve.conf"
     install -Dm644 "dist/main-serve.tmpfiles" "$pkgdir/usr/lib/tmpfiles.d/main-serve.conf"

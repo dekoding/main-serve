@@ -1,8 +1,8 @@
 /// Integration tests with realistic, comprehensive YAML configurations.
 ///
 /// Each test scenario validates that a full real-world config loads,
-/// validates, and serves requests correctly. Configs live in
-/// `tests/configs/` as standalone YAML files with JSON schema references.
+/// validates, and serves requests correctly. Configs are test-specific
+/// constants defined in `tests/support/configs/real_world_configs.rs`.
 ///
 /// Scenarios:
 ///   1. Static file serving (with and without SPA fallback)
@@ -10,9 +10,11 @@
 ///   3. API endpoints protected by each auth variety
 ///   4. Combined config: static files + protected CRUD endpoints
 ///   5. OAuth2 / OIDC: token introspection with role enforcement
+///   6. Reverse proxy: forwarding, path rewrite, custom headers
+///   7. CRUD API: joins, computed fields, filtering, where clause
 mod support;
 
-use std::sync::LazyLock;
+use std::io::Write;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
@@ -24,20 +26,15 @@ use main_serve::config::types::JwtConfig;
 use main_serve::middleware::auth::validators::jwt::create_token;
 use main_serve::server::{AppState, build_router};
 
+use support::configs::real_world_configs::{
+    AUTH_PROTECTED_CONFIG, COMBINED_CONFIG, CRUD_API_CONFIG, CUSTOM_RESPONSES_CONFIG, PROXY_CONFIG,
+    STATIC_FILES_CONFIG, oauth2_config,
+};
 use support::db::{TestDatabase, create_pools_and_migrate, enabled_backends};
-use support::helpers::{jwt_config, read_config};
+use support::helpers::jwt_config;
 use support::{json_body, setup_server, start_mock_idp};
 
-// Each config file is read from disk once and cached for the entire test binary.
-static STATIC_FILES_YAML: LazyLock<String> = LazyLock::new(|| read_config("static_files.yaml"));
-static CUSTOM_RESPONSES_YAML: LazyLock<String> =
-    LazyLock::new(|| read_config("custom_responses.yaml"));
-static AUTH_PROTECTED_YAML: LazyLock<String> = LazyLock::new(|| read_config("auth_protected.yaml"));
-static COMBINED_YAML: LazyLock<String> = LazyLock::new(|| read_config("combined.yaml"));
-static OAUTH2_YAML: LazyLock<String> = LazyLock::new(|| read_config("oauth2.yaml"));
-static PROXY_YAML: LazyLock<String> = LazyLock::new(|| read_config("proxy.yaml"));
-static CRUD_API_YAML: LazyLock<String> = LazyLock::new(|| read_config("crud_api.yaml"));
-
+/// Generate the argon2 hash for the admin password.
 fn basic_auth_hash() -> String {
     use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
 
@@ -46,6 +43,11 @@ fn basic_auth_hash() -> String {
         .hash_password(b"s3cureP@ss", &salt)
         .unwrap()
         .to_string()
+}
+
+/// Generate the auth_protected config with the password hash placeholder filled in.
+fn auth_config() -> String {
+    AUTH_PROTECTED_CONFIG.replace("__BASIC_AUTH_HASH__", &basic_auth_hash())
 }
 
 /// Populate a directory with test site files. Returns the root path.
@@ -62,58 +64,16 @@ fn write_site_files(dir: &std::path::Path, files: &[(&str, &str)]) -> std::path:
     root
 }
 
-/// Set up a server from a config template with static files.
-/// Replaces `{ROOT}` with the temp directory path.
-/// Returns (router, TempDir) - caller must keep TempDir alive.
-async fn setup_static_server(
-    yaml: &str,
-    files: &[(&str, &str)],
-) -> (axum::Router, tempfile::TempDir) {
-    let dir = tempfile::TempDir::new().expect("tempdir");
-    let root = write_site_files(dir.path(), files);
-
-    let yaml = yaml.replace("{ROOT}", &root.display().to_string());
-    let config_file = dir.path().join("config.yaml");
-    std::fs::write(&config_file, &yaml).unwrap();
-
-    let config = load_config(&config_file).expect("load config");
-    let state = AppState::new(config, config_file, "test-token".to_string());
+/// Set up a server from a YAML string without database pools.
+async fn setup_server_from_yaml(yaml: &str) -> (axum::Router, tempfile::NamedTempFile) {
+    let mut f = tempfile::NamedTempFile::new().expect("tempfile");
+    f.write_all(yaml.as_bytes()).expect("write");
+    let config = load_config(f.path()).expect("load config");
+    let state = AppState::new(config, f.path().to_path_buf(), "test-token".to_string());
     let config_guard = state.config.read().await;
     let app = build_router(&config_guard, state.clone()).await;
     drop(config_guard);
-
-    (app, dir)
-}
-
-/// Set up a combined scenario with both static files and a DB-backed config.
-async fn setup_combined_app(
-    test_db: &TestDatabase,
-    yaml_template: &str,
-    site_files: &[(&str, &str)],
-) -> (axum::Router, tempfile::TempDir) {
-    let dir = tempfile::TempDir::new().expect("tempdir");
-    let root = write_site_files(dir.path(), site_files);
-
-    let yaml = test_db
-        .render_yaml(yaml_template)
-        .replace("{ROOT}", &root.display().to_string())
-        .replace("__BASIC_AUTH_HASH__", &basic_auth_hash());
-    let config_path = dir.path().join("config.yaml");
-    std::fs::write(&config_path, &yaml).unwrap();
-
-    let config = load_config(&config_path).expect("load config");
-    let pools = create_pools_and_migrate(&config).await;
-
-    let state = AppState::new(config, config_path, "test-token".to_string());
-    {
-        let mut pool_lock = state.db_pools.write().await;
-        *pool_lock = pools;
-    }
-    let config_guard = state.config.read().await;
-    let app = build_router(&config_guard, state.clone()).await;
-    drop(config_guard);
-
-    (app, dir)
+    (app, f)
 }
 
 const SITE_FILES: &[(&str, &str)] = &[
@@ -159,8 +119,11 @@ const COMBINED_SITE_FILES: &[(&str, &str)] = &[
 
 #[tokio::test]
 async fn test_static_standard_serves_existing_files() {
-    let yaml = &*STATIC_FILES_YAML;
-    let (app, _dir) = setup_static_server(yaml, SITE_FILES).await;
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let root = write_site_files(dir.path(), SITE_FILES);
+
+    let yaml = STATIC_FILES_CONFIG.replace("{ROOT}", &root.display().to_string());
+    let (app, _f) = setup_server_from_yaml(&yaml).await;
 
     // Serve index.html at root
     let resp = app
@@ -276,7 +239,6 @@ async fn test_static_standard_serves_existing_files() {
 
     // Cache header present
     let resp = app
-        .clone()
         .oneshot(
             Request::builder()
                 .uri("/assets/style.css")
@@ -299,8 +261,11 @@ async fn test_static_standard_serves_existing_files() {
 
 #[tokio::test]
 async fn test_static_standard_404_for_missing() {
-    let yaml = &*STATIC_FILES_YAML;
-    let (app, _dir) = setup_static_server(yaml, SITE_FILES).await;
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let root = write_site_files(dir.path(), SITE_FILES);
+
+    let yaml = STATIC_FILES_CONFIG.replace("{ROOT}", &root.display().to_string());
+    let (app, _f) = setup_server_from_yaml(&yaml).await;
 
     let resp = app
         .clone()
@@ -328,8 +293,11 @@ async fn test_static_standard_404_for_missing() {
 
 #[tokio::test]
 async fn test_static_spa_returns_index_for_unknown_routes() {
-    let yaml = &*STATIC_FILES_YAML;
-    let (app, _dir) = setup_static_server(yaml, SITE_FILES).await;
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let root = write_site_files(dir.path(), SITE_FILES);
+
+    let yaml = STATIC_FILES_CONFIG.replace("{ROOT}", &root.display().to_string());
+    let (app, _f) = setup_server_from_yaml(&yaml).await;
 
     // Known file still works
     let resp = app
@@ -416,8 +384,11 @@ async fn test_static_spa_returns_index_for_unknown_routes() {
 
 #[tokio::test]
 async fn test_static_directory_listing() {
-    let yaml = &*STATIC_FILES_YAML;
-    let (app, _dir) = setup_static_server(yaml, SITE_FILES).await;
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let root = write_site_files(dir.path(), SITE_FILES);
+
+    let yaml = STATIC_FILES_CONFIG.replace("{ROOT}", &root.display().to_string());
+    let (app, _f) = setup_server_from_yaml(&yaml).await;
 
     // /files/images/ has no index.html - should show listing
     let resp = app
@@ -477,8 +448,7 @@ async fn test_static_directory_listing() {
 
 #[tokio::test]
 async fn test_custom_response_json_api_info() {
-    let yaml = &*CUSTOM_RESPONSES_YAML;
-    let (app, _f) = setup_server(yaml).await;
+    let (app, _f) = setup_server(CUSTOM_RESPONSES_CONFIG).await;
 
     let resp = app
         .oneshot(
@@ -526,8 +496,7 @@ async fn test_custom_response_json_api_info() {
 
 #[tokio::test]
 async fn test_custom_response_health_check() {
-    let yaml = &*CUSTOM_RESPONSES_YAML;
-    let (app, _f) = setup_server(yaml).await;
+    let (app, _f) = setup_server(CUSTOM_RESPONSES_CONFIG).await;
 
     let resp = app
         .oneshot(
@@ -546,8 +515,7 @@ async fn test_custom_response_health_check() {
 
 #[tokio::test]
 async fn test_custom_response_html_page() {
-    let yaml = &*CUSTOM_RESPONSES_YAML;
-    let (app, _f) = setup_server(yaml).await;
+    let (app, _f) = setup_server(CUSTOM_RESPONSES_CONFIG).await;
 
     let resp = app
         .oneshot(
@@ -583,8 +551,7 @@ async fn test_custom_response_html_page() {
 
 #[tokio::test]
 async fn test_custom_response_plain_text() {
-    let yaml = &*CUSTOM_RESPONSES_YAML;
-    let (app, _f) = setup_server(yaml).await;
+    let (app, _f) = setup_server(CUSTOM_RESPONSES_CONFIG).await;
 
     let resp = app
         .oneshot(
@@ -620,8 +587,7 @@ async fn test_custom_response_plain_text() {
 
 #[tokio::test]
 async fn test_custom_response_redirect() {
-    let yaml = &*CUSTOM_RESPONSES_YAML;
-    let (app, _f) = setup_server(yaml).await;
+    let (app, _f) = setup_server(CUSTOM_RESPONSES_CONFIG).await;
 
     let resp = app
         .oneshot(Request::builder().uri("/docs").body(Body::empty()).unwrap())
@@ -643,8 +609,7 @@ async fn test_custom_response_redirect() {
 
 #[tokio::test]
 async fn test_custom_response_service_unavailable() {
-    let yaml = &*CUSTOM_RESPONSES_YAML;
-    let (app, _f) = setup_server(yaml).await;
+    let (app, _f) = setup_server(CUSTOM_RESPONSES_CONFIG).await;
 
     for method in &["GET", "POST", "PUT", "DELETE"] {
         let resp = app
@@ -674,8 +639,7 @@ async fn test_custom_response_service_unavailable() {
 
 #[tokio::test]
 async fn test_custom_response_xml() {
-    let yaml = &*CUSTOM_RESPONSES_YAML;
-    let (app, _f) = setup_server(yaml).await;
+    let (app, _f) = setup_server(CUSTOM_RESPONSES_CONFIG).await;
 
     let resp = app
         .oneshot(
@@ -716,17 +680,13 @@ async fn test_custom_response_xml() {
 // Scenario 3: API Endpoints Protected by Each Auth Variety
 // =============================================================================
 
-/// Load the auth_protected config with the password hash placeholder filled in.
-fn auth_config() -> String {
-    AUTH_PROTECTED_YAML.replace("__BASIC_AUTH_HASH__", &basic_auth_hash())
-}
-
 #[tokio::test]
 async fn test_auth_public_health_check_needs_no_auth() {
     let yaml = auth_config();
 
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "rw_auth_health");
+        let yaml = test_db.render_yaml(&yaml);
         let (app, _state, _pool) = test_db.setup_app(&yaml, "auth_all.yaml").await;
 
         let resp = app
@@ -752,7 +712,7 @@ async fn test_auth_jwt_crud_read_any_role() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "rw_auth_jwt_read");
         let yaml = test_db.render_yaml(&yaml_template);
-        let (app, _state, _pool) = test_db.setup_app(&yaml_template, "auth_jwt.yaml").await;
+        let (app, _state, _pool) = test_db.setup_app(&yaml, "auth_jwt.yaml").await;
 
         // No token -> 401
         let resp = app
@@ -819,7 +779,7 @@ async fn test_auth_jwt_crud_admin_only_endpoint() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "rw_auth_jwt_admin");
         let yaml = test_db.render_yaml(&yaml_template);
-        let (app, _state, _pool) = test_db.setup_app(&yaml_template, "auth_admin.yaml").await;
+        let (app, _state, _pool) = test_db.setup_app(&yaml, "auth_admin.yaml").await;
 
         // First create an article via the list endpoint (no role restriction)
         let admin_token = create_token("admin1", Some("admin"), &jwt_config(&yaml)).unwrap();
@@ -1086,13 +1046,45 @@ async fn test_auth_basic_admin_endpoint() {
 // Scenario 4: Combined Config - Static Files + Protected CRUD Endpoints
 // =============================================================================
 
-#[tokio::test]
-async fn test_combined_static_spa_serves_frontend() {
-    let yaml = &*COMBINED_YAML;
+/// Set up a combined scenario with both static files and a DB-backed config.
+/// Returns (router, temp_dir, rendered_yaml) so callers can use the rendered
+/// YAML for jwt_config() which needs a parseable config string.
+async fn setup_combined_app(
+    test_db: &TestDatabase,
+    yaml_template: &str,
+    site_files: &[(&str, &str)],
+) -> (axum::Router, tempfile::TempDir, String) {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let root = write_site_files(dir.path(), site_files);
 
+    let yaml = test_db
+        .render_yaml(yaml_template)
+        .replace("{ROOT}", &root.display().to_string())
+        .replace("__BASIC_AUTH_HASH__", &basic_auth_hash());
+    let config_path = dir.path().join("config.yaml");
+    std::fs::write(&config_path, &yaml).unwrap();
+
+    let config = load_config(&config_path).expect("load config");
+    let pools = create_pools_and_migrate(&config).await;
+
+    let state = AppState::new(config, config_path, "test-token".to_string());
+    {
+        let mut pool_lock = state.db_pools.write().await;
+        *pool_lock = pools;
+    }
+    let config_guard = state.config.read().await;
+    let app = build_router(&config_guard, state.clone()).await;
+    drop(config_guard);
+
+    (app, dir, yaml)
+}
+
+#[tokio::test]
+async fn test_combined_static_spa_serves_frontend_across_backends() {
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "rw_combined_spa");
-        let (app, _dir) = setup_combined_app(&test_db, yaml, COMBINED_SITE_FILES).await;
+        let (app, _dir, _yaml) =
+            setup_combined_app(&test_db, COMBINED_CONFIG, COMBINED_SITE_FILES).await;
 
         // SPA index
         let resp = app
@@ -1159,37 +1151,35 @@ async fn test_combined_static_spa_serves_frontend() {
 
 #[tokio::test]
 async fn test_combined_public_health_check() {
-    let yaml = &*COMBINED_YAML;
+    let (app, _dir, _yaml) = setup_combined_app(
+        &TestDatabase::new(support::db::TestBackend::Sqlite, "rw_combined_health"),
+        COMBINED_CONFIG,
+        COMBINED_SITE_FILES,
+    )
+    .await;
 
-    for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "rw_combined_health");
-        let (app, _dir) = setup_combined_app(&test_db, yaml, COMBINED_SITE_FILES).await;
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/health")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
 
-        let resp = app
-            .oneshot(
-                Request::builder()
-                    .uri("/health")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(resp.status(), StatusCode::OK, "backend: {backend}");
-
-        let json = json_body(resp).await;
-        assert_eq!(json["status"], "healthy");
-        assert_eq!(json["version"], "1.0.0");
-    }
+    let json = json_body(resp).await;
+    assert_eq!(json["status"], "healthy");
+    assert_eq!(json["version"], "1.0.0");
 }
 
 #[tokio::test]
 async fn test_combined_jwt_crud_full_lifecycle() {
-    let yaml_template = &*COMBINED_YAML;
-
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "rw_combined_crud");
-        let yaml = test_db.render_yaml(yaml_template);
-        let (app, _dir) = setup_combined_app(&test_db, yaml_template, COMBINED_SITE_FILES).await;
+        let (app, _dir, yaml) =
+            setup_combined_app(&test_db, COMBINED_CONFIG, COMBINED_SITE_FILES).await;
 
         // Unauthenticated -> 401
         let resp = app
@@ -1233,7 +1223,7 @@ async fn test_combined_jwt_crud_full_lifecycle() {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::CREATED, "backend: {backend}");
 
-        // Fetch user ID from the list endpoint (create response format varies by backend).
+        // Fetch user ID from the list endpoint.
         let resp = app
             .clone()
             .oneshot(
@@ -1337,110 +1327,99 @@ async fn test_combined_jwt_crud_full_lifecycle() {
 
 #[tokio::test]
 async fn test_combined_api_key_service_endpoint() {
-    let yaml = &*COMBINED_YAML;
+    let (app, _dir, _yaml) = setup_combined_app(
+        &TestDatabase::new(support::db::TestBackend::Sqlite, "rw_combined_svc"),
+        COMBINED_CONFIG,
+        COMBINED_SITE_FILES,
+    )
+    .await;
 
-    for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "rw_combined_svc");
-        let (app, _dir) = setup_combined_app(&test_db, yaml, COMBINED_SITE_FILES).await;
+    // No key -> 401
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/service/ping")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "backend: sqlite");
 
-        // No key -> 401
-        let resp = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri("/api/service/ping")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(
-            resp.status(),
-            StatusCode::UNAUTHORIZED,
-            "backend: {backend}"
-        );
+    // Valid service key -> 200
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/service/ping")
+                .header("X-API-Key", "service-to-service-key")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK, "backend: sqlite");
 
-        // Valid service key -> 200
-        let resp = app
-            .oneshot(
-                Request::builder()
-                    .uri("/api/service/ping")
-                    .header("X-API-Key", "service-to-service-key")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(resp.status(), StatusCode::OK, "backend: {backend}");
-
-        let json = json_body(resp).await;
-        assert_eq!(json["pong"], true);
-    }
+    let json = json_body(resp).await;
+    assert_eq!(json["pong"], true);
 }
 
 #[tokio::test]
 async fn test_combined_basic_auth_admin_panel() {
-    let yaml = &*COMBINED_YAML;
+    let (app, _dir, _yaml) = setup_combined_app(
+        &TestDatabase::new(support::db::TestBackend::Sqlite, "rw_combined_admin"),
+        COMBINED_CONFIG,
+        COMBINED_SITE_FILES,
+    )
+    .await;
 
-    for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "rw_combined_admin");
-        let (app, _dir) = setup_combined_app(&test_db, yaml, COMBINED_SITE_FILES).await;
+    // No auth -> 401 with correct realm
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/admin/status")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "backend: sqlite");
+    let www = resp
+        .headers()
+        .get("www-authenticate")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert!(
+        www.contains("Admin Panel"),
+        "Expected 'Admin Panel' realm, got: {www}"
+    );
 
-        // No auth -> 401 with correct realm
-        let resp = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri("/admin/status")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(
-            resp.status(),
-            StatusCode::UNAUTHORIZED,
-            "backend: {backend}"
-        );
-        let www = resp
-            .headers()
-            .get("www-authenticate")
-            .unwrap()
-            .to_str()
-            .unwrap();
-        assert!(
-            www.contains("Admin Panel"),
-            "Expected 'Admin Panel' realm, got: {www}"
-        );
+    // Valid Basic auth -> 200
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/admin/status")
+                .header("authorization", "Basic YWRtaW46czNjdXJlUEBzcw==")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK, "backend: sqlite");
 
-        // Valid Basic auth -> 200
-        // "admin:s3cureP@ss" -> base64 "YWRtaW46czNjdXJlUEBzcw=="
-        let resp = app
-            .oneshot(
-                Request::builder()
-                    .uri("/admin/status")
-                    .header("authorization", "Basic YWRtaW46czNjdXJlUEBzcw==")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(resp.status(), StatusCode::OK, "backend: {backend}");
-
-        let json = json_body(resp).await;
-        assert_eq!(json["admin"], true);
-        assert_eq!(json["panel"], "status");
-    }
+    let json = json_body(resp).await;
+    assert_eq!(json["admin"], true);
+    assert_eq!(json["panel"], "status");
 }
 
 #[tokio::test]
 async fn test_combined_where_clause_filters_inactive() {
-    let yaml_template = &*COMBINED_YAML;
-
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "rw_combined_where");
-        let yaml = test_db.render_yaml(yaml_template);
-        let (app, _dir) = setup_combined_app(&test_db, yaml_template, COMBINED_SITE_FILES).await;
+        let (app, _dir, yaml) =
+            setup_combined_app(&test_db, COMBINED_CONFIG, COMBINED_SITE_FILES).await;
 
         let token = create_token("admin1", Some("admin"), &jwt_config(&yaml)).unwrap();
 
@@ -1482,7 +1461,7 @@ async fn test_combined_where_clause_filters_inactive() {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::CREATED, "backend: {backend}");
 
-        // List endpoint has where_clause: "active = true" - should only return active user
+        // List endpoint has where_clause: "active = true"
         let resp = app
             .oneshot(
                 Request::builder()
@@ -1508,14 +1487,10 @@ async fn test_combined_where_clause_filters_inactive() {
 
 #[tokio::test]
 async fn test_combined_cross_auth_isolation() {
-    // Verify that auth types don't bleed across endpoints:
-    // JWT token should not work on api_key endpoint, and vice versa.
-    let yaml_template = &*COMBINED_YAML;
-
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "rw_combined_iso");
-        let yaml = test_db.render_yaml(yaml_template);
-        let (app, _dir) = setup_combined_app(&test_db, yaml_template, COMBINED_SITE_FILES).await;
+        let (app, _dir, yaml) =
+            setup_combined_app(&test_db, COMBINED_CONFIG, COMBINED_SITE_FILES).await;
 
         // JWT token on api_key endpoint -> 401
         let jwt_token = create_token("user1", Some("service"), &jwt_config(&yaml)).unwrap();
@@ -1592,26 +1567,13 @@ async fn test_combined_cross_auth_isolation() {
 }
 
 // =============================================================================
-// Scenario 5: OAuth2 / OIDC - Token Introspection (unique to real-world configs)
-//
-// Core OAuth2 mechanism tests (code flow roundtrip, authorize redirect, bogus
-// state, IdP error, state replay, cookie fallback) live in auth.rs.
-// These tests exercise behavior specific to the external config file:
-//   - Token introspection with role enforcement via a realistic IdP mock
-//   - Revoked/expired token handling
-//   - Auth mode independence (oauth2 vs jwt)
+// Scenario 5: OAuth2 / OIDC - Token Introspection
 // =============================================================================
-
-/// Set up a server with the OAuth2 config, replacing __IDP_URL__ with the mock.
-async fn setup_oauth2_server(idp_url: &str) -> (axum::Router, tempfile::NamedTempFile) {
-    let yaml = OAUTH2_YAML.replace("__IDP_URL__", idp_url);
-    setup_server(&yaml).await
-}
 
 #[tokio::test]
 async fn test_oauth2_public_endpoint_no_auth() {
     let (idp_url, _shutdown) = start_mock_idp().await;
-    let (app, _f) = setup_oauth2_server(&idp_url).await;
+    let (app, _f) = setup_server(&oauth2_config(&idp_url)).await;
 
     let resp = app
         .oneshot(
@@ -1640,9 +1602,8 @@ async fn test_oauth2_public_endpoint_no_auth() {
 #[tokio::test]
 async fn test_oauth2_introspection_no_token_401() {
     let (idp_url, _shutdown) = start_mock_idp().await;
-    let (app, _f) = setup_oauth2_server(&idp_url).await;
+    let (app, _f) = setup_server(&oauth2_config(&idp_url)).await;
 
-    // No Bearer token -> 401
     let resp = app
         .oneshot(
             Request::builder()
@@ -1658,9 +1619,9 @@ async fn test_oauth2_introspection_no_token_401() {
 #[tokio::test]
 async fn test_oauth2_introspection_valid_token() {
     let (idp_url, _shutdown) = start_mock_idp().await;
-    let (app, _f) = setup_oauth2_server(&idp_url).await;
+    let (app, _f) = setup_server(&oauth2_config(&idp_url)).await;
 
-    // Valid external token -> 200 (mock always returns a valid userinfo response)
+    // Valid external token -> 200
     let resp = app
         .oneshot(
             Request::builder()
@@ -1680,9 +1641,8 @@ async fn test_oauth2_introspection_valid_token() {
 #[tokio::test]
 async fn test_oauth2_introspection_role_enforcement() {
     let (idp_url, _shutdown) = start_mock_idp().await;
-    let (app, _f) = setup_oauth2_server(&idp_url).await;
+    let (app, _f) = setup_server(&oauth2_config(&idp_url)).await;
 
-    // /api/admin/settings requires role "admin".
     // Regular token -> mock returns role "user" -> 403
     let resp = app
         .clone()
@@ -1717,10 +1677,9 @@ async fn test_oauth2_introspection_role_enforcement() {
 #[tokio::test]
 async fn test_oauth2_introspection_idp_rejects_token() {
     let (idp_url, _shutdown) = start_mock_idp().await;
-    let (app, _f) = setup_oauth2_server(&idp_url).await;
+    let (app, _f) = setup_server(&oauth2_config(&idp_url)).await;
 
-    // In the real world, the IdP returns 401 for expired or revoked tokens.
-    // The mock rejects tokens starting with "revoked-".
+    // Mock rejects tokens starting with "revoked-"
     let resp = app
         .oneshot(
             Request::builder()
@@ -1737,16 +1696,8 @@ async fn test_oauth2_introspection_idp_rejects_token() {
 #[tokio::test]
 async fn test_oauth2_and_jwt_auth_modes_are_independent() {
     let (idp_url, _shutdown) = start_mock_idp().await;
-    let (app, _f) = setup_oauth2_server(&idp_url).await;
+    let (app, _f) = setup_server(&oauth2_config(&idp_url)).await;
 
-    // Demonstrates that oauth2 and jwt auth modes are independent:
-    //   - oauth2 endpoints validate tokens externally (via IdP userinfo)
-    //   - jwt endpoints validate tokens locally (signature + claims)
-    //
-    // A locally-minted JWT sent to an oauth2 endpoint gets forwarded to the
-    // mock IdP's userinfo, which accepts any non-revoked Bearer token -> 200.
-    // Conversely, an opaque external token sent to a jwt endpoint fails
-    // local signature validation -> 401.
     let jwt_cfg = JwtConfig {
         secret: "oauth2-test-jwt-secret-32chars!".to_string(),
         algorithm: main_serve::config::types::JwtAlgorithm::HS256,
@@ -1791,8 +1742,6 @@ async fn test_oauth2_and_jwt_auth_modes_are_independent() {
 
 /// Start a mock upstream HTTP server that echoes the request path, method,
 /// query string, and selected headers back as JSON.
-///
-/// Returns (base_url, shutdown_sender).
 async fn start_mock_upstream() -> (String, tokio::sync::oneshot::Sender<()>) {
     use axum::Router;
     use axum::routing::any;
@@ -1846,18 +1795,11 @@ async fn start_mock_upstream() -> (String, tokio::sync::oneshot::Sender<()>) {
     (base_url, tx)
 }
 
-/// Set up a server with the proxy config, replacing __UPSTREAM_URL__.
-async fn setup_proxy_server(upstream_url: &str) -> (axum::Router, tempfile::NamedTempFile) {
-    let yaml = PROXY_YAML.replace("__UPSTREAM_URL__", upstream_url);
-    setup_server(&yaml).await
-}
-
 #[tokio::test]
 async fn test_proxy_api_gateway_forwards_and_rewrites_path() {
     let (upstream_url, _shutdown) = start_mock_upstream().await;
-    let (app, _f) = setup_proxy_server(&upstream_url).await;
+    let (app, _f) = setup_server(&PROXY_CONFIG.replace("__UPSTREAM_URL__", &upstream_url)).await;
 
-    // GET /api/v1/users -> upstream /v1/users
     let resp = app
         .clone()
         .oneshot(
@@ -1873,7 +1815,6 @@ async fn test_proxy_api_gateway_forwards_and_rewrites_path() {
     let json = json_body(resp).await;
     assert_eq!(json["path"], "/v1/users");
     assert_eq!(json["method"], "GET");
-    // Custom headers injected
     assert_eq!(json["headers"]["x-forwarded-by"], "main-serve");
     assert_eq!(json["headers"]["x-request-source"], "gateway");
 }
@@ -1881,7 +1822,7 @@ async fn test_proxy_api_gateway_forwards_and_rewrites_path() {
 #[tokio::test]
 async fn test_proxy_api_gateway_preserves_query_string() {
     let (upstream_url, _shutdown) = start_mock_upstream().await;
-    let (app, _f) = setup_proxy_server(&upstream_url).await;
+    let (app, _f) = setup_server(&PROXY_CONFIG.replace("__UPSTREAM_URL__", &upstream_url)).await;
 
     let resp = app
         .oneshot(
@@ -1904,7 +1845,7 @@ async fn test_proxy_api_gateway_preserves_query_string() {
 #[tokio::test]
 async fn test_proxy_api_gateway_forwards_post_body() {
     let (upstream_url, _shutdown) = start_mock_upstream().await;
-    let (app, _f) = setup_proxy_server(&upstream_url).await;
+    let (app, _f) = setup_server(&PROXY_CONFIG.replace("__UPSTREAM_URL__", &upstream_url)).await;
 
     let payload = r#"{"name":"new item"}"#;
     let resp = app
@@ -1929,9 +1870,8 @@ async fn test_proxy_api_gateway_forwards_post_body() {
 #[tokio::test]
 async fn test_proxy_legacy_path_rewrite() {
     let (upstream_url, _shutdown) = start_mock_upstream().await;
-    let (app, _f) = setup_proxy_server(&upstream_url).await;
+    let (app, _f) = setup_server(&PROXY_CONFIG.replace("__UPSTREAM_URL__", &upstream_url)).await;
 
-    // GET /legacy/widgets -> upstream /api/v2/widgets
     let resp = app
         .oneshot(
             Request::builder()
@@ -1950,9 +1890,8 @@ async fn test_proxy_legacy_path_rewrite() {
 #[tokio::test]
 async fn test_proxy_external_no_rewrite() {
     let (upstream_url, _shutdown) = start_mock_upstream().await;
-    let (app, _f) = setup_proxy_server(&upstream_url).await;
+    let (app, _f) = setup_server(&PROXY_CONFIG.replace("__UPSTREAM_URL__", &upstream_url)).await;
 
-    // GET /external/time -> upstream /external/time (no rewrite)
     let resp = app
         .oneshot(
             Request::builder()
@@ -1974,11 +1913,9 @@ async fn test_proxy_external_no_rewrite() {
 
 #[tokio::test]
 async fn test_crud_api_author_lifecycle() {
-    let yaml = &*CRUD_API_YAML;
-
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "rw_crud_api_author");
-        let (app, _state, _pool) = test_db.setup_app(yaml, "crud_api.yaml").await;
+        let (app, _state, _pool) = test_db.setup_app(CRUD_API_CONFIG, "crud_api.yaml").await;
 
         // Create author (public endpoint)
         let resp = app
@@ -2058,11 +1995,9 @@ async fn test_crud_api_author_lifecycle() {
 
 #[tokio::test]
 async fn test_crud_api_articles_with_joins_and_computed_fields() {
-    let yaml = &*CRUD_API_YAML;
-
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "rw_crud_api_joins");
-        let (app, _state, _pool) = test_db.setup_app(yaml, "crud_api.yaml").await;
+        let (app, _state, _pool) = test_db.setup_app(CRUD_API_CONFIG, "crud_api.yaml").await;
 
         // Seed: create an author
         let resp = app
@@ -2170,17 +2105,14 @@ async fn test_crud_api_articles_with_joins_and_computed_fields() {
             "where_clause should filter drafts, backend: {backend}"
         );
         assert_eq!(data[0]["title"], "Rust is Great");
-        // Joined field from authors table
         assert_eq!(
             data[0]["author_name"], "Bob",
             "INNER JOIN author_name missing, backend: {backend}"
         );
-        // Joined field from categories table (LEFT JOIN)
         assert_eq!(
             data[0]["category_name"], "Tech",
             "LEFT JOIN category_name missing, backend: {backend}"
         );
-        // Computed field
         let body_length = data[0]["body_length"].as_i64().unwrap();
         assert_eq!(
             body_length,
@@ -2192,11 +2124,9 @@ async fn test_crud_api_articles_with_joins_and_computed_fields() {
 
 #[tokio::test]
 async fn test_crud_api_article_without_category_left_join() {
-    let yaml = &*CRUD_API_YAML;
-
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "rw_crud_api_left");
-        let (app, _state, _pool) = test_db.setup_app(yaml, "crud_api.yaml").await;
+        let (app, _state, _pool) = test_db.setup_app(CRUD_API_CONFIG, "crud_api.yaml").await;
 
         // Seed author
         let resp = app
@@ -2216,7 +2146,7 @@ async fn test_crud_api_article_without_category_left_join() {
             .unwrap();
         assert_eq!(resp.status(), StatusCode::CREATED, "backend: {backend}");
 
-        // Create article without a category (category_id = null)
+        // Create article without a category
         let resp = app
             .clone()
             .oneshot(
@@ -2267,11 +2197,9 @@ async fn test_crud_api_article_without_category_left_join() {
 
 #[tokio::test]
 async fn test_crud_api_rbac_admin_only_delete() {
-    let yaml = &*CRUD_API_YAML;
-
     for backend in enabled_backends() {
         let test_db = TestDatabase::new(backend, "rw_crud_api_rbac");
-        let (app, _state, _pool) = test_db.setup_app(yaml, "crud_api.yaml").await;
+        let (app, _state, _pool) = test_db.setup_app(CRUD_API_CONFIG, "crud_api.yaml").await;
 
         // Seed author + article
         app.clone()
@@ -2310,7 +2238,7 @@ async fn test_crud_api_rbac_admin_only_delete() {
             .await
             .unwrap();
 
-        // Writer key should not be able to delete (admin only)
+        // Writer key should not be able to delete
         let resp = app
             .clone()
             .oneshot(
