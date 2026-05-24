@@ -273,15 +273,22 @@ impl SelectBuilder {
         behavior: &dyn FilterBehavior,
     ) -> Result<(), AppError> {
         let path_str = expr.path.join(".");
-        let param = placeholder(self.driver, self.param_idx);
         let base_column = expr.path.first().cloned().unwrap_or_default();
         let is_jsonb_field = expr.path.len() > 1;
+
+        let values: Vec<String> =
+            if expr.operator == FilterOperator::In || expr.operator == FilterOperator::NotIn {
+                value.split(',').map(|s| s.trim().to_string()).collect()
+            } else {
+                vec![value.to_string()]
+            };
+        let num_params = values.len();
 
         let condition = match expr.operator {
             FilterOperator::Eq => self.build_comparison(
                 &base_column,
                 is_jsonb_field,
-                &param,
+                &placeholder(self.driver, self.param_idx),
                 behavior.eq_op(),
                 &path_str,
                 behavior,
@@ -289,7 +296,7 @@ impl SelectBuilder {
             FilterOperator::Ne => self.build_comparison(
                 &base_column,
                 is_jsonb_field,
-                &param,
+                &placeholder(self.driver, self.param_idx),
                 behavior.ne_op(),
                 &path_str,
                 behavior,
@@ -297,7 +304,7 @@ impl SelectBuilder {
             FilterOperator::Gt => self.build_comparison(
                 &base_column,
                 is_jsonb_field,
-                &param,
+                &placeholder(self.driver, self.param_idx),
                 behavior.gt_op(),
                 &path_str,
                 behavior,
@@ -305,7 +312,7 @@ impl SelectBuilder {
             FilterOperator::Gte => self.build_comparison(
                 &base_column,
                 is_jsonb_field,
-                &param,
+                &placeholder(self.driver, self.param_idx),
                 behavior.gte_op(),
                 &path_str,
                 behavior,
@@ -313,7 +320,7 @@ impl SelectBuilder {
             FilterOperator::Lt => self.build_comparison(
                 &base_column,
                 is_jsonb_field,
-                &param,
+                &placeholder(self.driver, self.param_idx),
                 behavior.lt_op(),
                 &path_str,
                 behavior,
@@ -321,14 +328,13 @@ impl SelectBuilder {
             FilterOperator::Lte => self.build_comparison(
                 &base_column,
                 is_jsonb_field,
-                &param,
+                &placeholder(self.driver, self.param_idx),
                 behavior.lte_op(),
                 &path_str,
                 behavior,
             ),
             FilterOperator::In => {
-                let values: Vec<String> = value.split(',').map(|s| s.trim().to_string()).collect();
-                let placeholders: Vec<String> = (0..values.len())
+                let placeholders: Vec<String> = (0..num_params)
                     .map(|i| placeholder(self.driver, self.param_idx + i))
                     .collect();
                 let param_list = placeholders.join(", ");
@@ -341,23 +347,29 @@ impl SelectBuilder {
                 )
             }
             FilterOperator::NotIn => {
-                let values: Vec<String> = value.split(',').map(|s| s.trim().to_string()).collect();
-                let placeholders: Vec<String> = (0..values.len())
+                let placeholders: Vec<String> = (0..num_params)
                     .map(|i| placeholder(self.driver, self.param_idx + i))
                     .collect();
                 let param_list = placeholders.join(", ");
-                self.build_in(
+                let condition = self.build_in(
                     &base_column,
                     is_jsonb_field,
                     &param_list,
                     &path_str,
                     behavior,
-                )
+                );
+                format!("NOT {condition}")
             }
-            FilterOperator::Contains => {
-                self.build_contains(is_jsonb_field, &param, &path_str, value, behavior)?
+            FilterOperator::Contains => self.build_contains(
+                is_jsonb_field,
+                &placeholder(self.driver, self.param_idx),
+                &path_str,
+                value,
+                behavior,
+            )?,
+            FilterOperator::Exists => {
+                self.build_exists(is_jsonb_field, &base_column, &path_str, behavior)?
             }
-            FilterOperator::Exists => self.build_exists(is_jsonb_field, &base_column, &path_str, behavior)?,
             FilterOperator::StartsWith => {
                 let param = format!("{}%", value);
                 self.build_like(&base_column, is_jsonb_field, &param, &path_str, behavior)
@@ -375,10 +387,13 @@ impl SelectBuilder {
         };
 
         self.conditions.push(condition);
-        // Use proper type coercion based on column type
-        let param_value = build_filter_param(value, column_type);
-        self.params.push(param_value);
-        self.param_idx += 1;
+
+        for v in &values {
+            let param_value = build_filter_param(v, column_type);
+            self.params.push(param_value);
+        }
+        self.param_idx += num_params;
+
         Ok(())
     }
 
@@ -483,10 +498,7 @@ impl SelectBuilder {
                 behavior.json_extract_path(column_name, path_str)
             ))
         } else {
-            Ok(format!(
-                "{}.{} IS NOT NULL",
-                self.table, base_column
-            ))
+            Ok(format!("{}.{} IS NOT NULL", self.table, base_column))
         }
     }
 

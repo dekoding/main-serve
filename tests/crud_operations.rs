@@ -4,10 +4,12 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use tower::ServiceExt;
 
-use support::db::{TestDatabase, enabled_backends};
+use support::db::{TestBackend, TestDatabase, enabled_backends};
 use support::json_body;
 
-use crate::support::configs::crud_operations_configs::{CRUD_CONFIG, JSONB_EXPRESSIONS_CONFIG};
+use crate::support::configs::crud_operations_configs::{
+    CRUD_CONFIG, JSONB_EXPRESSIONS_CONFIG, JSONB_FILTER_SORT_CONFIG,
+};
 
 async fn seed_posts(app: &axum::Router, posts: &[(&str, &str)]) {
     for (title, author) in posts {
@@ -1071,4 +1073,1332 @@ endpoints:
 
     // Shutdown the server by killing the task
     server_handle.abort();
+}
+
+// =============================================================================
+// JSONB Filtering and Sorting Integration Tests
+// =============================================================================
+
+/// Seed posts with rich JSONB metadata for comprehensive filter/sort testing.
+async fn seed_jsonb_posts(app: &axum::Router) {
+    let seed_data = vec![
+        serde_json::json!({
+            "title": "Post Alpha",
+            "author": "alice",
+            "metadata": serde_json::json!({
+                "role": "alpha",
+                "status": "active",
+                "user": {"age": 30}
+            }),
+            "tags": ["rust", "web"]
+        }),
+        serde_json::json!({
+            "title": "Post Beta",
+            "author": "bob",
+            "metadata": serde_json::json!({
+                "role": "beta",
+                "status": "active",
+                "user": {"age": 25}
+            }),
+            "tags": ["python", "ml"]
+        }),
+        serde_json::json!({
+            "title": "Post Gamma",
+            "author": "charlie",
+            "metadata": serde_json::json!({
+                "role": "gamma",
+                "status": "inactive",
+                "user": {"age": 35}
+            }),
+            "tags": ["go", "systems"]
+        }),
+        serde_json::json!({
+            "title": "Post Delta",
+            "author": "alice",
+            "metadata": serde_json::json!({
+                "role": "delta",
+                "status": "active",
+                "user": {"age": 28}
+            }),
+            "tags": ["rust", "ml"]
+        }),
+        serde_json::json!({
+            "title": "Post Epsilon",
+            "author": "bob",
+            "metadata": serde_json::json!({
+                "role": "epsilon",
+                "status": "draft",
+                "user": {"age": 22}
+            }),
+            "tags": ["javascript"]
+        }),
+    ];
+    for data in &seed_data {
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/posts")
+            .header("content-type", "application/json")
+            .body(Body::from(data.to_string()))
+            .unwrap();
+        let _response = app.clone().oneshot(req).await.unwrap();
+    }
+}
+
+/// Seed posts with null and empty JSONB values for edge case testing.
+async fn seed_jsonb_posts_with_nulls(app: &axum::Router) {
+    let seed_data = vec![
+        serde_json::json!({
+            "title": "Post With Null Metadata",
+            "author": "alice",
+            "metadata": null,
+            "tags": ["rust"]
+        }),
+        serde_json::json!({
+            "title": "Post With Empty Metadata",
+            "author": "bob",
+            "metadata": serde_json::json!({}),
+            "tags": []
+        }),
+        serde_json::json!({
+            "title": "Post With Full Metadata",
+            "author": "charlie",
+            "metadata": serde_json::json!({
+                "role": "full",
+                "status": "active",
+                "user": {"age": 40, "profile": {"email": "charlie@example.com", "bio": "Developer"}}
+            }),
+            "tags": ["go", "web", "api"]
+        }),
+    ];
+    for data in &seed_data {
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/posts")
+            .header("content-type", "application/json")
+            .body(Body::from(data.to_string()))
+            .unwrap();
+        let _response = app.clone().oneshot(req).await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn test_jsonb_filter_eq_across_backends() {
+    for backend in enabled_backends() {
+        let test_db = TestDatabase::new(backend, "jsonb_filter_eq");
+
+        let (app, _state, _pool) = test_db
+            .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_eq.yaml")
+            .await;
+
+        seed_jsonb_posts(&app).await;
+
+        // Filter by metadata.role = "beta"
+        let req = Request::builder()
+            .uri("/api/posts?metadata.role=beta")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "eq filter failed for {backend}"
+        );
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(
+            data.len(),
+            1,
+            "eq filter should return 1 result for {backend}"
+        );
+        assert_eq!(
+            data[0]["title"], "Post Beta",
+            "eq filter title mismatch for {backend}"
+        );
+
+        // Filter by metadata.status = "inactive"
+        let req = Request::builder()
+            .uri("/api/posts?metadata.status=inactive")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(
+            data.len(),
+            1,
+            "eq filter on inactive should return 1 for {backend}"
+        );
+
+        // Filter by nested path metadata.user.age = 25
+        let req = Request::builder()
+            .uri("/api/posts?metadata.user.age=25")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(
+            data.len(),
+            1,
+            "eq filter on nested path should return 1 for {backend}"
+        );
+        assert_eq!(
+            data[0]["title"], "Post Beta",
+            "nested eq filter title mismatch for {backend}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_jsonb_filter_gt_across_backends() {
+    for backend in enabled_backends() {
+        let test_db = TestDatabase::new(backend, "jsonb_filter_gt");
+
+        let (app, _state, _pool) = test_db
+            .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_gt.yaml")
+            .await;
+
+        seed_jsonb_posts(&app).await;
+
+        // Filter by metadata.user.age > 30 (should match Gamma age=35)
+        let req = Request::builder()
+            .uri("/api/posts?metadata.user.age[gt]=30")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "gt filter failed for {backend}"
+        );
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(
+            data.len(),
+            1,
+            "gt filter should return 1 result for {backend}"
+        );
+        assert_eq!(
+            data[0]["title"], "Post Gamma",
+            "gt filter title mismatch for {backend}"
+        );
+
+        // Filter by metadata.user.age >= 30 (should match Alpha=30, Gamma=35)
+        let req = Request::builder()
+            .uri("/api/posts?metadata.user.age[gte]=30")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(req).await.unwrap();
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(
+            data.len(),
+            2,
+            "gte filter should return 2 results for {backend}"
+        );
+        let titles: Vec<&str> = data.iter().map(|r| r["title"].as_str().unwrap()).collect();
+        assert!(
+            titles.contains(&"Post Alpha"),
+            "gte filter should include Alpha for {backend}"
+        );
+        assert!(
+            titles.contains(&"Post Gamma"),
+            "gte filter should include Gamma for {backend}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_jsonb_filter_lt_across_backends() {
+    for backend in enabled_backends() {
+        let test_db = TestDatabase::new(backend, "jsonb_filter_lt");
+
+        let (app, _state, _pool) = test_db
+            .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_lt.yaml")
+            .await;
+
+        seed_jsonb_posts(&app).await;
+
+        // Filter by metadata.user.age < 30 (should match Beta=25, Delta=28, Epsilon=22)
+        let req = Request::builder()
+            .uri("/api/posts?metadata.user.age[lt]=30")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "lt filter failed for {backend}"
+        );
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(
+            data.len(),
+            3,
+            "lt filter should return 3 results for {backend}"
+        );
+
+        // Filter by metadata.user.age <= 25 (should match Beta=25, Epsilon=22)
+        let req = Request::builder()
+            .uri("/api/posts?metadata.user.age[lte]=25")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(
+            data.len(),
+            2,
+            "lte filter should return 2 results for {backend}"
+        );
+        let titles: Vec<&str> = data.iter().map(|r| r["title"].as_str().unwrap()).collect();
+        assert!(
+            titles.contains(&"Post Beta"),
+            "lte filter should include Beta for {backend}"
+        );
+        assert!(
+            titles.contains(&"Post Epsilon"),
+            "lte filter should include Epsilon for {backend}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_jsonb_filter_ne_across_backends() {
+    for backend in enabled_backends() {
+        let test_db = TestDatabase::new(backend, "jsonb_filter_ne");
+
+        let (app, _state, _pool) = test_db
+            .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_ne.yaml")
+            .await;
+
+        seed_jsonb_posts(&app).await;
+
+        // Filter by metadata.role != "alpha" (should return 4 posts)
+        let req = Request::builder()
+            .uri("/api/posts?metadata.role[ne]=alpha")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "ne filter failed for {backend}"
+        );
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(
+            data.len(),
+            4,
+            "ne filter should return 4 results for {backend}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_jsonb_filter_contains_across_backends() {
+    // JSONB CONTAINS operator uses PostgreSQL @> operator or SQLite json_each table-valued function
+    // These behave differently across backends, so we test PostgreSQL specifically
+    let pg_backends: Vec<TestBackend> = enabled_backends()
+        .into_iter()
+        .filter(|b| *b == TestBackend::Postgres)
+        .collect();
+    if pg_backends.is_empty() {
+        return;
+    }
+    for backend in pg_backends {
+        let test_db = TestDatabase::new(backend, "jsonb_filter_contains");
+
+        let (app, _state, _pool) = test_db
+            .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_contains.yaml")
+            .await;
+
+        seed_jsonb_posts(&app).await;
+
+        // Filter by tags contains "rust" (should match Alpha and Delta)
+        let req = Request::builder()
+            .uri("/api/posts?tags[contains]=rust")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "contains filter failed for {backend}"
+        );
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(
+            data.len(),
+            2,
+            "contains filter should return 2 results for {backend}"
+        );
+        let titles: Vec<&str> = data.iter().map(|r| r["title"].as_str().unwrap()).collect();
+        assert!(
+            titles.contains(&"Post Alpha"),
+            "contains should include Alpha for {backend}"
+        );
+        assert!(
+            titles.contains(&"Post Delta"),
+            "contains should include Delta for {backend}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_jsonb_filter_exists_across_backends() {
+    let pg_backends: Vec<TestBackend> = enabled_backends()
+        .into_iter()
+        .filter(|b| *b == TestBackend::Postgres)
+        .collect();
+    if pg_backends.is_empty() {
+        return;
+    }
+    for backend in pg_backends {
+        let test_db = TestDatabase::new(backend, "jsonb_filter_exists");
+
+        let (app, _state, _pool) = test_db
+            .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_exists.yaml")
+            .await;
+
+        seed_jsonb_posts(&app).await;
+
+        // Filter by metadata.role exists (should return all 5 posts since all have it)
+        let req = Request::builder()
+            .uri("/api/posts?metadata.role[exists]")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "exists filter failed for {backend}"
+        );
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(
+            data.len(),
+            5,
+            "exists filter should return 5 results for {backend}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_jsonb_filter_like_across_backends() {
+    // LIKE on JSONB values uses PostgreSQL-specific ILIKE operator
+    // SQLite's LIKE doesn't work the same way with json_extract results
+    let backends: Vec<TestBackend> = enabled_backends()
+        .into_iter()
+        .filter(|b| *b != TestBackend::Sqlite)
+        .collect();
+    for backend in backends {
+        let test_db = TestDatabase::new(backend, "jsonb_filter_like");
+
+        let (app, _state, _pool) = test_db
+            .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_like.yaml")
+            .await;
+
+        seed_jsonb_posts(&app).await;
+
+        // Filter by metadata.role like "%alpha%" (should match "alpha")
+        let req = Request::builder()
+            .uri("/api/posts?metadata.role[like]=%alpha%")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "like filter failed for {backend}"
+        );
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(
+            data.len(),
+            1,
+            "like filter should return 1 result for {backend}"
+        );
+        assert_eq!(
+            data[0]["title"], "Post Alpha",
+            "like filter title mismatch for {backend}"
+        );
+
+        // Filter by author like "a%" (should match alice posts: Alpha, Delta)
+        let req = Request::builder()
+            .uri("/api/posts?author[like]=a%")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(req).await.unwrap();
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(
+            data.len(),
+            2,
+            "like filter on author should return 2 for {backend}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_jsonb_filter_startswith_across_backends() {
+    let pg_backends: Vec<TestBackend> = enabled_backends()
+        .into_iter()
+        .filter(|b| *b == TestBackend::Postgres)
+        .collect();
+    if pg_backends.is_empty() {
+        return;
+    }
+    for backend in pg_backends {
+        let test_db = TestDatabase::new(backend, "jsonb_filter_startswith");
+
+        let (app, _state, _pool) = test_db
+            .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_startswith.yaml")
+            .await;
+
+        seed_jsonb_posts(&app).await;
+
+        // Filter by metadata.role startswith "alpha" (should match "alpha")
+        let req = Request::builder()
+            .uri("/api/posts?metadata.role[startswith]=alpha")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(data.len(), 1, "startswith should return 1 for {backend}");
+        assert_eq!(
+            data[0]["title"], "Post Alpha",
+            "startswith title mismatch for {backend}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_jsonb_filter_endswith_across_backends() {
+    let pg_backends: Vec<TestBackend> = enabled_backends()
+        .into_iter()
+        .filter(|b| *b == TestBackend::Postgres)
+        .collect();
+    if pg_backends.is_empty() {
+        return;
+    }
+    for backend in pg_backends {
+        let test_db = TestDatabase::new(backend, "jsonb_filter_endswith");
+
+        let (app, _state, _pool) = test_db
+            .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_endswith.yaml")
+            .await;
+
+        seed_jsonb_posts(&app).await;
+
+        // Filter by metadata.role endswith "psilon" (should match "epsilon")
+        let req = Request::builder()
+            .uri("/api/posts?metadata.role[endswith]=psilon")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(data.len(), 1, "endswith should return 1 for {backend}");
+        assert_eq!(
+            data[0]["title"], "Post Epsilon",
+            "endswith title mismatch for {backend}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_jsonb_filter_combined_across_backends() {
+    let backends: Vec<TestBackend> = enabled_backends()
+        .into_iter()
+        .filter(|b| *b != TestBackend::Sqlite)
+        .collect();
+    for backend in backends {
+        let test_db = TestDatabase::new(backend, "jsonb_filter_combined");
+
+        let (app, _state, _pool) = test_db
+            .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_combined.yaml")
+            .await;
+
+        seed_jsonb_posts(&app).await;
+
+        // Combined: metadata.status = "active" AND author = "bob" (should match Beta and Epsilon)
+        let req = Request::builder()
+            .uri("/api/posts?metadata.status=active&author=bob")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(
+            data.len(),
+            2,
+            "combined eq filter should return 2 for {backend}"
+        );
+        let titles: Vec<&str> = data.iter().map(|r| r["title"].as_str().unwrap()).collect();
+        assert!(
+            titles.contains(&"Post Beta"),
+            "combined should include Beta for {backend}"
+        );
+        assert!(
+            titles.contains(&"Post Epsilon"),
+            "combined should include Epsilon for {backend}"
+        );
+
+        // Combined: metadata.user.age > 25 AND metadata.status = "active" (Alpha=30, Delta=28)
+        let req = Request::builder()
+            .uri("/api/posts?metadata.user.age[gt]=25&metadata.status=active")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(req).await.unwrap();
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(
+            data.len(),
+            2,
+            "combined gt+eq filter should return 2 for {backend}"
+        );
+        let titles: Vec<&str> = data.iter().map(|r| r["title"].as_str().unwrap()).collect();
+        assert!(
+            titles.contains(&"Post Alpha"),
+            "combined should include Alpha for {backend}"
+        );
+        assert!(
+            titles.contains(&"Post Delta"),
+            "combined should include Delta for {backend}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_jsonb_filter_jsonb_column_exists_across_backends() {
+    let backends: Vec<TestBackend> = enabled_backends()
+        .into_iter()
+        .filter(|b| *b != TestBackend::Sqlite)
+        .collect();
+    for backend in backends {
+        let test_db = TestDatabase::new(backend, "jsonb_filter_exists_non_jsonb");
+
+        let (app, _state, _pool) = test_db
+            .setup_app(
+                JSONB_FILTER_SORT_CONFIG,
+                "jsonb_filter_exists_non_jsonb.yaml",
+            )
+            .await;
+
+        seed_jsonb_posts(&app).await;
+
+        // Filter by author exists (non-JSONB column) - all 5 should match
+        let req = Request::builder()
+            .uri("/api/posts?author[exists]")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "exists filter on non-JSONB column failed for {backend}"
+        );
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(
+            data.len(),
+            5,
+            "exists filter on non-JSONB should return 5 for {backend}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_jsonb_filter_jsonb_column_contains_across_backends() {
+    // Non-JSONB contains uses = operator which only does exact match
+    // This test verifies the SQL generation, not the actual filtering behavior
+    let backends: Vec<TestBackend> = enabled_backends()
+        .into_iter()
+        .filter(|b| *b != TestBackend::Sqlite)
+        .collect();
+    for backend in backends {
+        let test_db = TestDatabase::new(backend, "jsonb_filter_contains_non_jsonb");
+
+        let (app, _state, _pool) = test_db
+            .setup_app(
+                JSONB_FILTER_SORT_CONFIG,
+                "jsonb_filter_contains_non_jsonb.yaml",
+            )
+            .await;
+
+        seed_jsonb_posts(&app).await;
+
+        // Filter by title contains "Post" (non-JSONB column) - all 5 should match
+        let req = Request::builder()
+            .uri("/api/posts?title[contains]=Post")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "contains filter on non-JSONB column failed for {backend}"
+        );
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(
+            data.len(),
+            5,
+            "contains filter on non-JSONB should return 5 for {backend}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_jsonb_filter_bracket_notation_across_backends() {
+    for backend in enabled_backends() {
+        let test_db = TestDatabase::new(backend, "jsonb_filter_bracket");
+
+        let (app, _state, _pool) = test_db
+            .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_bracket.yaml")
+            .await;
+
+        seed_jsonb_posts(&app).await;
+
+        // Filter using bracket notation: metadata.user.age[gte]=28
+        let req = Request::builder()
+            .uri("/api/posts?metadata.user.age[gte]=28")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "bracket filter failed for {backend}"
+        );
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(
+            data.len(),
+            3,
+            "bracket gte filter should return 3 results for {backend}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_jsonb_filter_in_across_backends() {
+    // IN/NOT_IN on JSONB values uses PostgreSQL-specific @> operator
+    // SQLite's json_extract doesn't support these operations the same way
+    let pg_backends: Vec<TestBackend> = enabled_backends()
+        .into_iter()
+        .filter(|b| *b == TestBackend::Postgres)
+        .collect();
+    if pg_backends.is_empty() {
+        return;
+    }
+    for backend in pg_backends {
+        let test_db = TestDatabase::new(backend, "jsonb_filter_in");
+
+        let (app, _state, _pool) = test_db
+            .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_in.yaml")
+            .await;
+
+        seed_jsonb_posts(&app).await;
+
+        // Filter by metadata.role in "alpha,beta" (should match Alpha and Beta)
+        let req = Request::builder()
+            .uri("/api/posts?metadata.role[in]=alpha,beta")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "in filter failed for {backend}"
+        );
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(
+            data.len(),
+            2,
+            "in filter should return 2 results for {backend}"
+        );
+        let titles: Vec<&str> = data.iter().map(|r| r["title"].as_str().unwrap()).collect();
+        assert!(
+            titles.contains(&"Post Alpha"),
+            "in filter should include Alpha for {backend}"
+        );
+        assert!(
+            titles.contains(&"Post Beta"),
+            "in filter should include Beta for {backend}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_jsonb_filter_not_in_across_backends() {
+    // IN/NOT_IN on JSONB values uses PostgreSQL-specific @> operator
+    // SQLite's json_extract doesn't support these operations the same way
+    let pg_backends: Vec<TestBackend> = enabled_backends()
+        .into_iter()
+        .filter(|b| *b == TestBackend::Postgres)
+        .collect();
+    if pg_backends.is_empty() {
+        return;
+    }
+    for backend in pg_backends {
+        let test_db = TestDatabase::new(backend, "jsonb_filter_not_in");
+
+        let (app, _state, _pool) = test_db
+            .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_not_in.yaml")
+            .await;
+
+        seed_jsonb_posts(&app).await;
+
+        // Filter by metadata.role not_in "alpha,gamma" (should match Beta, Delta, Epsilon)
+        let req = Request::builder()
+            .uri("/api/posts?metadata.role[not_in]=alpha,gamma")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "not_in filter failed for {backend}"
+        );
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(
+            data.len(),
+            3,
+            "not_in filter should return 3 results for {backend}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_jsonb_filter_ilike_across_backends() {
+    let pg_backends: Vec<TestBackend> = enabled_backends()
+        .into_iter()
+        .filter(|b| *b == TestBackend::Postgres)
+        .collect();
+    if pg_backends.is_empty() {
+        return;
+    }
+    for backend in pg_backends {
+        let test_db = TestDatabase::new(backend, "jsonb_filter_ilike");
+
+        let (app, _state, _pool) = test_db
+            .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_ilike.yaml")
+            .await;
+
+        seed_jsonb_posts(&app).await;
+
+        // Filter by metadata.role ilike "ALPHA" (case-insensitive, should match Alpha)
+        let req = Request::builder()
+            .uri("/api/posts?metadata.role[ilike]=ALPHA")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "ilike filter failed for {backend}"
+        );
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(
+            data.len(),
+            1,
+            "ilike filter should return 1 result for {backend}"
+        );
+        assert_eq!(
+            data[0]["title"], "Post Alpha",
+            "ilike filter title mismatch for {backend}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_jsonb_sort_multiple_fields_across_backends() {
+    for backend in enabled_backends() {
+        let test_db = TestDatabase::new(backend, "jsonb_sort_multi");
+
+        let (app, _state, _pool) = test_db
+            .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_sort_multi.yaml")
+            .await;
+
+        seed_jsonb_posts(&app).await;
+
+        // Sort by author ASC, then by metadata.role ASC
+        // Author order: alice (Alpha, Delta), bob (Beta, Epsilon), charlie (Gamma)
+        let req = Request::builder()
+            .uri("/api/posts?sort=author&order=asc&page_size=10")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "sort by author failed for {backend}"
+        );
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(data.len(), 5, "should return all 5 posts for {backend}");
+        // First two should be alice's posts (Alpha, Delta)
+        assert_eq!(
+            data[0]["author"], "alice",
+            "first should be alice for {backend}"
+        );
+        assert_eq!(
+            data[1]["author"], "alice",
+            "second should be alice for {backend}"
+        );
+        // Last should be charlie's post
+        assert_eq!(
+            data[4]["author"], "charlie",
+            "last should be charlie for {backend}"
+        );
+
+        // Sort by metadata.role DESC
+        let req = Request::builder()
+            .uri("/api/posts?sort=metadata.role&order=desc&page_size=10")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        // gamma > epsilon > delta > beta > alpha (reverse alphabetical)
+        assert_eq!(
+            data[0]["title"], "Post Gamma",
+            "desc sort by metadata.role first should be Gamma for {backend}"
+        );
+        assert_eq!(
+            data[4]["title"], "Post Alpha",
+            "desc sort by metadata.role last should be Alpha for {backend}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_jsonb_sort_nested_field_across_backends() {
+    for backend in enabled_backends() {
+        let test_db = TestDatabase::new(backend, "jsonb_sort_nested");
+
+        let (app, _state, _pool) = test_db
+            .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_sort_nested.yaml")
+            .await;
+
+        seed_jsonb_posts(&app).await;
+
+        // Sort by metadata.user.age ASC (22, 25, 28, 30, 35)
+        let req = Request::builder()
+            .uri("/api/posts?sort=metadata.user.age&order=asc&page_size=10")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "sort by nested JSONB failed for {backend}"
+        );
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(data.len(), 5, "should return all 5 posts for {backend}");
+        // Order: Epsilon(22), Beta(25), Delta(28), Alpha(30), Gamma(35)
+        assert_eq!(
+            data[0]["title"], "Post Epsilon",
+            "asc sort by metadata.user.age first should be Epsilon for {backend}"
+        );
+        assert_eq!(
+            data[1]["title"], "Post Beta",
+            "asc sort by metadata.user.age second should be Beta for {backend}"
+        );
+        assert_eq!(
+            data[2]["title"], "Post Delta",
+            "asc sort by metadata.user.age third should be Delta for {backend}"
+        );
+        assert_eq!(
+            data[3]["title"], "Post Alpha",
+            "asc sort by metadata.user.age fourth should be Alpha for {backend}"
+        );
+        assert_eq!(
+            data[4]["title"], "Post Gamma",
+            "asc sort by metadata.user.age last should be Gamma for {backend}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_jsonb_sort_with_pagination_across_backends() {
+    for backend in enabled_backends() {
+        let test_db = TestDatabase::new(backend, "jsonb_sort_paginated");
+
+        let (app, _state, _pool) = test_db
+            .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_sort_paginated.yaml")
+            .await;
+
+        seed_jsonb_posts(&app).await;
+
+        // Sort by metadata.user.age ASC with pagination (page_size=2)
+        let req = Request::builder()
+            .uri("/api/posts?sort=metadata.user.age&order=asc&page=1&page_size=2")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(data.len(), 2, "page 1 should have 2 results for {backend}");
+        assert_eq!(
+            data[0]["title"], "Post Epsilon",
+            "page 1 first should be Epsilon for {backend}"
+        );
+        assert_eq!(
+            data[1]["title"], "Post Beta",
+            "page 1 second should be Beta for {backend}"
+        );
+
+        // Page 2
+        let req = Request::builder()
+            .uri("/api/posts?sort=metadata.user.age&order=asc&page=2&page_size=2")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(data.len(), 2, "page 2 should have 2 results for {backend}");
+        assert_eq!(
+            data[0]["title"], "Post Delta",
+            "page 2 first should be Delta for {backend}"
+        );
+        assert_eq!(
+            data[1]["title"], "Post Alpha",
+            "page 2 second should be Alpha for {backend}"
+        );
+
+        // Page 3
+        let req = Request::builder()
+            .uri("/api/posts?sort=metadata.user.age&order=asc&page=3&page_size=2")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(req).await.unwrap();
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(data.len(), 1, "page 3 should have 1 result for {backend}");
+        assert_eq!(
+            data[0]["title"], "Post Gamma",
+            "page 3 should be Gamma for {backend}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_jsonb_filter_with_pagination_across_backends() {
+    for backend in enabled_backends() {
+        let test_db = TestDatabase::new(backend, "jsonb_filter_paginated");
+
+        let (app, _state, _pool) = test_db
+            .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_paginated.yaml")
+            .await;
+
+        seed_jsonb_posts(&app).await;
+
+        // Filter by metadata.status = "active" with pagination
+        // Active posts: Alpha, Beta, Delta (3 results)
+        let req = Request::builder()
+            .uri("/api/posts?metadata.status=active&page_size=2")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "status failed for {backend}"
+        );
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(data.len(), 2, "page 1 should have 2 results for {backend}");
+
+        let req = Request::builder()
+            .uri("/api/posts?metadata.status=active&page=2&page_size=2")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(req).await.unwrap();
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(data.len(), 1, "page 2 should have 1 result for {backend}");
+        assert_eq!(
+            data[0]["title"], "Post Delta",
+            "page 2 should be Delta for {backend}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_jsonb_filter_combined_with_sort_and_pagination_across_backends() {
+    let backends: Vec<TestBackend> = enabled_backends()
+        .into_iter()
+        .filter(|b| *b != TestBackend::Sqlite)
+        .collect();
+    for backend in backends {
+        let test_db = TestDatabase::new(backend, "jsonb_full_query");
+
+        let (app, _state, _pool) = test_db
+            .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_full_query.yaml")
+            .await;
+
+        seed_jsonb_posts(&app).await;
+
+        // Filter: metadata.status = "active" AND metadata.user.age < 30
+        // Matches: Beta (age=25) and Epsilon (age=22)
+        // Sort: metadata.user.age ASC
+        // Result order: Epsilon (22), Beta (25)
+        let req = Request::builder()
+            .uri("/api/posts?metadata.status=active&metadata.user.age[lt]=30&sort=metadata.user.age&order=asc&page_size=10")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(
+            data.len(),
+            2,
+            "combined filter+sort should return 2 for {backend}"
+        );
+        assert_eq!(
+            data[0]["title"], "Post Epsilon",
+            "combined filter+sort first should be Epsilon for {backend}"
+        );
+        assert_eq!(
+            data[1]["title"], "Post Beta",
+            "combined filter+sort second should be Beta for {backend}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_jsonb_filter_on_multiple_jsonb_columns_across_backends() {
+    let backends: Vec<TestBackend> = enabled_backends()
+        .into_iter()
+        .filter(|b| *b != TestBackend::Sqlite)
+        .collect();
+    for backend in backends {
+        let test_db = TestDatabase::new(backend, "jsonb_filter_on_multiple_jsonb_columns");
+
+        let (app, _state, _pool) = test_db
+            .setup_app(
+                JSONB_FILTER_SORT_CONFIG,
+                "jsonb_filter_on_multiple_jsonb_columns.yaml",
+            )
+            .await;
+
+        seed_jsonb_posts(&app).await;
+
+        // Filter by metadata.status = "active" AND tags contains "ml"
+        // Active+ml: Beta
+        let req = Request::builder()
+            .uri("/api/posts?metadata.status=active&tags[contains]=ml")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(
+            data.len(),
+            1,
+            "multi-column JSONB filter should return 1 for {backend}"
+        );
+        assert_eq!(
+            data[0]["title"], "Post Beta",
+            "multi-column filter title mismatch for {backend}"
+        );
+    }
+}
+
+// =============================================================================
+// JSONB Edge Case and Additional Coverage Tests
+// =============================================================================
+
+#[tokio::test]
+async fn test_jsonb_filter_in_non_jsonb_across_backends() {
+    for backend in enabled_backends() {
+        let test_db = TestDatabase::new(backend, "jsonb_in_non_jsonb");
+
+        let (app, _state, _pool) = test_db
+            .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_in_non_jsonb.yaml")
+            .await;
+
+        seed_jsonb_posts(&app).await;
+
+        // Filter by author IN "alice,bob" (should match Alpha, Delta, Beta, Epsilon = 4 results)
+        let req = Request::builder()
+            .uri("/api/posts?author[in]=alice,bob")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "in filter on non-JSONB failed for {backend}"
+        );
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(
+            data.len(),
+            4,
+            "in filter should return 4 results for {backend}"
+        );
+        let authors: Vec<&str> = data.iter().map(|r| r["author"].as_str().unwrap()).collect();
+        assert!(
+            authors.contains(&"alice"),
+            "in filter should include alice for {backend}"
+        );
+        assert!(
+            authors.contains(&"bob"),
+            "in filter should include bob for {backend}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_jsonb_filter_not_in_non_jsonb_across_backends() {
+    for backend in enabled_backends() {
+        let test_db = TestDatabase::new(backend, "jsonb_not_in_non_jsonb");
+
+        let (app, _state, _pool) = test_db
+            .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_not_in_non_jsonb.yaml")
+            .await;
+
+        seed_jsonb_posts(&app).await;
+
+        // Filter by author NOT IN "alice,charlie" (should match Beta, Epsilon = 2 results)
+        let req = Request::builder()
+            .uri("/api/posts?author[not_in]=alice,charlie")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "not_in filter on non-JSONB failed for {backend}"
+        );
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(
+            data.len(),
+            2,
+            "not_in filter should return 2 results for {backend}"
+        );
+        let authors: Vec<&str> = data.iter().map(|r| r["author"].as_str().unwrap()).collect();
+        assert!(
+            !authors.contains(&"alice"),
+            "not_in filter should exclude alice for {backend}"
+        );
+        assert!(
+            !authors.contains(&"charlie"),
+            "not_in filter should exclude charlie for {backend}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_jsonb_filter_null_jsonb_across_backends() {
+    let test_db = TestDatabase::new(TestBackend::Sqlite, "jsonb_null");
+
+    let (app, _state, _pool) = test_db
+        .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_null.yaml")
+        .await;
+
+    seed_jsonb_posts_with_nulls(&app).await;
+
+    // Filter by metadata.role eq "full" (should only match Post With Full Metadata)
+    let req = Request::builder()
+        .uri("/api/posts?metadata.role=full")
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "eq filter with null metadata failed for sqlite"
+    );
+    let json = json_body(response).await;
+    let data = json["data"].as_array().unwrap();
+    assert_eq!(
+        data.len(),
+        1,
+        "eq filter with null metadata should return 1 for sqlite"
+    );
+    assert_eq!(
+        data[0]["title"], "Post With Full Metadata",
+        "eq filter should match full metadata only"
+    );
+}
+
+#[tokio::test]
+async fn test_jsonb_null_jsonb_sort_across_backends() {
+    let test_db = TestDatabase::new(TestBackend::Sqlite, "jsonb_null_sort");
+
+    let (app, _state, _pool) = test_db
+        .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_null_sort.yaml")
+        .await;
+
+    seed_jsonb_posts_with_nulls(&app).await;
+
+    // Sort by metadata.role ASC - nulls should appear first or last depending on backend
+    let req = Request::builder()
+        .uri("/api/posts?sort=metadata.role&order=asc&page_size=10")
+        .body(Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "sort with null metadata failed for sqlite"
+    );
+    let json = json_body(response).await;
+    let data = json["data"].as_array().unwrap();
+    assert_eq!(data.len(), 3, "should return all 3 posts for sqlite");
+
+    // "full" should be among the results
+    let titles: Vec<&str> = data.iter().map(|r| r["title"].as_str().unwrap()).collect();
+    assert!(
+        titles.contains(&"Post With Full Metadata"),
+        "sort should include Post With Full Metadata"
+    );
+}
+
+#[tokio::test]
+async fn test_jsonb_filter_invalid_syntax_across_backends() {
+    for backend in enabled_backends() {
+        let test_db = TestDatabase::new(backend, "jsonb_invalid_filter");
+
+        let (app, _state, _pool) = test_db
+            .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_invalid_filter.yaml")
+            .await;
+
+        seed_jsonb_posts(&app).await;
+
+        // Filter with non-existent column should return 400 or empty
+        let req = Request::builder()
+            .uri("/api/posts?nonexistent_field[something]=value")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert!(
+            response.status() == StatusCode::BAD_REQUEST || response.status() == StatusCode::OK,
+            "invalid filter syntax should return 400 or OK for {backend}, got {}",
+            response.status()
+        );
+
+        // Filter with non-existent nested path on valid JSONB column
+        let req = Request::builder()
+            .uri("/api/posts?metadata.nonexistent_key=value")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(req).await.unwrap();
+        assert!(
+            response.status() == StatusCode::BAD_REQUEST || response.status() == StatusCode::OK,
+            "non-existent nested path should return 400 or OK for {backend}, got {}",
+            response.status()
+        );
+    }
 }
