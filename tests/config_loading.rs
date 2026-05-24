@@ -348,7 +348,7 @@ rate_limit:
 
 #[test]
 fn test_demo_config_loads() {
-    let path = std::path::Path::new("config/config.yaml");
+    let path = std::path::Path::new("config/templates/default.yaml");
     let config = main_serve::config::load_config(path).unwrap();
     assert_eq!(config.server.port, 8080);
     assert!(!config.endpoints.is_empty());
