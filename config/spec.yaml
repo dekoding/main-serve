@@ -627,7 +627,7 @@ endpoints:
       joins: []
       #  - table: "organizations"
       #    on: "users.org_id = organizations.id"
-      #    type: "left"    # inner, left, right
+      #    join_type: "left"    # inner, left, right
       #    fields:
       #      - "organizations.name as org_name"
 

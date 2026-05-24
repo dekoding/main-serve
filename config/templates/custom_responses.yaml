@@ -1,6 +1,31 @@
-## yaml-language-server: $schema=https://raw.githubusercontent.com/dekoding/schemas/refs/heads/main/main-serve.json
-# To enable schema enforcement and completion, remove one # from the line above
-# 
+# =============================================================================
+# Schema validation
+# =============================================================================
+# Validation helps ensure that your schema is configured properly. If you
+# cloned the Main Serve repository, there is a local copy of the schema that
+# you can use by removing one # from the line below:
+#
+## yaml-language-server: $schema=../main-serve.schema.json
+#
+# If you prefer to use the schema from the online repository, you can remove
+# one # from this line instead:
+#
+## yaml-language-server: $schema=https://raw.githubusercontent.com/dekoding/main-serve/refs/heads/main/config/main-serve.schema.json
+
+# =============================================================================
+# Quickstart
+# =============================================================================
+# You can use this configuration file as a template to get started.
+#
+# By default, Main Serve looks for configuration files in two places (in order
+# of priority):
+#
+#   * $HOME/.config/main-serve/config.yaml
+#   * /etc/main-serve/config.yaml
+#
+# It can also be explicitly loaded from any location:
+#   MAIN_SERVE_ADMIN_TOKEN=my-secret-token main-serve -c /path/to/config.yaml
+
 # =============================================================================
 # Custom Responses - Fixed Content, Redirects, and Error Pages
 # =============================================================================
@@ -8,18 +33,13 @@
 # Use `action: "custom_response"` when the response is fully known at config
 # time (no database, no upstream).  Common use cases:
 #
-#   • Health checks & readiness probes      /health          -> 200 JSON
-#   • API info / version banners            /api/info        -> 200 JSON + headers
-#   • Landing pages                         /welcome         -> 200 HTML
-#   • SEO assets                            /robots.txt      -> 200 text
-#   • Permanent redirects                   /docs            -> 301
-#   • Maintenance pages                     /api/maintenance -> 503
-#   • Sitemaps                              /api/sitemap.xml -> 200 XML
-#
-# Getting started:
-#   1. Copy this file into your project.
-#   2. Edit the endpoints below to match your needs.
-#   3. Run:  main-serve --config custom_responses.yaml
+#   * Health checks & readiness probes      /health          -> 200 JSON
+#   * API info / version banners            /api/info        -> 200 JSON + headers
+#   * Landing pages                         /welcome         -> 200 HTML
+#   * SEO assets                            /robots.txt      -> 200 text
+#   * Permanent redirects                   /docs            -> 301
+#   * Maintenance pages                     /api/maintenance -> 503
+#   * Sitemaps                              /api/sitemap.xml -> 200 XML
 
 server:
   host: "127.0.0.1"
@@ -47,6 +67,7 @@ rate_limit:
   enabled: true
   max_requests: 1000
   window_seconds: 60
+  key_strategy: ip
 
 endpoints:
 

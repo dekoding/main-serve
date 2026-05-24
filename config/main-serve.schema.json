@@ -54,11 +54,6 @@
             "description": "An environment variable reference, e.g. ${MY_VAR}",
             "pattern": "\\$\\{[A-Za-z_][A-Za-z0-9_]*\\}"
         },
-        "RequestContextVar": {
-            "type": "string",
-            "description": "A request context reference, e.g. ${request.user.id}",
-            "pattern": "\\$\\{request\\.(user\\.(id|role)|headers\\.[A-Za-z0-9_-]+)\\}"
-        },
         "Auth": {
             "type": "object",
             "additionalProperties": false,
@@ -472,6 +467,18 @@
                     "$ref": "#/definitions/CRUD",
                     "description": "CRUD-specific configuration (required when action is \"crud\")."
                 },
+                "proxy": {
+                    "$ref": "#/definitions/Proxy",
+                    "description": "Proxy-specific configuration (required when action is \"proxy\")."
+                },
+                "static_files": {
+                    "$ref": "#/definitions/StaticFiles",
+                    "description": "Static file serving configuration (required when action is \"static\")."
+                },
+                "custom_response": {
+                    "$ref": "#/definitions/CustomResponse",
+                    "description": "Custom response configuration (required when action is \"custom_response\")."
+                },
                 "auth": {
                     "type": "string",
                     "description": "Authentication required for this endpoint.\nMust be the name of an auth provider configured in the `auth` section or \"none\" for no auth.",
@@ -491,18 +498,6 @@
                 "rate_limit": {
                     "$ref": "#/definitions/RateLimit",
                     "description": "Per-endpoint rate limiting override (same shape as global rate_limit)."
-                },
-                "proxy": {
-                    "$ref": "#/definitions/Proxy",
-                    "description": "Proxy-specific configuration (required when action is \"proxy\")."
-                },
-                "static_files": {
-                    "$ref": "#/definitions/StaticFiles",
-                    "description": "Static file serving configuration (required when action is \"static\")."
-                },
-                "custom_response": {
-                    "$ref": "#/definitions/CustomResponse",
-                    "description": "Custom response configuration (required when action is \"custom_response\")."
                 }
             },
             "required": [
@@ -510,33 +505,17 @@
                 "methods",
                 "path"
             ],
-            "if": {
-                "action": "crud"
-            },
-            "then": {
-                "action": [ "crud" ]
-            },
+            "if": { "properties": { "action": { "const": "crud" } } },
+            "then": { "required": [ "crud" ] },
             "else": {
-                "if": {
-                    "action": "proxy"
-                },
-                "then": {
-                    "action": [ "proxy" ]
-                },
+                "if": { "properties": { "action": { "const": "proxy" } } },
+                "then": { "required": [ "proxy" ] },
                 "else": {
-                    "if": {
-                        "action": "static"
-                    },
-                    "then": {
-                        "action": [ "static_files" ]
-                    },
+                    "if": { "properties": { "action": { "const": "static" } } },
+                    "then": { "required": [ "static_files" ] },
                     "else": {
-                        "if": {
-                            "action": "custom_response"
-                        },
-                        "then": {
-                            "action": [ "custom_response" ]
-                        }
+                        "if": { "properties": { "action": { "const": "custom_response" } } },
+                        "then": { "required": [ "custom_response" ] }
                     }
                 }
             },
@@ -552,8 +531,7 @@
                 },
                 "database": {
                     "type": "string",
-                    "description": "Which named database to use (must match a key in `databases`).\nRequired.",
-                    "default": null
+                    "description": "Which named database to use (must match a key in `databases`).\nRequired."
                 },
                 "fields": {
                     "type": "array",
@@ -642,7 +620,7 @@
                     "description": "The fields to join on.",
                     "examples": [ "users.org_id = organizations.id" ]
                 },
-                "type": {
+                "join_type": {
                     "description": "The type of join.",
                     "anyOf": [
                         { "type": "string", "enum": [ "inner", "left", "right" ] },
@@ -660,7 +638,7 @@
             "required": [
                 "table",
                 "on",
-                "type",
+                "join_type",
                 "fields"
             ]
         },
@@ -823,7 +801,7 @@
                 "X-Forwarded-For: \"client\"",
                 "Authorization: \"Bearer ${UPSTREAM_TOKEN}\""
             ],
-            "default": "{}",
+            "default": {},
             "title": "ProxyHeaders"
         },
         "PathRewrite": {
@@ -982,8 +960,7 @@
                     "anyOf": [
                         { "type": "string", "enum": [ "ip", "header", "token" ] },
                         { "$ref": "#/definitions/EnvVar" }
-                    ],
-                    "default": "ip"
+                    ]
                 },
                 "key_header": {
                     "type": "string",
@@ -996,17 +973,9 @@
                     "default": 10000
                 }
             },
-            "if": {
-              "properties": {
-                "key_strategy": { "const": "header" }
-              }
-            },
-            "then": {
-              "required": [ "key_header" ]
-            },
-            "else": {
-              "required": []
-            },
+            "required": [ "key_strategy" ],
+            "if": { "properties": { "key_strategy": { "const": "header" } } },
+            "then": { "required": [ "key_header" ] },
             "title": "RateLimit"
         },
         "Server": {

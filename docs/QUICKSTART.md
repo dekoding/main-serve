@@ -349,5 +349,5 @@ Or preview what endpoints would be created:
 
 - Read the full [Configuration Reference](configuration.md) for every field and option
 - See the [spec.yaml](../config/spec.yaml) for the annotated configuration specification
-- Check out the [demo config](../config/config.yaml) for a working example
+- Check out the [demo config](../config/templates/default.yaml) for a working example
 - Read the [Manifesto](MANIFESTO.md) to understand the project's philosophy
