@@ -357,7 +357,7 @@ impl SelectBuilder {
             FilterOperator::Contains => {
                 self.build_contains(is_jsonb_field, &param, &path_str, value, behavior)?
             }
-            FilterOperator::Exists => self.build_exists(is_jsonb_field, &path_str, behavior)?,
+            FilterOperator::Exists => self.build_exists(is_jsonb_field, &base_column, &path_str, behavior)?,
             FilterOperator::StartsWith => {
                 let param = format!("{}%", value);
                 self.build_like(&base_column, is_jsonb_field, &param, &path_str, behavior)
@@ -444,24 +444,24 @@ impl SelectBuilder {
         value: &str,
         behavior: &dyn FilterBehavior,
     ) -> Result<String, AppError> {
+        let column_name = path_str.split('.').next().ok_or_else(|| {
+            AppError::Internal("Invalid JSONB path: empty path string".to_string())
+        })?;
         if is_jsonb {
             let json_value = serde_json::Value::String(value.to_string());
             let json_str = serde_json::to_string(&json_value)
                 .map_err(|e| AppError::Internal(format!("JSON serialization error: {e}")))?;
             if behavior.uses_jsonb_ops() {
                 // PostgreSQL @> operator for JSONB containment
-                Ok(format!("{} @> {}::jsonb", self.table, json_str))
+                Ok(format!("{} @> '{}'::jsonb", column_name, json_str))
             } else {
-                let column_name = path_str.split('.').next().ok_or_else(|| {
-                    AppError::Internal("Invalid JSONB path: empty path string".to_string())
-                })?;
                 Ok(format!(
                     "EXISTS (SELECT 1 FROM json_each({}, '$.{}') WHERE value = {})",
                     column_name, path_str, param
                 ))
             }
         } else {
-            Ok(format!("{}.{} = {}", self.table, param, param))
+            Ok(format!("{}.{} = {}", self.table, column_name, param))
         }
     }
 
@@ -469,6 +469,7 @@ impl SelectBuilder {
     fn build_exists(
         &self,
         is_jsonb: bool,
+        base_column: &str,
         path_str: &str,
         behavior: &dyn FilterBehavior,
     ) -> Result<String, AppError> {
@@ -482,9 +483,10 @@ impl SelectBuilder {
                 behavior.json_extract_path(column_name, path_str)
             ))
         } else {
-            // For non-JSONB, we'd need the actual column name here
-            // This is a fallback - in practice this should be validated
-            Ok(format!("{} IS NOT NULL", self.table))
+            Ok(format!(
+                "{}.{} IS NOT NULL",
+                self.table, base_column
+            ))
         }
     }
 
