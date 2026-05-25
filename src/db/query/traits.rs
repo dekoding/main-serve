@@ -78,7 +78,7 @@ impl FilterBehavior for PostgresFilter {
         true
     }
     fn like_pattern(&self, param: &str) -> String {
-        format!("CONCAT('%', {param}, '%')")
+        param.to_string()
     }
     fn like_pattern_start(&self, param: &str) -> String {
         format!("CONCAT({param}, '%')")
@@ -126,7 +126,7 @@ impl FilterBehavior for MysqlFilter {
         false
     }
     fn like_pattern(&self, param: &str) -> String {
-        format!("CONCAT('%', {param}, '%')")
+        param.to_string()
     }
     fn like_pattern_start(&self, param: &str) -> String {
         format!("CONCAT({param}, '%')")
@@ -172,10 +172,10 @@ impl FilterBehavior for SqliteFilter {
         false
     }
     fn like_pattern(&self, param: &str) -> String {
-        format!("CONCAT('%', {param}, '%')")
+        param.to_string()
     }
     fn like_pattern_start(&self, param: &str) -> String {
-        format!("CONCAT({param}, '%')")
+        format!("{param}%")
     }
     fn like_pattern_end(&self, param: &str) -> String {
         format!("CONCAT('%', {param})")

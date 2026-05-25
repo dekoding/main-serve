@@ -1623,7 +1623,7 @@ async fn test_jsonb_filter_combined_across_backends() {
 
         seed_jsonb_posts(&app).await;
 
-        // Combined: metadata.status = "active" AND author = "bob" (should match Beta and Epsilon)
+        // Combined: metadata.status = "active" AND author = "bob" (Beta=active/bob, Epsilon=draft/bob)
         let req = Request::builder()
             .uri("/api/posts?metadata.status=active&author=bob")
             .body(Body::empty())
@@ -1633,20 +1633,15 @@ async fn test_jsonb_filter_combined_across_backends() {
         let data = json["data"].as_array().unwrap();
         assert_eq!(
             data.len(),
-            2,
-            "combined eq filter should return 2 for {backend}"
+            1,
+            "combined eq filter should return 1 for {backend}"
         );
-        let titles: Vec<&str> = data.iter().map(|r| r["title"].as_str().unwrap()).collect();
-        assert!(
-            titles.contains(&"Post Beta"),
-            "combined should include Beta for {backend}"
-        );
-        assert!(
-            titles.contains(&"Post Epsilon"),
-            "combined should include Epsilon for {backend}"
+        assert_eq!(
+            data[0]["title"], "Post Beta",
+            "combined should be Beta for {backend}"
         );
 
-        // Combined: metadata.user.age > 25 AND metadata.status = "active" (Alpha=30, Delta=28)
+        // Combined: metadata.user.age > 25 AND metadata.status = "active" (Alpha=30/active, Delta=28/active)
         let req = Request::builder()
             .uri("/api/posts?metadata.user.age[gt]=25&metadata.status=active")
             .body(Body::empty())
@@ -2148,9 +2143,10 @@ async fn test_jsonb_filter_combined_with_sort_and_pagination_across_backends() {
         seed_jsonb_posts(&app).await;
 
         // Filter: metadata.status = "active" AND metadata.user.age < 30
-        // Matches: Beta (age=25) and Epsilon (age=22)
+        // Matches: Beta (age=25/active) and Delta (age=28/active)
+        // Epsilon (age=22) has status=draft, not active
         // Sort: metadata.user.age ASC
-        // Result order: Epsilon (22), Beta (25)
+        // Result order: Beta (25), Delta (28)
         let req = Request::builder()
             .uri("/api/posts?metadata.status=active&metadata.user.age[lt]=30&sort=metadata.user.age&order=asc&page_size=10")
             .body(Body::empty())
@@ -2164,12 +2160,12 @@ async fn test_jsonb_filter_combined_with_sort_and_pagination_across_backends() {
             "combined filter+sort should return 2 for {backend}"
         );
         assert_eq!(
-            data[0]["title"], "Post Epsilon",
-            "combined filter+sort first should be Epsilon for {backend}"
+            data[0]["title"], "Post Beta",
+            "combined filter+sort first should be Beta for {backend}"
         );
         assert_eq!(
-            data[1]["title"], "Post Beta",
-            "combined filter+sort second should be Beta for {backend}"
+            data[1]["title"], "Post Delta",
+            "combined filter+sort second should be Delta for {backend}"
         );
     }
 }
@@ -2193,7 +2189,7 @@ async fn test_jsonb_filter_on_multiple_jsonb_columns_across_backends() {
         seed_jsonb_posts(&app).await;
 
         // Filter by metadata.status = "active" AND tags contains "ml"
-        // Active+ml: Beta
+        // Active+ml: Beta (active, ["python","ml"]) and Delta (active, ["rust","ml"])
         let req = Request::builder()
             .uri("/api/posts?metadata.status=active&tags[contains]=ml")
             .body(Body::empty())
@@ -2203,12 +2199,17 @@ async fn test_jsonb_filter_on_multiple_jsonb_columns_across_backends() {
         let data = json["data"].as_array().unwrap();
         assert_eq!(
             data.len(),
-            1,
-            "multi-column JSONB filter should return 1 for {backend}"
+            2,
+            "multi-column JSONB filter should return 2 for {backend}"
         );
-        assert_eq!(
-            data[0]["title"], "Post Beta",
-            "multi-column filter title mismatch for {backend}"
+        let titles: Vec<&str> = data.iter().map(|r| r["title"].as_str().unwrap()).collect();
+        assert!(
+            titles.contains(&"Post Beta"),
+            "multi-column filter should include Beta for {backend}"
+        );
+        assert!(
+            titles.contains(&"Post Delta"),
+            "multi-column filter should include Delta for {backend}"
         );
     }
 }
