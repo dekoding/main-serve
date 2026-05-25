@@ -1032,9 +1032,10 @@ mod tests {
         .unwrap();
 
         // PostgreSQL uses @> operator with column name (not table name)
+        // For nested paths, extracts with -> before containment check
         assert!(q.sql.contains("SELECT"));
         assert!(q.sql.contains("posts"));
-        assert!(q.sql.contains("metadata @>"));
+        assert!(q.sql.contains("(metadata->'role') @>"));
         assert!(!q.sql.contains("posts @>"));
     }
 
@@ -1062,7 +1063,7 @@ mod tests {
         assert!(q.sql.contains("SELECT"));
         assert!(q.sql.contains("posts"));
         assert!(q.sql.contains("EXISTS (SELECT 1 FROM json_each(metadata"));
-        assert!(q.sql.contains("$.metadata.tags"));
+        assert!(q.sql.contains("$.tags"));
     }
 
     #[test]
@@ -1085,11 +1086,11 @@ mod tests {
         )
         .unwrap();
 
-        // MySQL uses EXISTS with json_each for nested JSONB paths
+        // MySQL uses JSON_CONTAINS for containment checks
         assert!(q.sql.contains("SELECT"));
         assert!(q.sql.contains("posts"));
-        assert!(q.sql.contains("EXISTS (SELECT 1 FROM json_each(metadata"));
-        assert!(q.sql.contains("$.metadata.tags"));
+        assert!(q.sql.contains("JSON_CONTAINS"));
+        assert!(q.sql.contains("JSON_EXTRACT(metadata, '$.tags')"));
     }
 
     #[test]

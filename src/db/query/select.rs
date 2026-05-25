@@ -403,7 +403,7 @@ impl SelectBuilder {
         self.conditions.push(condition);
 
         for v in &values {
-            let param_value = build_filter_param(v, column_type);
+            let param_value = build_filter_param(v, column_type, self.driver);
             self.params.push(param_value);
         }
         self.param_idx += num_params;
@@ -452,11 +452,16 @@ impl SelectBuilder {
         behavior: &dyn FilterBehavior,
     ) -> String {
         if is_jsonb {
-            // Extract the column name from the path (e.g., "metadata" from "metadata.role")
-            let column_name = path_str.split('.').next().unwrap_or(base_column);
+            let parts: Vec<&str> = path_str.split('.').collect();
+            let column_name = parts.first().copied().unwrap_or(base_column);
+            let nested_path = if parts.len() > 1 {
+                parts[1..].join(".")
+            } else {
+                String::new()
+            };
             format!(
                 "{} IN ({})",
-                behavior.json_extract_path(column_name, path_str),
+                behavior.json_extract_path(column_name, &nested_path),
                 param_list
             )
         } else {
@@ -480,13 +485,48 @@ impl SelectBuilder {
             let json_value = serde_json::Value::String(value.to_string());
             let json_str = serde_json::to_string(&json_value)
                 .map_err(|e| AppError::Internal(format!("JSON serialization error: {e}")))?;
+
+            let parts: Vec<&str> = path_str.split('.').collect();
+            let nested_path = if parts.len() > 1 {
+                parts[1..].join(".")
+            } else {
+                String::new()
+            };
+
             if behavior.uses_jsonb_ops() {
                 // PostgreSQL @> operator for JSONB containment
-                Ok(format!("{} @> '{}'::jsonb", column_name, json_str))
+                if nested_path.is_empty() {
+                    Ok(format!("{} @> '{}'::jsonb", column_name, json_str))
+                } else {
+                    let pg_path_expr = if nested_path.contains('.') {
+                        let path_parts: Vec<&str> = nested_path.split('.').collect();
+                        format!("({} #> '{{{}}}')", column_name, path_parts.join(","))
+                    } else {
+                        format!("({}->'{}')", column_name, nested_path)
+                    };
+                    Ok(format!("{} @> '{}'::jsonb", pg_path_expr, json_str))
+                }
+            } else if self.driver == DatabaseDriver::Mysql {
+                // MySQL uses JSON_CONTAINS for containment checks
+                if nested_path.is_empty() {
+                    Ok(format!("JSON_CONTAINS({}, '{}')", column_name, json_str))
+                } else {
+                    let nested_json_path = format!("$.{}", nested_path);
+                    Ok(format!(
+                        "JSON_CONTAINS(JSON_EXTRACT({}, '{}'), '{}')",
+                        column_name, nested_json_path, json_str
+                    ))
+                }
             } else {
+                // SQLite uses json_each for array traversal
+                let json_path = if nested_path.is_empty() {
+                    "$".to_string()
+                } else {
+                    format!("$.{}", nested_path)
+                };
                 Ok(format!(
-                    "EXISTS (SELECT 1 FROM json_each({}, '$.{}') WHERE value = {})",
-                    column_name, path_str, param
+                    "EXISTS (SELECT 1 FROM json_each({}, '{}') WHERE value = {})",
+                    column_name, json_path, param
                 ))
             }
         } else {
@@ -503,13 +543,18 @@ impl SelectBuilder {
         behavior: &dyn FilterBehavior,
     ) -> Result<String, AppError> {
         if is_jsonb {
-            // Extract the column name from path_str (e.g., "metadata" from "metadata.role")
-            let column_name = path_str.split('.').next().ok_or_else(|| {
+            let parts: Vec<&str> = path_str.split('.').collect();
+            let column_name = parts.first().copied().ok_or_else(|| {
                 AppError::Internal("Invalid JSONB path: empty path string".to_string())
             })?;
+            let nested_path = if parts.len() > 1 {
+                parts[1..].join(".")
+            } else {
+                String::new()
+            };
             Ok(format!(
                 "{} IS NOT NULL",
-                behavior.json_extract_path(column_name, path_str)
+                behavior.json_extract_path(column_name, &nested_path)
             ))
         } else {
             Ok(format!("{}.{} IS NOT NULL", self.table, base_column))
@@ -527,10 +572,16 @@ impl SelectBuilder {
         behavior: &dyn FilterBehavior,
     ) -> String {
         if is_jsonb {
-            let column_name = path_str.split('.').next().unwrap_or(base_column);
+            let parts: Vec<&str> = path_str.split('.').collect();
+            let column_name = parts.first().copied().unwrap_or(base_column);
+            let nested_path = if parts.len() > 1 {
+                parts[1..].join(".")
+            } else {
+                String::new()
+            };
             format!(
                 "{} {} {}",
-                behavior.json_extract_path(column_name, path_str),
+                behavior.json_extract_path(column_name, &nested_path),
                 behavior.like_op(),
                 pattern
             )
@@ -556,10 +607,16 @@ impl SelectBuilder {
         behavior: &dyn FilterBehavior,
     ) -> String {
         if is_jsonb {
-            let column_name = path_str.split('.').next().unwrap_or(base_column);
+            let parts: Vec<&str> = path_str.split('.').collect();
+            let column_name = parts.first().copied().unwrap_or(base_column);
+            let nested_path = if parts.len() > 1 {
+                parts[1..].join(".")
+            } else {
+                String::new()
+            };
             format!(
                 "LOWER({}) {} LOWER({})",
-                behavior.json_extract_path(column_name, path_str),
+                behavior.json_extract_path(column_name, &nested_path),
                 behavior.ilike_op(),
                 pattern
             )
