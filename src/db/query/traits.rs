@@ -29,6 +29,16 @@ pub trait FilterBehavior {
 
     /// Check if driver uses JSONB-specific operators (PostgreSQL).
     fn uses_jsonb_ops(&self) -> bool;
+
+    /// Build a LIKE pattern with wildcards using SQL concatenation.
+    /// `param` is the placeholder (e.g., `$1` or `?`).
+    fn like_pattern(&self, param: &str) -> String;
+
+    /// Build a LIKE pattern for STARTS WITH (value at start, wildcard at end).
+    fn like_pattern_start(&self, param: &str) -> String;
+
+    /// Build a LIKE pattern for ENDS WITH (wildcard at start, value at end).
+    fn like_pattern_end(&self, param: &str) -> String;
 }
 
 /// PostgreSQL-specific filter behavior.
@@ -66,6 +76,15 @@ impl FilterBehavior for PostgresFilter {
     }
     fn uses_jsonb_ops(&self) -> bool {
         true
+    }
+    fn like_pattern(&self, param: &str) -> String {
+        format!("CONCAT('%', {param}, '%')")
+    }
+    fn like_pattern_start(&self, param: &str) -> String {
+        format!("CONCAT({param}, '%')")
+    }
+    fn like_pattern_end(&self, param: &str) -> String {
+        format!("CONCAT('%', {param})")
     }
 }
 
@@ -106,6 +125,15 @@ impl FilterBehavior for MysqlFilter {
     fn uses_jsonb_ops(&self) -> bool {
         false
     }
+    fn like_pattern(&self, param: &str) -> String {
+        format!("CONCAT('%', {param}, '%')")
+    }
+    fn like_pattern_start(&self, param: &str) -> String {
+        format!("CONCAT({param}, '%')")
+    }
+    fn like_pattern_end(&self, param: &str) -> String {
+        format!("CONCAT('%', {param})")
+    }
 }
 
 /// SQLite-specific filter behavior.
@@ -142,5 +170,14 @@ impl FilterBehavior for SqliteFilter {
     }
     fn uses_jsonb_ops(&self) -> bool {
         false
+    }
+    fn like_pattern(&self, param: &str) -> String {
+        format!("CONCAT('%', {param}, '%')")
+    }
+    fn like_pattern_start(&self, param: &str) -> String {
+        format!("CONCAT({param}, '%')")
+    }
+    fn like_pattern_end(&self, param: &str) -> String {
+        format!("CONCAT('%', {param})")
     }
 }

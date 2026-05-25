@@ -282,17 +282,14 @@ impl SelectBuilder {
                 value.split(',').map(|s| s.trim().to_string()).collect()
             }
             FilterOperator::Contains => {
+                // Non-JSONB contains uses LIKE for substring matching.
+                // The % wildcards are added here since build_contains
+                // doesn't use like_pattern (it builds SQL differently).
                 if is_jsonb_field {
                     vec![value.to_string()]
                 } else {
                     vec![format!("%{}%", value)]
                 }
-            }
-            FilterOperator::StartsWith => {
-                vec![format!("{}%", value)]
-            }
-            FilterOperator::EndsWith => {
-                vec![format!("%{}", value)]
             }
             _ => vec![value.to_string()],
         };
@@ -384,34 +381,23 @@ impl SelectBuilder {
             FilterOperator::Exists => {
                 self.build_exists(is_jsonb_field, &base_column, &path_str, behavior)?
             }
-            FilterOperator::StartsWith => self.build_like(
-                &base_column,
-                is_jsonb_field,
-                &placeholder(self.driver, self.param_idx),
-                &path_str,
-                behavior,
-            ),
-            FilterOperator::EndsWith => self.build_like(
-                &base_column,
-                is_jsonb_field,
-                &placeholder(self.driver, self.param_idx),
-                &path_str,
-                behavior,
-            ),
-            FilterOperator::Like => self.build_like(
-                &base_column,
-                is_jsonb_field,
-                &placeholder(self.driver, self.param_idx),
-                &path_str,
-                behavior,
-            ),
-            FilterOperator::ILike => self.build_ilike(
-                &base_column,
-                is_jsonb_field,
-                &placeholder(self.driver, self.param_idx),
-                &path_str,
-                behavior,
-            ),
+            FilterOperator::StartsWith => {
+                let pattern =
+                    behavior.like_pattern_start(&placeholder(self.driver, self.param_idx));
+                self.build_like(&base_column, is_jsonb_field, &pattern, &path_str, behavior)
+            }
+            FilterOperator::EndsWith => {
+                let pattern = behavior.like_pattern_end(&placeholder(self.driver, self.param_idx));
+                self.build_like(&base_column, is_jsonb_field, &pattern, &path_str, behavior)
+            }
+            FilterOperator::Like => {
+                let pattern = behavior.like_pattern(&placeholder(self.driver, self.param_idx));
+                self.build_like(&base_column, is_jsonb_field, &pattern, &path_str, behavior)
+            }
+            FilterOperator::ILike => {
+                let pattern = behavior.like_pattern(&placeholder(self.driver, self.param_idx));
+                self.build_ilike(&base_column, is_jsonb_field, &pattern, &path_str, behavior)
+            }
         };
 
         self.conditions.push(condition);
@@ -530,23 +516,23 @@ impl SelectBuilder {
         }
     }
 
-    /// Build a LIKE condition.
+    /// Build a LIKE condition using a pre-built SQL pattern string.
+    /// `pattern` is the full SQL pattern expression (e.g., `CONCAT($1, '%')`).
     fn build_like(
         &self,
         base_column: &str,
         is_jsonb: bool,
-        param: &str,
+        pattern: &str,
         path_str: &str,
         behavior: &dyn FilterBehavior,
     ) -> String {
         if is_jsonb {
-            // Extract the column name from the path (e.g., "metadata" from "metadata.role")
             let column_name = path_str.split('.').next().unwrap_or(base_column);
             format!(
                 "{} {} {}",
                 behavior.json_extract_path(column_name, path_str),
                 behavior.like_op(),
-                param
+                pattern
             )
         } else {
             format!(
@@ -554,29 +540,28 @@ impl SelectBuilder {
                 self.table,
                 base_column,
                 behavior.like_op(),
-                param
+                pattern
             )
         }
     }
 
-    /// Build an ILIKE (case-insensitive LIKE) condition.
+    /// Build an ILIKE (case-insensitive LIKE) condition using a pre-built SQL pattern string.
+    /// `pattern` is the full SQL pattern expression (e.g., `LOWER(CONCAT($1, '%'))`).
     fn build_ilike(
         &self,
         base_column: &str,
         is_jsonb: bool,
-        value: &str,
+        pattern: &str,
         path_str: &str,
         behavior: &dyn FilterBehavior,
     ) -> String {
-        let param = format!("%{}%", value);
         if is_jsonb {
-            // Extract the column name from the path (e.g., "metadata" from "metadata.role")
             let column_name = path_str.split('.').next().unwrap_or(base_column);
             format!(
                 "LOWER({}) {} LOWER({})",
                 behavior.json_extract_path(column_name, path_str),
                 behavior.ilike_op(),
-                param
+                pattern
             )
         } else {
             format!(
@@ -584,7 +569,7 @@ impl SelectBuilder {
                 self.table,
                 base_column,
                 behavior.ilike_op(),
-                param
+                pattern
             )
         }
     }
