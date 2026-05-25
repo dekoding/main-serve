@@ -5,7 +5,7 @@
 /// fields, and WHERE conditions.
 use std::collections::HashMap;
 
-use crate::config::types::{CrudConfig, DatabaseDriver, SortOrder, TableConfig};
+use crate::config::types::{ColumnType, CrudConfig, DatabaseDriver, SortOrder, TableConfig};
 use crate::context::RequestContext;
 use crate::db::query::helpers::{
     FilterExpression, FilterOperator, build_filter_param, extract_base_column,
@@ -274,14 +274,28 @@ impl SelectBuilder {
     ) -> Result<(), AppError> {
         let path_str = expr.path.join(".");
         let base_column = expr.path.first().cloned().unwrap_or_default();
-        let is_jsonb_field = expr.path.len() > 1;
+        let is_jsonb_field = expr.path.len() > 1
+            || column_type.is_some_and(|ct| matches!(ct, ColumnType::Jsonb | ColumnType::Json));
 
-        let values: Vec<String> =
-            if expr.operator == FilterOperator::In || expr.operator == FilterOperator::NotIn {
+        let values: Vec<String> = match expr.operator {
+            FilterOperator::In | FilterOperator::NotIn => {
                 value.split(',').map(|s| s.trim().to_string()).collect()
-            } else {
-                vec![value.to_string()]
-            };
+            }
+            FilterOperator::Contains => {
+                if is_jsonb_field {
+                    vec![value.to_string()]
+                } else {
+                    vec![format!("%{}%", value)]
+                }
+            }
+            FilterOperator::StartsWith => {
+                vec![format!("{}%", value)]
+            }
+            FilterOperator::EndsWith => {
+                vec![format!("%{}", value)]
+            }
+            _ => vec![value.to_string()],
+        };
         let num_params = values.len();
 
         let condition = match expr.operator {
@@ -370,20 +384,34 @@ impl SelectBuilder {
             FilterOperator::Exists => {
                 self.build_exists(is_jsonb_field, &base_column, &path_str, behavior)?
             }
-            FilterOperator::StartsWith => {
-                let param = format!("{}%", value);
-                self.build_like(&base_column, is_jsonb_field, &param, &path_str, behavior)
-            }
-            FilterOperator::EndsWith => {
-                let param = format!("%{}", value);
-                self.build_like(&base_column, is_jsonb_field, &param, &path_str, behavior)
-            }
-            FilterOperator::Like => {
-                self.build_like(&base_column, is_jsonb_field, value, &path_str, behavior)
-            }
-            FilterOperator::ILike => {
-                self.build_ilike(&base_column, is_jsonb_field, value, &path_str, behavior)
-            }
+            FilterOperator::StartsWith => self.build_like(
+                &base_column,
+                is_jsonb_field,
+                &placeholder(self.driver, self.param_idx),
+                &path_str,
+                behavior,
+            ),
+            FilterOperator::EndsWith => self.build_like(
+                &base_column,
+                is_jsonb_field,
+                &placeholder(self.driver, self.param_idx),
+                &path_str,
+                behavior,
+            ),
+            FilterOperator::Like => self.build_like(
+                &base_column,
+                is_jsonb_field,
+                &placeholder(self.driver, self.param_idx),
+                &path_str,
+                behavior,
+            ),
+            FilterOperator::ILike => self.build_ilike(
+                &base_column,
+                is_jsonb_field,
+                &placeholder(self.driver, self.param_idx),
+                &path_str,
+                behavior,
+            ),
         };
 
         self.conditions.push(condition);
@@ -476,7 +504,7 @@ impl SelectBuilder {
                 ))
             }
         } else {
-            Ok(format!("{}.{} = {}", self.table, column_name, param))
+            Ok(format!("{}.{} LIKE {}", self.table, column_name, param))
         }
     }
 

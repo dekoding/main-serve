@@ -1112,10 +1112,10 @@ mod tests {
         )
         .unwrap();
 
-        // Non-JSONB contains generates table.column = value (uses column name, not param)
+        // Non-JSONB contains generates table.column LIKE '%value%' (substring matching)
         assert!(q.sql.contains("SELECT"));
         assert!(q.sql.contains("posts"));
-        assert!(q.sql.contains("posts.author ="));
+        assert!(q.sql.contains("posts.author LIKE"));
         // Should NOT contain the param as a column name
         assert!(!q.sql.contains("posts.$1 = $1"));
         assert!(!q.sql.contains("posts.? = ?"));
@@ -1141,7 +1141,7 @@ mod tests {
         )
         .unwrap();
 
-        assert!(q.sql.contains("posts.title ="));
+        assert!(q.sql.contains("posts.title LIKE"));
     }
 
     // ============================================================================

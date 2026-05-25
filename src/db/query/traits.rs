@@ -74,7 +74,9 @@ pub struct MysqlFilter;
 
 impl FilterBehavior for MysqlFilter {
     fn json_extract_path(&self, column: &str, path: &str) -> String {
-        format!("JSON_EXTRACT({}, '$.{}')", column, path)
+        // JSON_EXTRACT returns JSON-encoded values (e.g., quoted strings).
+        // JSON_UNQUOTE strips the quotes so comparisons work correctly.
+        format!("JSON_UNQUOTE(JSON_EXTRACT({}, '$.{}'))", column, path)
     }
 
     fn eq_op(&self) -> &'static str {
