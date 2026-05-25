@@ -14,6 +14,11 @@ conflicts=('main-serve-bin')
 source=("$pkgname-$pkgver::https://github.com/dekoding/main-serve/archive/refs/tags/v${pkgver}.tar.gz")
 sha256sums=()
 
+pkgver() {
+    cd "$srcdir"
+    sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1
+}
+
 build() {
     cd "$srcdir/$pkgname-$pkgver"
     export LIBSQLITE3_SYS_USE_PKG_CONFIG=1

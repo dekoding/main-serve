@@ -15,6 +15,11 @@ source=(
 )
 checksums=()
 
+pkgver() {
+    cd "$srcdir"
+    sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1
+}
+
 package() {
     install -Dm755 "main-serve" "$pkgdir/usr/bin/main-serve"
     install -Dm644 "main-serve-$pkgver/config/templates/default.yaml" "$pkgdir/etc/main-serve/config.yaml"
