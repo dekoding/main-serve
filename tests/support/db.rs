@@ -4,8 +4,10 @@ use std::collections::HashMap;
 use std::env;
 use std::fmt;
 use std::fs;
+use std::net::ToSocketAddrs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use axum::Router;
 use tempfile::TempDir;
@@ -40,7 +42,7 @@ impl TestBackend {
         }
     }
 
-    fn configured_url(self, root_dir: &TempDir, table_name: &str) -> String {
+    pub(crate) fn configured_url(self, root_dir: &TempDir, table_name: &str) -> String {
         match self {
             TestBackend::Sqlite => {
                 let db_path = root_dir.path().join(format!("{table_name}.db"));
@@ -79,19 +81,45 @@ pub fn enabled_backends() -> Vec<TestBackend> {
     }
 
     let mut backends = vec![TestBackend::Sqlite];
+
     if env::var("TEST_POSTGRES_URL")
         .map(|value| !value.trim().is_empty())
         .unwrap_or(false)
+        || is_port_open("127.0.0.1:5432", Duration::from_millis(200))
     {
         backends.push(TestBackend::Postgres);
     }
+
     if env::var("TEST_MYSQL_URL")
         .map(|value| !value.trim().is_empty())
         .unwrap_or(false)
+        || is_port_open("127.0.0.1:3306", Duration::from_millis(200))
     {
         backends.push(TestBackend::Mysql);
     }
+
     backends
+}
+
+/// Check if a TCP port is open by attempting a synchronous connection.
+/// Works for localhost: connection refused is immediate, open ports succeed.
+fn is_port_open(addr: &str, timeout: Duration) -> bool {
+    let _ = timeout; // used by caller to decide whether to attempt check
+    match addr
+        .to_socket_addrs()
+        .ok()
+        .and_then(|mut iter| iter.next())
+        .and_then(|a| std::net::TcpStream::connect(a).ok())
+    {
+        Some(stream) => {
+            // Set a short read timeout so that if the connection
+            // hangs (e.g. firewall drop), we don't block forever.
+            let _ = stream.set_read_timeout(Some(timeout));
+            let mut buf = [0u8; 1];
+            stream.peek(&mut buf).is_ok()
+        }
+        None => false,
+    }
 }
 
 pub struct TestDatabase {
@@ -99,6 +127,7 @@ pub struct TestDatabase {
     pub table_name: String,
     pub db_url: String,
     pub root_dir: TempDir,
+    pools: Option<HashMap<String, DatabasePool>>,
 }
 
 impl TestDatabase {
@@ -112,6 +141,7 @@ impl TestDatabase {
             table_name,
             db_url,
             root_dir,
+            pools: None,
         }
     }
 
@@ -134,41 +164,60 @@ impl TestDatabase {
         load_config(&config_path).expect("load config")
     }
 
-    pub async fn setup_app(
-        &self,
-        template: &str,
-        file_name: &str,
-    ) -> (Router, AppState, HashMap<String, DatabasePool>) {
+    pub async fn setup_app(&mut self, template: &str, file_name: &str) -> (Router, AppState) {
         let config_path = self.write_config(template, file_name);
         let config = load_config(&config_path).expect("load config");
         let pools = create_pools_and_migrate(&config).await;
-        let pools_to_return = pools.clone();
 
         let state = AppState::new(config, config_path, "test-token".to_string());
         {
             let mut pool_lock = state.db_pools.write().await;
-            *pool_lock = pools;
+            *pool_lock = pools.clone();
         }
+
+        // Store a clone for Drop-based cleanup.
+        self.pools = Some(pools);
 
         let config_guard = state.config.read().await;
         let app = build_router(&config_guard, state.clone()).await;
         drop(config_guard);
 
-        (app, state, pools_to_return)
+        (app, state)
     }
 
-    /// Drop the test table from postgres/mysql databases.
+    /// Returns a reference to the database pools, if available.
     ///
-    /// SQLite cleanup is handled automatically by the `TempDir`. For
-    /// postgres and mysql, tables with unique names accumulate across test
-    /// runs. Call this at the end of tests that create persistent tables.
-    pub async fn cleanup(&self, pools: &HashMap<String, DatabasePool>) {
+    /// This is needed by tests that perform direct SQL queries after
+    /// `setup_app` (e.g. migration tests). The pools are also cleaned
+    /// up automatically when `TestDatabase` is dropped.
+    pub fn db_pools(&self) -> Option<&HashMap<String, DatabasePool>> {
+        self.pools.as_ref()
+    }
+
+    /// Store pools for Drop-based cleanup.
+    ///
+    /// Used by tests that create pools directly (not via setup_app)
+    /// but still need table cleanup.
+    pub fn set_pools(&mut self, pools: HashMap<String, DatabasePool>) {
+        self.pools = Some(pools);
+    }
+}
+
+impl Drop for TestDatabase {
+    fn drop(&mut self) {
+        // Drop the test table from postgres/mysql databases.
+        // SQLite cleanup is handled automatically by the TempDir.
         if self.backend == TestBackend::Sqlite {
             return;
         }
-        if let Some(pool) = pools.get("main") {
-            let drop_sql = format!("DROP TABLE IF EXISTS {}", self.table_name);
-            let _ = pool.execute_with_params(&drop_sql, &[]).await;
+        if let Some(pools) = self.pools.take() {
+            let table_name = self.table_name.clone();
+            tokio::spawn(async move {
+                if let Some(pool) = pools.get("main") {
+                    let drop_sql = format!("DROP TABLE IF EXISTS {table_name}");
+                    let _ = pool.execute_with_params(&drop_sql, &[]).await;
+                }
+            });
         }
     }
 }

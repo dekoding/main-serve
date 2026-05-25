@@ -19,7 +19,7 @@ use support::configs::auth_configs::{
     oauth2_code_flow_config, oauth2_introspection_config,
 };
 use support::configs::shared_configs::MINIMAL_JSON_CONFIG;
-use support::db::{TestBackend, TestDatabase, enabled_backends};
+use support::db::{TestDatabase, enabled_backends};
 use support::helpers::jwt_config;
 use support::{json_body, setup_server, start_mock_idp};
 
@@ -335,34 +335,10 @@ endpoints:
 // =============================================================================
 
 #[tokio::test]
-async fn test_jwt_auth_on_crud_endpoint() {
-    let test_db = TestDatabase::new(TestBackend::Sqlite, "auth_jwt_crud");
-    let (app, _state, _pools) = test_db.setup_app(JWT_CRUD_CONFIG, "jwt_crud.yaml").await;
-
-    // Without token -> 401.
-    let req = Request::builder()
-        .uri("/api/items")
-        .body(Body::empty())
-        .unwrap();
-    let response = app.clone().oneshot(req).await.unwrap();
-    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-
-    // With valid token -> 200.
-    let token = create_token("user1", None, &jwt_config(JWT_CONFIG)).unwrap();
-    let req = Request::builder()
-        .uri("/api/items")
-        .header("authorization", format!("Bearer {token}"))
-        .body(Body::empty())
-        .unwrap();
-    let response = app.oneshot(req).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-}
-
-#[tokio::test]
 async fn test_jwt_auth_on_crud_endpoint_across_backends() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "auth_jwt_crud");
-        let (app, _state, pools) = test_db.setup_app(JWT_CRUD_CONFIG, "jwt_crud.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "auth_jwt_crud");
+        let (app, _state) = test_db.setup_app(JWT_CRUD_CONFIG, "jwt_crud.yaml").await;
 
         let req = Request::builder()
             .uri("/api/items")
@@ -383,17 +359,18 @@ async fn test_jwt_auth_on_crud_endpoint_across_backends() {
             .unwrap();
         let response = app.oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK, "backend: {backend}");
-
-        // Clean up tables for non-SQLite backends
-        test_db.cleanup(&pools).await;
     }
 }
+
+// =============================================================================
+// Mixed: auth on CRUD endpoints
+// =============================================================================
 
 #[tokio::test]
 async fn test_api_key_auth_on_crud_endpoint_across_backends() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "auth_api_key_crud");
-        let (app, _state, pools) = test_db
+        let mut test_db = TestDatabase::new(backend, "auth_api_key_crud");
+        let (app, _state) = test_db
             .setup_app(API_KEY_CRUD_CONFIG, "api_key_crud.yaml")
             .await;
 
@@ -415,9 +392,6 @@ async fn test_api_key_auth_on_crud_endpoint_across_backends() {
             .unwrap();
         let response = app.oneshot(req).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK, "backend: {backend}");
-
-        // Clean up tables for non-SQLite backends
-        test_db.cleanup(&pools).await;
     }
 }
 

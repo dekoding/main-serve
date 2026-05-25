@@ -22,8 +22,8 @@ use tower::ServiceExt;
 #[tokio::test]
 async fn test_crud_list_empty() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "crud_list_empty");
-        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "crud_list_empty");
+        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
 
         let req = Request::builder()
             .uri("/api/posts")
@@ -46,8 +46,8 @@ async fn test_crud_list_empty() {
 #[tokio::test]
 async fn test_crud_get_one() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "crud_get_one");
-        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "crud_get_one");
+        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
 
         // Create a post.
         let req = Request::builder()
@@ -83,8 +83,8 @@ async fn test_crud_get_one() {
 #[tokio::test]
 async fn test_crud_get_one_not_found() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "crud_get_not_found");
-        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "crud_get_not_found");
+        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
 
         let req = Request::builder()
             .uri("/api/posts/999")
@@ -107,8 +107,8 @@ async fn test_crud_get_one_not_found() {
 #[tokio::test]
 async fn test_crud_update_not_found() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "crud_update_not_found");
-        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "crud_update_not_found");
+        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
 
         let req = Request::builder()
             .method("PUT")
@@ -133,8 +133,8 @@ async fn test_crud_update_not_found() {
 #[tokio::test]
 async fn test_crud_delete_not_found() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "crud_delete_not_found");
-        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "crud_delete_not_found");
+        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
 
         let req = Request::builder()
             .method("DELETE")
@@ -158,8 +158,8 @@ async fn test_crud_delete_not_found() {
 #[tokio::test]
 async fn test_crud_create_no_body() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "crud_no_body");
-        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "crud_no_body");
+        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
 
         let req = Request::builder()
             .method("POST")
@@ -180,8 +180,8 @@ async fn test_crud_create_no_body() {
 #[tokio::test]
 async fn test_crud_create_ignores_non_writable_field() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "crud_non_writable");
-        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "crud_non_writable");
+        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
 
         // Try to set "id" which is not in writable_fields.
         let req = Request::builder()

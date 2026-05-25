@@ -5,7 +5,7 @@
 /// fields, and WHERE conditions.
 use std::collections::HashMap;
 
-use crate::config::types::{CrudConfig, DatabaseDriver, SortOrder, TableConfig};
+use crate::config::types::{ColumnType, CrudConfig, DatabaseDriver, SortOrder, TableConfig};
 use crate::context::RequestContext;
 use crate::db::query::helpers::{
     FilterExpression, FilterOperator, build_filter_param, extract_base_column,
@@ -273,15 +273,40 @@ impl SelectBuilder {
         behavior: &dyn FilterBehavior,
     ) -> Result<(), AppError> {
         let path_str = expr.path.join(".");
-        let param = placeholder(self.driver, self.param_idx);
         let base_column = expr.path.first().cloned().unwrap_or_default();
-        let is_jsonb_field = expr.path.len() > 1;
+        let is_jsonb_field = expr.path.len() > 1
+            || column_type.is_some_and(|ct| matches!(ct, ColumnType::Jsonb | ColumnType::Json));
+
+        let values: Vec<String> = match expr.operator {
+            FilterOperator::In | FilterOperator::NotIn => {
+                value.split(',').map(|s| s.trim().to_string()).collect()
+            }
+            FilterOperator::Contains => {
+                // Non-JSONB contains uses LIKE for substring matching.
+                // The % wildcards are added here since build_contains
+                // doesn't use like_pattern (it builds SQL differently).
+                if is_jsonb_field {
+                    vec![value.to_string()]
+                } else {
+                    vec![format!("%{}%", value)]
+                }
+            }
+            _ => vec![value.to_string()],
+        };
+        let num_params = values.len();
 
         let condition = match expr.operator {
+            FilterOperator::Exists => {
+                let exists_cond =
+                    self.build_exists(is_jsonb_field, &base_column, &path_str, behavior)?;
+                self.conditions.push(exists_cond);
+                // Exists generates IS NOT NULL — skip parameter addition
+                return Ok(());
+            }
             FilterOperator::Eq => self.build_comparison(
                 &base_column,
                 is_jsonb_field,
-                &param,
+                &placeholder(self.driver, self.param_idx),
                 behavior.eq_op(),
                 &path_str,
                 behavior,
@@ -289,7 +314,7 @@ impl SelectBuilder {
             FilterOperator::Ne => self.build_comparison(
                 &base_column,
                 is_jsonb_field,
-                &param,
+                &placeholder(self.driver, self.param_idx),
                 behavior.ne_op(),
                 &path_str,
                 behavior,
@@ -297,7 +322,7 @@ impl SelectBuilder {
             FilterOperator::Gt => self.build_comparison(
                 &base_column,
                 is_jsonb_field,
-                &param,
+                &placeholder(self.driver, self.param_idx),
                 behavior.gt_op(),
                 &path_str,
                 behavior,
@@ -305,7 +330,7 @@ impl SelectBuilder {
             FilterOperator::Gte => self.build_comparison(
                 &base_column,
                 is_jsonb_field,
-                &param,
+                &placeholder(self.driver, self.param_idx),
                 behavior.gte_op(),
                 &path_str,
                 behavior,
@@ -313,7 +338,7 @@ impl SelectBuilder {
             FilterOperator::Lt => self.build_comparison(
                 &base_column,
                 is_jsonb_field,
-                &param,
+                &placeholder(self.driver, self.param_idx),
                 behavior.lt_op(),
                 &path_str,
                 behavior,
@@ -321,14 +346,13 @@ impl SelectBuilder {
             FilterOperator::Lte => self.build_comparison(
                 &base_column,
                 is_jsonb_field,
-                &param,
+                &placeholder(self.driver, self.param_idx),
                 behavior.lte_op(),
                 &path_str,
                 behavior,
             ),
             FilterOperator::In => {
-                let values: Vec<String> = value.split(',').map(|s| s.trim().to_string()).collect();
-                let placeholders: Vec<String> = (0..values.len())
+                let placeholders: Vec<String> = (0..num_params)
                     .map(|i| placeholder(self.driver, self.param_idx + i))
                     .collect();
                 let param_list = placeholders.join(", ");
@@ -341,44 +365,53 @@ impl SelectBuilder {
                 )
             }
             FilterOperator::NotIn => {
-                let values: Vec<String> = value.split(',').map(|s| s.trim().to_string()).collect();
-                let placeholders: Vec<String> = (0..values.len())
+                let placeholders: Vec<String> = (0..num_params)
                     .map(|i| placeholder(self.driver, self.param_idx + i))
                     .collect();
                 let param_list = placeholders.join(", ");
-                self.build_in(
+                let condition = self.build_in(
                     &base_column,
                     is_jsonb_field,
                     &param_list,
                     &path_str,
                     behavior,
-                )
+                );
+                format!("NOT {condition}")
             }
-            FilterOperator::Contains => {
-                self.build_contains(is_jsonb_field, &param, &path_str, value, behavior)?
-            }
-            FilterOperator::Exists => self.build_exists(is_jsonb_field, &path_str, behavior)?,
+            FilterOperator::Contains => self.build_contains(
+                is_jsonb_field,
+                &placeholder(self.driver, self.param_idx),
+                &path_str,
+                value,
+                behavior,
+            )?,
             FilterOperator::StartsWith => {
-                let param = format!("{}%", value);
-                self.build_like(&base_column, is_jsonb_field, &param, &path_str, behavior)
+                let pattern =
+                    behavior.like_pattern_start(&placeholder(self.driver, self.param_idx));
+                self.build_like(&base_column, is_jsonb_field, &pattern, &path_str, behavior)
             }
             FilterOperator::EndsWith => {
-                let param = format!("%{}", value);
-                self.build_like(&base_column, is_jsonb_field, &param, &path_str, behavior)
+                let pattern = behavior.like_pattern_end(&placeholder(self.driver, self.param_idx));
+                self.build_like(&base_column, is_jsonb_field, &pattern, &path_str, behavior)
             }
             FilterOperator::Like => {
-                self.build_like(&base_column, is_jsonb_field, value, &path_str, behavior)
+                let pattern = behavior.like_pattern(&placeholder(self.driver, self.param_idx));
+                self.build_like(&base_column, is_jsonb_field, &pattern, &path_str, behavior)
             }
             FilterOperator::ILike => {
-                self.build_ilike(&base_column, is_jsonb_field, value, &path_str, behavior)
+                let pattern = behavior.like_pattern(&placeholder(self.driver, self.param_idx));
+                self.build_ilike(&base_column, is_jsonb_field, &pattern, &path_str, behavior)
             }
         };
 
         self.conditions.push(condition);
-        // Use proper type coercion based on column type
-        let param_value = build_filter_param(value, column_type);
-        self.params.push(param_value);
-        self.param_idx += 1;
+
+        for v in &values {
+            let param_value = build_filter_param(v, column_type, self.driver);
+            self.params.push(param_value);
+        }
+        self.param_idx += num_params;
+
         Ok(())
     }
 
@@ -423,11 +456,16 @@ impl SelectBuilder {
         behavior: &dyn FilterBehavior,
     ) -> String {
         if is_jsonb {
-            // Extract the column name from the path (e.g., "metadata" from "metadata.role")
-            let column_name = path_str.split('.').next().unwrap_or(base_column);
+            let parts: Vec<&str> = path_str.split('.').collect();
+            let column_name = parts.first().copied().unwrap_or(base_column);
+            let nested_path = if parts.len() > 1 {
+                parts[1..].join(".")
+            } else {
+                String::new()
+            };
             format!(
                 "{} IN ({})",
-                behavior.json_extract_path(column_name, path_str),
+                behavior.json_extract_path(column_name, &nested_path),
                 param_list
             )
         } else {
@@ -444,24 +482,63 @@ impl SelectBuilder {
         value: &str,
         behavior: &dyn FilterBehavior,
     ) -> Result<String, AppError> {
+        let column_name = path_str.split('.').next().ok_or_else(|| {
+            AppError::Internal("Invalid JSONB path: empty path string".to_string())
+        })?;
         if is_jsonb {
             let json_value = serde_json::Value::String(value.to_string());
             let json_str = serde_json::to_string(&json_value)
                 .map_err(|e| AppError::Internal(format!("JSON serialization error: {e}")))?;
+
+            let parts: Vec<&str> = path_str.split('.').collect();
+            let nested_path = if parts.len() > 1 {
+                parts[1..].join(".")
+            } else {
+                String::new()
+            };
+
             if behavior.uses_jsonb_ops() {
                 // PostgreSQL @> operator for JSONB containment
-                Ok(format!("{} @> {}::jsonb", self.table, json_str))
+                if nested_path.is_empty() {
+                    Ok(format!("{} @> '{}'::jsonb", column_name, json_str))
+                } else {
+                    let pg_path_expr = if nested_path.contains('.') {
+                        let path_parts: Vec<&str> = nested_path.split('.').collect();
+                        format!("({} #> '{{{}}}')", column_name, path_parts.join(","))
+                    } else {
+                        format!("({}->'{}')", column_name, nested_path)
+                    };
+                    Ok(format!("{} @> '{}'::jsonb", pg_path_expr, json_str))
+                }
+            } else if self.driver == DatabaseDriver::Mysql {
+                // MySQL uses JSON_CONTAINS for containment checks
+                // JSON_QUOTE wraps the parameter in valid JSON quotes
+                if nested_path.is_empty() {
+                    Ok(format!(
+                        "JSON_CONTAINS({}, JSON_QUOTE({}))",
+                        column_name, param
+                    ))
+                } else {
+                    let nested_json_path = format!("$.{}", nested_path);
+                    Ok(format!(
+                        "JSON_CONTAINS(JSON_EXTRACT({}, '{}'), JSON_QUOTE({}))",
+                        column_name, nested_json_path, param
+                    ))
+                }
             } else {
-                let column_name = path_str.split('.').next().ok_or_else(|| {
-                    AppError::Internal("Invalid JSONB path: empty path string".to_string())
-                })?;
+                // SQLite uses json_each for array traversal
+                let json_path = if nested_path.is_empty() {
+                    "$".to_string()
+                } else {
+                    format!("$.{}", nested_path)
+                };
                 Ok(format!(
-                    "EXISTS (SELECT 1 FROM json_each({}, '$.{}') WHERE value = {})",
-                    column_name, path_str, param
+                    "EXISTS (SELECT 1 FROM json_each({}, '{}') WHERE value = {})",
+                    column_name, json_path, param
                 ))
             }
         } else {
-            Ok(format!("{}.{} = {}", self.table, param, param))
+            Ok(format!("{}.{} LIKE {}", self.table, column_name, param))
         }
     }
 
@@ -469,42 +546,52 @@ impl SelectBuilder {
     fn build_exists(
         &self,
         is_jsonb: bool,
+        base_column: &str,
         path_str: &str,
         behavior: &dyn FilterBehavior,
     ) -> Result<String, AppError> {
         if is_jsonb {
-            // Extract the column name from path_str (e.g., "metadata" from "metadata.role")
-            let column_name = path_str.split('.').next().ok_or_else(|| {
+            let parts: Vec<&str> = path_str.split('.').collect();
+            let column_name = parts.first().copied().ok_or_else(|| {
                 AppError::Internal("Invalid JSONB path: empty path string".to_string())
             })?;
+            let nested_path = if parts.len() > 1 {
+                parts[1..].join(".")
+            } else {
+                String::new()
+            };
             Ok(format!(
                 "{} IS NOT NULL",
-                behavior.json_extract_path(column_name, path_str)
+                behavior.json_extract_path(column_name, &nested_path)
             ))
         } else {
-            // For non-JSONB, we'd need the actual column name here
-            // This is a fallback - in practice this should be validated
-            Ok(format!("{} IS NOT NULL", self.table))
+            Ok(format!("{}.{} IS NOT NULL", self.table, base_column))
         }
     }
 
-    /// Build a LIKE condition.
+    /// Build a LIKE condition using a pre-built SQL pattern string.
+    /// `pattern` is the full SQL pattern expression (e.g., `CONCAT($1, '%')`).
     fn build_like(
         &self,
         base_column: &str,
         is_jsonb: bool,
-        param: &str,
+        pattern: &str,
         path_str: &str,
         behavior: &dyn FilterBehavior,
     ) -> String {
         if is_jsonb {
-            // Extract the column name from the path (e.g., "metadata" from "metadata.role")
-            let column_name = path_str.split('.').next().unwrap_or(base_column);
+            let parts: Vec<&str> = path_str.split('.').collect();
+            let column_name = parts.first().copied().unwrap_or(base_column);
+            let nested_path = if parts.len() > 1 {
+                parts[1..].join(".")
+            } else {
+                String::new()
+            };
             format!(
                 "{} {} {}",
-                behavior.json_extract_path(column_name, path_str),
+                behavior.json_extract_path(column_name, &nested_path),
                 behavior.like_op(),
-                param
+                pattern
             )
         } else {
             format!(
@@ -512,29 +599,34 @@ impl SelectBuilder {
                 self.table,
                 base_column,
                 behavior.like_op(),
-                param
+                pattern
             )
         }
     }
 
-    /// Build an ILIKE (case-insensitive LIKE) condition.
+    /// Build an ILIKE (case-insensitive LIKE) condition using a pre-built SQL pattern string.
+    /// `pattern` is the full SQL pattern expression (e.g., `LOWER(CONCAT($1, '%'))`).
     fn build_ilike(
         &self,
         base_column: &str,
         is_jsonb: bool,
-        value: &str,
+        pattern: &str,
         path_str: &str,
         behavior: &dyn FilterBehavior,
     ) -> String {
-        let param = format!("%{}%", value);
         if is_jsonb {
-            // Extract the column name from the path (e.g., "metadata" from "metadata.role")
-            let column_name = path_str.split('.').next().unwrap_or(base_column);
+            let parts: Vec<&str> = path_str.split('.').collect();
+            let column_name = parts.first().copied().unwrap_or(base_column);
+            let nested_path = if parts.len() > 1 {
+                parts[1..].join(".")
+            } else {
+                String::new()
+            };
             format!(
                 "LOWER({}) {} LOWER({})",
-                behavior.json_extract_path(column_name, path_str),
+                behavior.json_extract_path(column_name, &nested_path),
                 behavior.ilike_op(),
-                param
+                pattern
             )
         } else {
             format!(
@@ -542,7 +634,7 @@ impl SelectBuilder {
                 self.table,
                 base_column,
                 behavior.ilike_op(),
-                param
+                pattern
             )
         }
     }

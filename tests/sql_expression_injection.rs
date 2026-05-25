@@ -69,8 +69,8 @@ async fn seed_jsonb_posts(app: &axum::Router, posts: &[(&str, &str, &str)]) {
 #[tokio::test]
 async fn test_sql_comment_injection_in_sort() {
     for backend in enabled_backends() {
-        let test_db = support::db::TestDatabase::new(backend, "sql_comment_injection");
-        let (app, _state, _pool) = test_db
+        let mut test_db = support::db::TestDatabase::new(backend, "sql_comment_injection");
+        let (app, _state) = test_db
             .setup_app(JSONB_EXPRESSIONS_CONFIG, "comment_test.yaml")
             .await;
 
@@ -113,8 +113,8 @@ async fn test_sql_comment_injection_in_sort() {
 #[tokio::test]
 async fn test_sql_keyword_injection_in_sort() {
     for backend in enabled_backends() {
-        let test_db = support::db::TestDatabase::new(backend, "sql_keyword_injection");
-        let (app, _state, _pool) = test_db
+        let mut test_db = support::db::TestDatabase::new(backend, "sql_keyword_injection");
+        let (app, _state) = test_db
             .setup_app(JSONB_EXPRESSIONS_CONFIG, "keyword_test.yaml")
             .await;
 
@@ -152,8 +152,8 @@ async fn test_sql_keyword_injection_in_sort() {
 #[tokio::test]
 async fn test_function_call_abuse_in_sort() {
     for backend in enabled_backends() {
-        let test_db = support::db::TestDatabase::new(backend, "function_abuse");
-        let (app, _state, _pool) = test_db
+        let mut test_db = support::db::TestDatabase::new(backend, "function_abuse");
+        let (app, _state) = test_db
             .setup_app(JSONB_EXPRESSIONS_CONFIG, "function_test.yaml")
             .await;
 
@@ -192,8 +192,8 @@ async fn test_function_call_abuse_in_sort() {
 #[tokio::test]
 async fn test_operator_chaining_in_sort() {
     for backend in enabled_backends() {
-        let test_db = support::db::TestDatabase::new(backend, "operator_chaining");
-        let (app, _state, _pool) = test_db
+        let mut test_db = support::db::TestDatabase::new(backend, "operator_chaining");
+        let (app, _state) = test_db
             .setup_app(JSONB_EXPRESSIONS_CONFIG, "operator_test.yaml")
             .await;
 
@@ -231,8 +231,8 @@ async fn test_operator_chaining_in_sort() {
 #[tokio::test]
 async fn test_jsonpath_parser_bypass() {
     for backend in enabled_backends() {
-        let test_db = support::db::TestDatabase::new(backend, "jsonpath_bypass");
-        let (app, _state, _pool) = test_db
+        let mut test_db = support::db::TestDatabase::new(backend, "jsonpath_bypass");
+        let (app, _state) = test_db
             .setup_app(JSONB_EXPRESSIONS_CONFIG, "jsonpath_test.yaml")
             .await;
 
@@ -279,8 +279,8 @@ async fn test_jsonpath_parser_bypass() {
 #[tokio::test]
 async fn test_whitespace_obfuscated_injection() {
     for backend in enabled_backends() {
-        let test_db = support::db::TestDatabase::new(backend, "whitespace_obfuscation");
-        let (app, _state, _pool) = test_db
+        let mut test_db = support::db::TestDatabase::new(backend, "whitespace_obfuscation");
+        let (app, _state) = test_db
             .setup_app(JSONB_EXPRESSIONS_CONFIG, "whitespace_test.yaml")
             .await;
 
@@ -319,8 +319,8 @@ async fn test_whitespace_obfuscated_injection() {
 #[tokio::test]
 async fn test_postgres_jsonb_operator_abuse() {
     for backend in enabled_backends() {
-        let test_db = support::db::TestDatabase::new(backend, "jsonb_operator_abuse");
-        let (app, _state, _pool) = test_db
+        let mut test_db = support::db::TestDatabase::new(backend, "jsonb_operator_abuse");
+        let (app, _state) = test_db
             .setup_app(JSONB_EXPRESSIONS_CONFIG, "jsonb_operator_test.yaml")
             .await;
 
@@ -369,8 +369,8 @@ async fn test_postgres_jsonb_operator_abuse() {
 #[tokio::test]
 async fn test_context_keyword_injection() {
     for backend in enabled_backends() {
-        let test_db = support::db::TestDatabase::new(backend, "context_keyword");
-        let (app, _state, _pool) = test_db
+        let mut test_db = support::db::TestDatabase::new(backend, "context_keyword");
+        let (app, _state) = test_db
             .setup_app(JSONB_EXPRESSIONS_CONFIG, "context_test.yaml")
             .await;
 
@@ -408,8 +408,8 @@ async fn test_context_keyword_injection() {
 #[tokio::test]
 async fn test_quote_imbalance_exploitation() {
     for backend in enabled_backends() {
-        let test_db = support::db::TestDatabase::new(backend, "quote_imbalance");
-        let (app, _state, _pool) = test_db
+        let mut test_db = support::db::TestDatabase::new(backend, "quote_imbalance");
+        let (app, _state) = test_db
             .setup_app(JSONB_EXPRESSIONS_CONFIG, "quote_test.yaml")
             .await;
 
@@ -447,8 +447,8 @@ async fn test_quote_imbalance_exploitation() {
 #[tokio::test]
 async fn test_nested_comment_injection() {
     for backend in enabled_backends() {
-        let test_db = support::db::TestDatabase::new(backend, "nested_comment");
-        let (app, _state, _pool) = test_db
+        let mut test_db = support::db::TestDatabase::new(backend, "nested_comment");
+        let (app, _state) = test_db
             .setup_app(JSONB_EXPRESSIONS_CONFIG, "nested_comment_test.yaml")
             .await;
 

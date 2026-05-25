@@ -1007,6 +1007,272 @@ mod tests {
         assert!(result.is_err());
     }
 
+    // ============================================================================
+    // JSONB CONTAINS Filter Tests
+    // ============================================================================
+
+    #[test]
+    fn test_filter_jsonb_contains_postgres() {
+        let table = test_table_with_jsonb();
+        let crud = test_crud_with_jsonb_filtering();
+        let params = QueryParams {
+            filters: [("metadata.role[contains]".to_string(), "admin".to_string())]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
+        let q = build_select_list(
+            "posts",
+            &table,
+            &crud,
+            &params,
+            DatabaseDriver::Postgres,
+            &RequestContext::new(),
+        )
+        .unwrap();
+
+        // PostgreSQL uses @> operator with column name (not table name)
+        // For nested paths, extracts with -> before containment check
+        assert!(q.sql.contains("SELECT"));
+        assert!(q.sql.contains("posts"));
+        assert!(q.sql.contains("(metadata->'role') @>"));
+        assert!(!q.sql.contains("posts @>"));
+    }
+
+    #[test]
+    fn test_filter_jsonb_contains_sqlite() {
+        let table = test_table_with_jsonb();
+        let crud = test_crud_with_jsonb_filtering();
+        let params = QueryParams {
+            filters: [("metadata.tags[contains]".to_string(), "rust".to_string())]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
+        let q = build_select_list(
+            "posts",
+            &table,
+            &crud,
+            &params,
+            DatabaseDriver::Sqlite,
+            &RequestContext::new(),
+        )
+        .unwrap();
+
+        // SQLite uses EXISTS with json_each for nested JSONB paths
+        assert!(q.sql.contains("SELECT"));
+        assert!(q.sql.contains("posts"));
+        assert!(q.sql.contains("EXISTS (SELECT 1 FROM json_each(metadata"));
+        assert!(q.sql.contains("$.tags"));
+    }
+
+    #[test]
+    fn test_filter_jsonb_contains_mysql() {
+        let table = test_table_with_jsonb();
+        let crud = test_crud_with_jsonb_filtering();
+        let params = QueryParams {
+            filters: [("metadata.tags[contains]".to_string(), "python".to_string())]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
+        let q = build_select_list(
+            "posts",
+            &table,
+            &crud,
+            &params,
+            DatabaseDriver::Mysql,
+            &RequestContext::new(),
+        )
+        .unwrap();
+
+        // MySQL uses JSON_CONTAINS for containment checks
+        assert!(q.sql.contains("SELECT"));
+        assert!(q.sql.contains("posts"));
+        assert!(q.sql.contains("JSON_CONTAINS"));
+        assert!(q.sql.contains("JSON_EXTRACT(metadata, '$.tags')"));
+    }
+
+    #[test]
+    fn test_filter_non_jsonb_contains() {
+        let table = test_table();
+        let crud = test_crud();
+        let params = QueryParams {
+            filters: [("author[contains]".to_string(), "al".to_string())]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
+        let q = build_select_list(
+            "posts",
+            &table,
+            &crud,
+            &params,
+            DatabaseDriver::Sqlite,
+            &RequestContext::new(),
+        )
+        .unwrap();
+
+        // Non-JSONB contains generates table.column LIKE '%value%' (substring matching)
+        assert!(q.sql.contains("SELECT"));
+        assert!(q.sql.contains("posts"));
+        assert!(q.sql.contains("posts.author LIKE"));
+        // Should NOT contain the param as a column name
+        assert!(!q.sql.contains("posts.$1 = $1"));
+        assert!(!q.sql.contains("posts.? = ?"));
+    }
+
+    #[test]
+    fn test_filter_non_jsonb_contains_postgres() {
+        let table = test_table();
+        let crud = test_crud();
+        let params = QueryParams {
+            filters: [("title[contains]".to_string(), "Hello".to_string())]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
+        let q = build_select_list(
+            "posts",
+            &table,
+            &crud,
+            &params,
+            DatabaseDriver::Postgres,
+            &RequestContext::new(),
+        )
+        .unwrap();
+
+        assert!(q.sql.contains("posts.title LIKE"));
+    }
+
+    // ============================================================================
+    // JSONB EXISTS Filter Tests
+    // ============================================================================
+
+    #[test]
+    fn test_filter_jsonb_exists_postgres() {
+        let table = test_table_with_jsonb();
+        let crud = test_crud_with_jsonb_filtering();
+        let params = QueryParams {
+            filters: [("metadata.role[exists]".to_string(), "".to_string())]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
+        let q = build_select_list(
+            "posts",
+            &table,
+            &crud,
+            &params,
+            DatabaseDriver::Postgres,
+            &RequestContext::new(),
+        )
+        .unwrap();
+
+        assert!(q.sql.contains("SELECT"));
+        assert!(q.sql.contains("posts"));
+        assert!(q.sql.contains("IS NOT NULL"));
+        assert!(q.sql.contains("#>>"));
+    }
+
+    #[test]
+    fn test_filter_jsonb_exists_sqlite() {
+        let table = test_table_with_jsonb();
+        let crud = test_crud_with_jsonb_filtering();
+        let params = QueryParams {
+            filters: [("metadata.status[exists]".to_string(), "".to_string())]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
+        let q = build_select_list(
+            "posts",
+            &table,
+            &crud,
+            &params,
+            DatabaseDriver::Sqlite,
+            &RequestContext::new(),
+        )
+        .unwrap();
+
+        assert!(q.sql.contains("SELECT"));
+        assert!(q.sql.contains("IS NOT NULL"));
+    }
+
+    #[test]
+    fn test_filter_non_jsonb_exists_sqlite() {
+        let table = test_table();
+        let crud = test_crud();
+        let params = QueryParams {
+            filters: [("author[exists]".to_string(), "".to_string())]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
+        let q = build_select_list(
+            "posts",
+            &table,
+            &crud,
+            &params,
+            DatabaseDriver::Sqlite,
+            &RequestContext::new(),
+        )
+        .unwrap();
+
+        // Non-JSONB exists generates table.column IS NOT NULL
+        assert!(q.sql.contains("SELECT"));
+        assert!(q.sql.contains("posts"));
+        assert!(q.sql.contains("posts.author IS NOT NULL"));
+        // Should NOT check table name alone
+        assert!(!q.sql.contains("posts IS NOT NULL"));
+    }
+
+    #[test]
+    fn test_filter_non_jsonb_exists_postgres() {
+        let table = test_table();
+        let crud = test_crud();
+        let params = QueryParams {
+            filters: [("title[exists]".to_string(), "".to_string())]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
+        let q = build_select_list(
+            "posts",
+            &table,
+            &crud,
+            &params,
+            DatabaseDriver::Postgres,
+            &RequestContext::new(),
+        )
+        .unwrap();
+
+        assert!(q.sql.contains("posts.title IS NOT NULL"));
+    }
+
+    #[test]
+    fn test_filter_non_jsonb_exists_mysql() {
+        let table = test_table();
+        let crud = test_crud();
+        let params = QueryParams {
+            filters: [("author[exists]".to_string(), "".to_string())]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        };
+        let q = build_select_list(
+            "posts",
+            &table,
+            &crud,
+            &params,
+            DatabaseDriver::Mysql,
+            &RequestContext::new(),
+        )
+        .unwrap();
+
+        assert!(q.sql.contains("posts.author IS NOT NULL"));
+    }
+
     #[test]
     fn test_filter_nonexistent_jsonb_column_rejected() {
         let table = test_table_with_jsonb();

@@ -287,10 +287,16 @@ pub fn coerce_filter_value(value: &str) -> serde_json::Value {
 /// where the user explicitly wants to filter by a string that happens to look
 /// like a number (e.g., filtering a text column for the value "123").
 ///
+/// For JSON/JSONB columns, the coercion strategy depends on the database driver:
+/// - SQLite: `json_extract` preserves native JSON types, so try parsing as JSON.
+/// - PostgreSQL: `#>>` always returns text, so always coerce to string.
+/// - MySQL: `JSON_UNQUOTE(JSON_EXTRACT(...))` always returns text, so always coerce to string.
+///
 /// # Arguments
 ///
 /// * `value` - The string value from the filter query parameter
 /// * `column_type` - The declared type of the column being filtered
+/// * `driver` - Database driver to determine coercion strategy
 ///
 /// # Returns
 ///
@@ -299,6 +305,7 @@ pub fn coerce_filter_value(value: &str) -> serde_json::Value {
 pub fn coerce_filter_value_by_type(
     value: &str,
     column_type: &crate::config::types::ColumnType,
+    driver: DatabaseDriver,
 ) -> serde_json::Value {
     match column_type {
         crate::config::types::ColumnType::Integer
@@ -329,12 +336,32 @@ pub fn coerce_filter_value_by_type(
             )
         }
         crate::config::types::ColumnType::Json | crate::config::types::ColumnType::Jsonb => {
-            // For JSON/JSONB columns, try to parse as JSON first
-            // This allows filtering with proper JSON types like numbers, booleans, etc.
-            serde_json::from_str(value).unwrap_or_else(|_| {
-                // If the value isn't valid JSON, treat it as a string
-                serde_json::Value::String(value.to_string())
-            })
+            // PostgreSQL #>> and MySQL JSON_UNQUOTE(JSON_EXTRACT(...)) always
+            // return text, so parameters must be bound as text.
+            // SQLite json_extract preserves native JSON types, so we try parsing
+            // as JSON for proper type matching there.
+            if matches!(driver, DatabaseDriver::Postgres | DatabaseDriver::Mysql) {
+                if value.to_lowercase() == "null" {
+                    serde_json::Value::Null
+                } else {
+                    serde_json::Value::String(value.to_string())
+                }
+            } else {
+                // SQLite: preserve native JSON types for proper comparison
+                if value.to_lowercase() == "null" {
+                    serde_json::Value::Null
+                } else if let Ok(bool_val) = value.parse::<bool>() {
+                    serde_json::Value::Bool(bool_val)
+                } else if let Ok(int_val) = value.parse::<i64>() {
+                    serde_json::Value::Number(int_val.into())
+                } else if let Ok(float_val) = value.parse::<f64>() {
+                    serde_json::Number::from_f64(float_val)
+                        .map(serde_json::Value::Number)
+                        .unwrap_or(serde_json::Value::String(value.to_string()))
+                } else {
+                    serde_json::Value::String(value.to_string())
+                }
+            }
         }
         _ => {
             // For other types (text, varchar, date, etc.), keep as string
@@ -358,6 +385,7 @@ pub fn coerce_filter_value_by_type(
 ///
 /// * `value` - The string value from the filter query parameter
 /// * `column_type` - Optional column type from the table schema for precise coercion
+/// * `driver` - Database driver to determine coercion strategy
 ///
 /// # Returns
 ///
@@ -365,9 +393,10 @@ pub fn coerce_filter_value_by_type(
 pub fn build_filter_param(
     value: &str,
     column_type: Option<&crate::config::types::ColumnType>,
+    driver: DatabaseDriver,
 ) -> serde_json::Value {
     match column_type {
-        Some(ct) => coerce_filter_value_by_type(value, ct),
+        Some(ct) => coerce_filter_value_by_type(value, ct, driver),
         None => coerce_filter_value(value),
     }
 }
