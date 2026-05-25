@@ -35,8 +35,8 @@ async fn seed_posts(app: &axum::Router, posts: &[(&str, &str)]) {
 #[tokio::test]
 async fn test_crud_pagination_across_backends() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "api_pagination");
-        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud_features.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "api_pagination");
+        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud_features.yaml").await;
 
         seed_posts(
             &app,
@@ -81,8 +81,8 @@ async fn test_crud_pagination_across_backends() {
 #[tokio::test]
 async fn test_crud_filtering_across_backends() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "api_filtering");
-        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud_features.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "api_filtering");
+        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud_features.yaml").await;
 
         seed_posts(&app, &[("A", "Alice"), ("B", "Bob")]).await;
 
@@ -102,8 +102,8 @@ async fn test_crud_filtering_across_backends() {
 #[tokio::test]
 async fn test_crud_sorting_across_backends() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "api_sorting");
-        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud_features.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "api_sorting");
+        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud_features.yaml").await;
 
         seed_posts(
             &app,
@@ -143,7 +143,7 @@ async fn test_crud_sorting_across_backends() {
 #[tokio::test]
 async fn test_crud_join_fields_across_backends() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "api_join");
+        let mut test_db = TestDatabase::new(backend, "api_join");
         let authors_table = format!("{}_authors", test_db.table_name);
         let posts_table = &test_db.table_name;
 
@@ -211,7 +211,7 @@ endpoints:
 "#
         );
 
-        let (app, _state, _pool) = test_db.setup_app(&template, "join_test.yaml").await;
+        let (app, _state) = test_db.setup_app(&template, "join_test.yaml").await;
 
         // Create an author.
         let req = Request::builder()
@@ -268,8 +268,8 @@ endpoints:
 #[tokio::test]
 async fn test_crud_filter_on_disallowed_field_rejected() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "api_filter_reject");
-        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud_features.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "api_filter_reject");
+        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud_features.yaml").await;
 
         seed_posts(&app, &[("Post", "Alice")]).await;
 
@@ -290,8 +290,8 @@ async fn test_crud_filter_on_disallowed_field_rejected() {
 #[tokio::test]
 async fn test_crud_sort_on_disallowed_field_rejected() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "api_sort_reject");
-        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud_features.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "api_sort_reject");
+        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud_features.yaml").await;
 
         seed_posts(&app, &[("Post", "Alice")]).await;
 
@@ -360,8 +360,8 @@ endpoints:
 "#;
 
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "api_where_single");
-        let (app, _state, _pool) = test_db.setup_app(config, "where_single.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "api_where_single");
+        let (app, _state) = test_db.setup_app(config, "where_single.yaml").await;
 
         // Create an active item.
         let resp = app
@@ -440,8 +440,8 @@ endpoints:
 #[tokio::test]
 async fn test_crud_pagination_clamps_page_size() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "api_page_clamp");
-        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud_features.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "api_page_clamp");
+        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud_features.yaml").await;
 
         // Seed 5 posts; max_page_size in config is 10, but test with 20.
         seed_posts(
@@ -481,8 +481,8 @@ async fn test_crud_pagination_clamps_page_size() {
 #[tokio::test]
 async fn test_sql_injection_prevention() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "sql_injection_test");
-        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud_features.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "sql_injection_test");
+        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud_features.yaml").await;
 
         // Seed some posts
         seed_posts(&app, &[("Normal Post", "Alice")]).await;
@@ -578,11 +578,11 @@ async fn test_sql_injection_prevention() {
 #[tokio::test]
 async fn test_crud_sort_jsonb_across_backends() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "api_sort_jsonb");
+        let mut test_db = TestDatabase::new(backend, "api_sort_jsonb");
 
         let template = JSONB_EXPRESSIONS_CONFIG;
 
-        let (app, _state, _pool) = test_db.setup_app(template, "jsonb_sort.yaml").await;
+        let (app, _state) = test_db.setup_app(template, "jsonb_sort.yaml").await;
 
         // Seed posts with JSONB metadata containing role field
         let seed_data = vec![
@@ -657,8 +657,8 @@ async fn test_crud_sort_jsonb_across_backends() {
 #[tokio::test]
 async fn test_crud_sort_jsonb_disallowed_field_rejected() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "api_sort_jsonb_reject");
-        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud_features.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "api_sort_jsonb_reject");
+        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud_features.yaml").await;
 
         // metadata.tags is not in sorting.allowed_fields
         let req = Request::builder()
@@ -677,8 +677,8 @@ async fn test_crud_sort_jsonb_disallowed_field_rejected() {
 #[tokio::test]
 async fn test_crud_create_and_list_across_backends() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "crud_create_and_list");
-        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "crud_create_and_list");
+        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
 
         let create_request = Request::builder()
             .method("POST")
@@ -720,8 +720,8 @@ async fn test_crud_create_and_list_across_backends() {
 #[tokio::test]
 async fn test_crud_update_and_delete_across_backends() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "crud_update_and_delete");
-        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "crud_update_and_delete");
+        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
 
         let create_request = Request::builder()
             .method("POST")
@@ -793,8 +793,8 @@ async fn test_crud_update_and_delete_across_backends() {
 #[tokio::test]
 async fn test_crud_list_empty() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "crud_list_empty");
-        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "crud_list_empty");
+        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
 
         let req = Request::builder()
             .uri("/api/posts")
@@ -817,8 +817,8 @@ async fn test_crud_list_empty() {
 #[tokio::test]
 async fn test_crud_get_one() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "crud_get_one");
-        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "crud_get_one");
+        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
 
         // Create a post.
         let req = Request::builder()
@@ -854,8 +854,8 @@ async fn test_crud_get_one() {
 #[tokio::test]
 async fn test_crud_get_one_not_found() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "crud_get_not_found");
-        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "crud_get_not_found");
+        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
 
         let req = Request::builder()
             .uri("/api/posts/999")
@@ -878,8 +878,8 @@ async fn test_crud_get_one_not_found() {
 #[tokio::test]
 async fn test_crud_update_not_found() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "crud_update_not_found");
-        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "crud_update_not_found");
+        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
 
         let req = Request::builder()
             .method("PUT")
@@ -904,8 +904,8 @@ async fn test_crud_update_not_found() {
 #[tokio::test]
 async fn test_crud_delete_not_found() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "crud_delete_not_found");
-        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "crud_delete_not_found");
+        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
 
         let req = Request::builder()
             .method("DELETE")
@@ -929,8 +929,8 @@ async fn test_crud_delete_not_found() {
 #[tokio::test]
 async fn test_crud_create_no_body() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "crud_no_body");
-        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "crud_no_body");
+        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
 
         let req = Request::builder()
             .method("POST")
@@ -951,8 +951,8 @@ async fn test_crud_create_no_body() {
 #[tokio::test]
 async fn test_crud_create_ignores_non_writable_field() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "crud_non_writable");
-        let (app, _state, _pool) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "crud_non_writable");
+        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
 
         // Try to set "id" which is not in writable_fields.
         let req = Request::builder()
@@ -1184,9 +1184,9 @@ async fn seed_jsonb_posts_with_nulls(app: &axum::Router) {
 #[tokio::test]
 async fn test_jsonb_filter_eq_across_backends() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "jsonb_filter_eq");
+        let mut test_db = TestDatabase::new(backend, "jsonb_filter_eq");
 
-        let (app, _state, _pool) = test_db
+        let (app, _state) = test_db
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_eq.yaml")
             .await;
 
@@ -1252,9 +1252,9 @@ async fn test_jsonb_filter_eq_across_backends() {
 #[tokio::test]
 async fn test_jsonb_filter_gt_across_backends() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "jsonb_filter_gt");
+        let mut test_db = TestDatabase::new(backend, "jsonb_filter_gt");
 
-        let (app, _state, _pool) = test_db
+        let (app, _state) = test_db
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_gt.yaml")
             .await;
 
@@ -1311,9 +1311,9 @@ async fn test_jsonb_filter_gt_across_backends() {
 #[tokio::test]
 async fn test_jsonb_filter_lt_across_backends() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "jsonb_filter_lt");
+        let mut test_db = TestDatabase::new(backend, "jsonb_filter_lt");
 
-        let (app, _state, _pool) = test_db
+        let (app, _state) = test_db
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_lt.yaml")
             .await;
 
@@ -1366,9 +1366,9 @@ async fn test_jsonb_filter_lt_across_backends() {
 #[tokio::test]
 async fn test_jsonb_filter_ne_across_backends() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "jsonb_filter_ne");
+        let mut test_db = TestDatabase::new(backend, "jsonb_filter_ne");
 
-        let (app, _state, _pool) = test_db
+        let (app, _state) = test_db
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_ne.yaml")
             .await;
 
@@ -1407,9 +1407,9 @@ async fn test_jsonb_filter_contains_across_backends() {
         return;
     }
     for backend in pg_backends {
-        let test_db = TestDatabase::new(backend, "jsonb_filter_contains");
+        let mut test_db = TestDatabase::new(backend, "jsonb_filter_contains");
 
-        let (app, _state, _pool) = test_db
+        let (app, _state) = test_db
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_contains.yaml")
             .await;
 
@@ -1455,9 +1455,9 @@ async fn test_jsonb_filter_exists_across_backends() {
         return;
     }
     for backend in pg_backends {
-        let test_db = TestDatabase::new(backend, "jsonb_filter_exists");
+        let mut test_db = TestDatabase::new(backend, "jsonb_filter_exists");
 
-        let (app, _state, _pool) = test_db
+        let (app, _state) = test_db
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_exists.yaml")
             .await;
 
@@ -1493,9 +1493,9 @@ async fn test_jsonb_filter_like_across_backends() {
         .filter(|b| *b != TestBackend::Sqlite)
         .collect();
     for backend in backends {
-        let test_db = TestDatabase::new(backend, "jsonb_filter_like");
+        let mut test_db = TestDatabase::new(backend, "jsonb_filter_like");
 
-        let (app, _state, _pool) = test_db
+        let (app, _state) = test_db
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_like.yaml")
             .await;
 
@@ -1550,9 +1550,9 @@ async fn test_jsonb_filter_startswith_across_backends() {
         return;
     }
     for backend in pg_backends {
-        let test_db = TestDatabase::new(backend, "jsonb_filter_startswith");
+        let mut test_db = TestDatabase::new(backend, "jsonb_filter_startswith");
 
-        let (app, _state, _pool) = test_db
+        let (app, _state) = test_db
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_startswith.yaml")
             .await;
 
@@ -1584,9 +1584,9 @@ async fn test_jsonb_filter_endswith_across_backends() {
         return;
     }
     for backend in pg_backends {
-        let test_db = TestDatabase::new(backend, "jsonb_filter_endswith");
+        let mut test_db = TestDatabase::new(backend, "jsonb_filter_endswith");
 
-        let (app, _state, _pool) = test_db
+        let (app, _state) = test_db
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_endswith.yaml")
             .await;
 
@@ -1615,9 +1615,9 @@ async fn test_jsonb_filter_combined_across_backends() {
         .filter(|b| *b != TestBackend::Sqlite)
         .collect();
     for backend in backends {
-        let test_db = TestDatabase::new(backend, "jsonb_filter_combined");
+        let mut test_db = TestDatabase::new(backend, "jsonb_filter_combined");
 
-        let (app, _state, _pool) = test_db
+        let (app, _state) = test_db
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_combined.yaml")
             .await;
 
@@ -1673,9 +1673,9 @@ async fn test_jsonb_filter_jsonb_column_exists_across_backends() {
         .filter(|b| *b != TestBackend::Sqlite)
         .collect();
     for backend in backends {
-        let test_db = TestDatabase::new(backend, "jsonb_filter_exists_non_jsonb");
+        let mut test_db = TestDatabase::new(backend, "jsonb_filter_exists_non_jsonb");
 
-        let (app, _state, _pool) = test_db
+        let (app, _state) = test_db
             .setup_app(
                 JSONB_FILTER_SORT_CONFIG,
                 "jsonb_filter_exists_non_jsonb.yaml",
@@ -1714,9 +1714,9 @@ async fn test_jsonb_filter_jsonb_column_contains_across_backends() {
         .filter(|b| *b != TestBackend::Sqlite)
         .collect();
     for backend in backends {
-        let test_db = TestDatabase::new(backend, "jsonb_filter_contains_non_jsonb");
+        let mut test_db = TestDatabase::new(backend, "jsonb_filter_contains_non_jsonb");
 
-        let (app, _state, _pool) = test_db
+        let (app, _state) = test_db
             .setup_app(
                 JSONB_FILTER_SORT_CONFIG,
                 "jsonb_filter_contains_non_jsonb.yaml",
@@ -1749,9 +1749,9 @@ async fn test_jsonb_filter_jsonb_column_contains_across_backends() {
 #[tokio::test]
 async fn test_jsonb_filter_bracket_notation_across_backends() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "jsonb_filter_bracket");
+        let mut test_db = TestDatabase::new(backend, "jsonb_filter_bracket");
 
-        let (app, _state, _pool) = test_db
+        let (app, _state) = test_db
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_bracket.yaml")
             .await;
 
@@ -1790,9 +1790,9 @@ async fn test_jsonb_filter_in_across_backends() {
         return;
     }
     for backend in pg_backends {
-        let test_db = TestDatabase::new(backend, "jsonb_filter_in");
+        let mut test_db = TestDatabase::new(backend, "jsonb_filter_in");
 
-        let (app, _state, _pool) = test_db
+        let (app, _state) = test_db
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_in.yaml")
             .await;
 
@@ -1840,9 +1840,9 @@ async fn test_jsonb_filter_not_in_across_backends() {
         return;
     }
     for backend in pg_backends {
-        let test_db = TestDatabase::new(backend, "jsonb_filter_not_in");
+        let mut test_db = TestDatabase::new(backend, "jsonb_filter_not_in");
 
-        let (app, _state, _pool) = test_db
+        let (app, _state) = test_db
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_not_in.yaml")
             .await;
 
@@ -1879,9 +1879,9 @@ async fn test_jsonb_filter_ilike_across_backends() {
         return;
     }
     for backend in pg_backends {
-        let test_db = TestDatabase::new(backend, "jsonb_filter_ilike");
+        let mut test_db = TestDatabase::new(backend, "jsonb_filter_ilike");
 
-        let (app, _state, _pool) = test_db
+        let (app, _state) = test_db
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_ilike.yaml")
             .await;
 
@@ -1915,9 +1915,9 @@ async fn test_jsonb_filter_ilike_across_backends() {
 #[tokio::test]
 async fn test_jsonb_sort_multiple_fields_across_backends() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "jsonb_sort_multi");
+        let mut test_db = TestDatabase::new(backend, "jsonb_sort_multi");
 
-        let (app, _state, _pool) = test_db
+        let (app, _state) = test_db
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_sort_multi.yaml")
             .await;
 
@@ -1976,9 +1976,9 @@ async fn test_jsonb_sort_multiple_fields_across_backends() {
 #[tokio::test]
 async fn test_jsonb_sort_nested_field_across_backends() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "jsonb_sort_nested");
+        let mut test_db = TestDatabase::new(backend, "jsonb_sort_nested");
 
-        let (app, _state, _pool) = test_db
+        let (app, _state) = test_db
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_sort_nested.yaml")
             .await;
 
@@ -2025,9 +2025,9 @@ async fn test_jsonb_sort_nested_field_across_backends() {
 #[tokio::test]
 async fn test_jsonb_sort_with_pagination_across_backends() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "jsonb_sort_paginated");
+        let mut test_db = TestDatabase::new(backend, "jsonb_sort_paginated");
 
-        let (app, _state, _pool) = test_db
+        let (app, _state) = test_db
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_sort_paginated.yaml")
             .await;
 
@@ -2088,9 +2088,9 @@ async fn test_jsonb_sort_with_pagination_across_backends() {
 #[tokio::test]
 async fn test_jsonb_filter_with_pagination_across_backends() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "jsonb_filter_paginated");
+        let mut test_db = TestDatabase::new(backend, "jsonb_filter_paginated");
 
-        let (app, _state, _pool) = test_db
+        let (app, _state) = test_db
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_paginated.yaml")
             .await;
 
@@ -2134,9 +2134,9 @@ async fn test_jsonb_filter_combined_with_sort_and_pagination_across_backends() {
         .filter(|b| *b != TestBackend::Sqlite)
         .collect();
     for backend in backends {
-        let test_db = TestDatabase::new(backend, "jsonb_full_query");
+        let mut test_db = TestDatabase::new(backend, "jsonb_full_query");
 
-        let (app, _state, _pool) = test_db
+        let (app, _state) = test_db
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_full_query.yaml")
             .await;
 
@@ -2177,9 +2177,9 @@ async fn test_jsonb_filter_on_multiple_jsonb_columns_across_backends() {
         .filter(|b| *b != TestBackend::Sqlite)
         .collect();
     for backend in backends {
-        let test_db = TestDatabase::new(backend, "jsonb_filter_on_multiple_jsonb_columns");
+        let mut test_db = TestDatabase::new(backend, "jsonb_filter_on_multiple_jsonb_columns");
 
-        let (app, _state, _pool) = test_db
+        let (app, _state) = test_db
             .setup_app(
                 JSONB_FILTER_SORT_CONFIG,
                 "jsonb_filter_on_multiple_jsonb_columns.yaml",
@@ -2221,9 +2221,9 @@ async fn test_jsonb_filter_on_multiple_jsonb_columns_across_backends() {
 #[tokio::test]
 async fn test_jsonb_filter_in_non_jsonb_across_backends() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "jsonb_in_non_jsonb");
+        let mut test_db = TestDatabase::new(backend, "jsonb_in_non_jsonb");
 
-        let (app, _state, _pool) = test_db
+        let (app, _state) = test_db
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_in_non_jsonb.yaml")
             .await;
 
@@ -2262,9 +2262,9 @@ async fn test_jsonb_filter_in_non_jsonb_across_backends() {
 #[tokio::test]
 async fn test_jsonb_filter_not_in_non_jsonb_across_backends() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "jsonb_not_in_non_jsonb");
+        let mut test_db = TestDatabase::new(backend, "jsonb_not_in_non_jsonb");
 
-        let (app, _state, _pool) = test_db
+        let (app, _state) = test_db
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_not_in_non_jsonb.yaml")
             .await;
 
@@ -2302,9 +2302,9 @@ async fn test_jsonb_filter_not_in_non_jsonb_across_backends() {
 
 #[tokio::test]
 async fn test_jsonb_filter_null_jsonb_across_backends() {
-    let test_db = TestDatabase::new(TestBackend::Sqlite, "jsonb_null");
+    let mut test_db = TestDatabase::new(TestBackend::Sqlite, "jsonb_null");
 
-    let (app, _state, _pool) = test_db
+    let (app, _state) = test_db
         .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_null.yaml")
         .await;
 
@@ -2336,9 +2336,9 @@ async fn test_jsonb_filter_null_jsonb_across_backends() {
 
 #[tokio::test]
 async fn test_jsonb_null_jsonb_sort_across_backends() {
-    let test_db = TestDatabase::new(TestBackend::Sqlite, "jsonb_null_sort");
+    let mut test_db = TestDatabase::new(TestBackend::Sqlite, "jsonb_null_sort");
 
-    let (app, _state, _pool) = test_db
+    let (app, _state) = test_db
         .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_null_sort.yaml")
         .await;
 
@@ -2370,9 +2370,9 @@ async fn test_jsonb_null_jsonb_sort_across_backends() {
 #[tokio::test]
 async fn test_jsonb_filter_invalid_syntax_across_backends() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "jsonb_invalid_filter");
+        let mut test_db = TestDatabase::new(backend, "jsonb_invalid_filter");
 
-        let (app, _state, _pool) = test_db
+        let (app, _state) = test_db
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_invalid_filter.yaml")
             .await;
 

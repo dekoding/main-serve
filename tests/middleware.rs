@@ -252,7 +252,7 @@ async fn test_per_endpoint_cors_override() {
 #[tokio::test]
 async fn test_max_body_size_enforced() {
     let backend = support::db::TestBackend::Sqlite;
-    let test_db = support::db::TestDatabase::new(backend, "max_body_size");
+    let mut test_db = support::db::TestDatabase::new(backend, "max_body_size");
     let yaml = format!(
         r#"
 server:
@@ -287,7 +287,7 @@ endpoints:
         test_db.db_url
     );
 
-    let (app, _state, _pool) = test_db.setup_app(&yaml, "config.yaml").await;
+    let (app, _state) = test_db.setup_app(&yaml, "config.yaml").await;
 
     // Small body should succeed.
     let req = Request::builder()
@@ -321,7 +321,7 @@ endpoints:
 #[tokio::test]
 async fn test_body_logging_preserves_request_body() {
     let backend = support::db::TestBackend::Sqlite;
-    let test_db = support::db::TestDatabase::new(backend, "body_logging");
+    let mut test_db = support::db::TestDatabase::new(backend, "body_logging");
 
     let yaml = format!(
         r#"
@@ -360,7 +360,7 @@ endpoints:
         test_db.db_url
     );
 
-    let (app, _state, _pool) = test_db.setup_app(&yaml, "config.yaml").await;
+    let (app, _state) = test_db.setup_app(&yaml, "config.yaml").await;
 
     // POST a JSON body - body logging should buffer it, but the CRUD
     // handler should still receive the data and create the record.

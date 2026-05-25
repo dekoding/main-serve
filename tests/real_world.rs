@@ -685,9 +685,9 @@ async fn test_auth_public_health_check_needs_no_auth() {
     let yaml = auth_config();
 
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "rw_auth_health");
+        let mut test_db = TestDatabase::new(backend, "rw_auth_health");
         let yaml = test_db.render_yaml(&yaml);
-        let (app, _state, _pool) = test_db.setup_app(&yaml, "auth_all.yaml").await;
+        let (app, _state) = test_db.setup_app(&yaml, "auth_all.yaml").await;
 
         let resp = app
             .oneshot(
@@ -710,9 +710,9 @@ async fn test_auth_jwt_crud_read_any_role() {
     let yaml_template = auth_config();
 
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "rw_auth_jwt_read");
+        let mut test_db = TestDatabase::new(backend, "rw_auth_jwt_read");
         let yaml = test_db.render_yaml(&yaml_template);
-        let (app, _state, _pool) = test_db.setup_app(&yaml, "auth_jwt.yaml").await;
+        let (app, _state) = test_db.setup_app(&yaml, "auth_jwt.yaml").await;
 
         // No token -> 401
         let resp = app
@@ -777,9 +777,9 @@ async fn test_auth_jwt_crud_admin_only_endpoint() {
     let yaml_template = auth_config();
 
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "rw_auth_jwt_admin");
+        let mut test_db = TestDatabase::new(backend, "rw_auth_jwt_admin");
         let yaml = test_db.render_yaml(&yaml_template);
-        let (app, _state, _pool) = test_db.setup_app(&yaml, "auth_admin.yaml").await;
+        let (app, _state) = test_db.setup_app(&yaml, "auth_admin.yaml").await;
 
         // First create an article via the list endpoint (no role restriction)
         let admin_token = create_token("admin1", Some("admin"), &jwt_config(&yaml)).unwrap();
@@ -855,8 +855,8 @@ async fn test_auth_api_key_role_based_access() {
     let yaml = auth_config();
 
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "rw_auth_apikey");
-        let (app, _state, _pool) = test_db.setup_app(&yaml, "auth_apikey.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "rw_auth_apikey");
+        let (app, _state) = test_db.setup_app(&yaml, "auth_apikey.yaml").await;
 
         // No key -> 401
         let resp = app
@@ -972,8 +972,8 @@ async fn test_auth_basic_admin_endpoint() {
     let yaml = auth_config();
 
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "rw_auth_basic");
-        let (app, _state, _pool) = test_db.setup_app(&yaml, "auth_basic.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "rw_auth_basic");
+        let (app, _state) = test_db.setup_app(&yaml, "auth_basic.yaml").await;
 
         // No auth -> 401
         let resp = app
@@ -1050,7 +1050,7 @@ async fn test_auth_basic_admin_endpoint() {
 /// Returns (router, temp_dir, rendered_yaml) so callers can use the rendered
 /// YAML for jwt_config() which needs a parseable config string.
 async fn setup_combined_app(
-    test_db: &TestDatabase,
+    test_db: &mut TestDatabase,
     yaml_template: &str,
     site_files: &[(&str, &str)],
 ) -> (axum::Router, tempfile::TempDir, String) {
@@ -1066,6 +1066,8 @@ async fn setup_combined_app(
 
     let config = load_config(&config_path).expect("load config");
     let pools = create_pools_and_migrate(&config).await;
+    // Store pools for Drop-based cleanup.
+    test_db.set_pools(pools.clone());
 
     let state = AppState::new(config, config_path, "test-token".to_string());
     {
@@ -1082,9 +1084,9 @@ async fn setup_combined_app(
 #[tokio::test]
 async fn test_combined_static_spa_serves_frontend_across_backends() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "rw_combined_spa");
+        let mut test_db = TestDatabase::new(backend, "rw_combined_spa");
         let (app, _dir, _yaml) =
-            setup_combined_app(&test_db, COMBINED_CONFIG, COMBINED_SITE_FILES).await;
+            setup_combined_app(&mut test_db, COMBINED_CONFIG, COMBINED_SITE_FILES).await;
 
         // SPA index
         let resp = app
@@ -1151,12 +1153,9 @@ async fn test_combined_static_spa_serves_frontend_across_backends() {
 
 #[tokio::test]
 async fn test_combined_public_health_check() {
-    let (app, _dir, _yaml) = setup_combined_app(
-        &TestDatabase::new(support::db::TestBackend::Sqlite, "rw_combined_health"),
-        COMBINED_CONFIG,
-        COMBINED_SITE_FILES,
-    )
-    .await;
+    let mut test_db = TestDatabase::new(support::db::TestBackend::Sqlite, "rw_combined_health");
+    let (app, _dir, _yaml) =
+        setup_combined_app(&mut test_db, COMBINED_CONFIG, COMBINED_SITE_FILES).await;
 
     let resp = app
         .oneshot(
@@ -1177,9 +1176,9 @@ async fn test_combined_public_health_check() {
 #[tokio::test]
 async fn test_combined_jwt_crud_full_lifecycle() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "rw_combined_crud");
+        let mut test_db = TestDatabase::new(backend, "rw_combined_crud");
         let (app, _dir, yaml) =
-            setup_combined_app(&test_db, COMBINED_CONFIG, COMBINED_SITE_FILES).await;
+            setup_combined_app(&mut test_db, COMBINED_CONFIG, COMBINED_SITE_FILES).await;
 
         // Unauthenticated -> 401
         let resp = app
@@ -1327,12 +1326,9 @@ async fn test_combined_jwt_crud_full_lifecycle() {
 
 #[tokio::test]
 async fn test_combined_api_key_service_endpoint() {
-    let (app, _dir, _yaml) = setup_combined_app(
-        &TestDatabase::new(support::db::TestBackend::Sqlite, "rw_combined_svc"),
-        COMBINED_CONFIG,
-        COMBINED_SITE_FILES,
-    )
-    .await;
+    let mut test_db = TestDatabase::new(support::db::TestBackend::Sqlite, "rw_combined_svc");
+    let (app, _dir, _yaml) =
+        setup_combined_app(&mut test_db, COMBINED_CONFIG, COMBINED_SITE_FILES).await;
 
     // No key -> 401
     let resp = app
@@ -1366,12 +1362,9 @@ async fn test_combined_api_key_service_endpoint() {
 
 #[tokio::test]
 async fn test_combined_basic_auth_admin_panel() {
-    let (app, _dir, _yaml) = setup_combined_app(
-        &TestDatabase::new(support::db::TestBackend::Sqlite, "rw_combined_admin"),
-        COMBINED_CONFIG,
-        COMBINED_SITE_FILES,
-    )
-    .await;
+    let mut test_db = TestDatabase::new(support::db::TestBackend::Sqlite, "rw_combined_admin");
+    let (app, _dir, _yaml) =
+        setup_combined_app(&mut test_db, COMBINED_CONFIG, COMBINED_SITE_FILES).await;
 
     // No auth -> 401 with correct realm
     let resp = app
@@ -1417,9 +1410,9 @@ async fn test_combined_basic_auth_admin_panel() {
 #[tokio::test]
 async fn test_combined_where_clause_filters_inactive() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "rw_combined_where");
+        let mut test_db = TestDatabase::new(backend, "rw_combined_where");
         let (app, _dir, yaml) =
-            setup_combined_app(&test_db, COMBINED_CONFIG, COMBINED_SITE_FILES).await;
+            setup_combined_app(&mut test_db, COMBINED_CONFIG, COMBINED_SITE_FILES).await;
 
         let token = create_token("admin1", Some("admin"), &jwt_config(&yaml)).unwrap();
 
@@ -1488,9 +1481,9 @@ async fn test_combined_where_clause_filters_inactive() {
 #[tokio::test]
 async fn test_combined_cross_auth_isolation() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "rw_combined_iso");
+        let mut test_db = TestDatabase::new(backend, "rw_combined_iso");
         let (app, _dir, yaml) =
-            setup_combined_app(&test_db, COMBINED_CONFIG, COMBINED_SITE_FILES).await;
+            setup_combined_app(&mut test_db, COMBINED_CONFIG, COMBINED_SITE_FILES).await;
 
         // JWT token on api_key endpoint -> 401
         let jwt_token = create_token("user1", Some("service"), &jwt_config(&yaml)).unwrap();
@@ -1914,8 +1907,8 @@ async fn test_proxy_external_no_rewrite() {
 #[tokio::test]
 async fn test_crud_api_author_lifecycle() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "rw_crud_api_author");
-        let (app, _state, _pool) = test_db.setup_app(CRUD_API_CONFIG, "crud_api.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "rw_crud_api_author");
+        let (app, _state) = test_db.setup_app(CRUD_API_CONFIG, "crud_api.yaml").await;
 
         // Create author (public endpoint)
         let resp = app
@@ -1996,8 +1989,8 @@ async fn test_crud_api_author_lifecycle() {
 #[tokio::test]
 async fn test_crud_api_articles_with_joins_and_computed_fields() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "rw_crud_api_joins");
-        let (app, _state, _pool) = test_db.setup_app(CRUD_API_CONFIG, "crud_api.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "rw_crud_api_joins");
+        let (app, _state) = test_db.setup_app(CRUD_API_CONFIG, "crud_api.yaml").await;
 
         // Seed: create an author
         let resp = app
@@ -2125,8 +2118,8 @@ async fn test_crud_api_articles_with_joins_and_computed_fields() {
 #[tokio::test]
 async fn test_crud_api_article_without_category_left_join() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "rw_crud_api_left");
-        let (app, _state, _pool) = test_db.setup_app(CRUD_API_CONFIG, "crud_api.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "rw_crud_api_left");
+        let (app, _state) = test_db.setup_app(CRUD_API_CONFIG, "crud_api.yaml").await;
 
         // Seed author
         let resp = app
@@ -2198,8 +2191,8 @@ async fn test_crud_api_article_without_category_left_join() {
 #[tokio::test]
 async fn test_crud_api_rbac_admin_only_delete() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "rw_crud_api_rbac");
-        let (app, _state, _pool) = test_db.setup_app(CRUD_API_CONFIG, "crud_api.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "rw_crud_api_rbac");
+        let (app, _state) = test_db.setup_app(CRUD_API_CONFIG, "crud_api.yaml").await;
 
         // Seed author + article
         app.clone()

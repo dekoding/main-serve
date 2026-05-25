@@ -22,6 +22,10 @@ async fn test_add_column_with_default_across_backends() {
             .await
             .expect("run migrations v1");
 
+        // Store pools in test_db for Drop-based cleanup.
+        let mut test_db = test_db;
+        test_db.set_pools(pools.clone());
+
         let pool = pools.get("main").unwrap();
         let insert_sql = format!(
             "INSERT INTO {} (title) VALUES ({})",
@@ -69,8 +73,11 @@ async fn test_drop_column_requires_allow_destructive() {
             .await
             .expect("run migrations safe v1");
 
+        let mut test_db = test_db;
+        test_db.set_pools(pools.clone());
+
         let target_config = test_db.load_config(&target_template, "safe_v2.yaml");
-        run_migrations(&target_config.tables, &pools, &target_config.databases)
+        run_migrations(&target_config.tables, &pools, &base_config.databases)
             .await
             .expect("run migrations safe v2");
 
@@ -101,8 +108,11 @@ async fn test_drop_column_with_allow_destructive() {
             .await
             .expect("run migrations destructive v1");
 
+        let mut test_db = test_db;
+        test_db.set_pools(pools.clone());
+
         let target_config = test_db.load_config(&target_template, "destructive_v2.yaml");
-        run_migrations(&target_config.tables, &pools, &target_config.databases)
+        run_migrations(&target_config.tables, &pools, &base_config.databases)
             .await
             .expect("run migrations destructive v2");
 
@@ -129,6 +139,9 @@ async fn test_index_creation_is_present_and_idempotent_across_backends() {
         run_migrations(&config.tables, &pools, &config.databases)
             .await
             .expect("run migrations second pass");
+
+        let mut test_db = test_db;
+        test_db.set_pools(pools.clone());
 
         let indexes =
             get_index_names(pools.get("main").unwrap(), backend, &test_db.table_name).await;

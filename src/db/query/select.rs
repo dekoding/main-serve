@@ -296,6 +296,13 @@ impl SelectBuilder {
         let num_params = values.len();
 
         let condition = match expr.operator {
+            FilterOperator::Exists => {
+                let exists_cond =
+                    self.build_exists(is_jsonb_field, &base_column, &path_str, behavior)?;
+                self.conditions.push(exists_cond);
+                // Exists generates IS NOT NULL — skip parameter addition
+                return Ok(());
+            }
             FilterOperator::Eq => self.build_comparison(
                 &base_column,
                 is_jsonb_field,
@@ -378,9 +385,6 @@ impl SelectBuilder {
                 value,
                 behavior,
             )?,
-            FilterOperator::Exists => {
-                self.build_exists(is_jsonb_field, &base_column, &path_str, behavior)?
-            }
             FilterOperator::StartsWith => {
                 let pattern =
                     behavior.like_pattern_start(&placeholder(self.driver, self.param_idx));
@@ -508,13 +512,17 @@ impl SelectBuilder {
                 }
             } else if self.driver == DatabaseDriver::Mysql {
                 // MySQL uses JSON_CONTAINS for containment checks
+                // JSON_QUOTE wraps the parameter in valid JSON quotes
                 if nested_path.is_empty() {
-                    Ok(format!("JSON_CONTAINS({}, '{}')", column_name, json_str))
+                    Ok(format!(
+                        "JSON_CONTAINS({}, JSON_QUOTE({}))",
+                        column_name, param
+                    ))
                 } else {
                     let nested_json_path = format!("$.{}", nested_path);
                     Ok(format!(
-                        "JSON_CONTAINS(JSON_EXTRACT({}, '{}'), '{}')",
-                        column_name, nested_json_path, json_str
+                        "JSON_CONTAINS(JSON_EXTRACT({}, '{}'), JSON_QUOTE({}))",
+                        column_name, nested_json_path, param
                     ))
                 }
             } else {

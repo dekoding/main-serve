@@ -198,21 +198,23 @@ endpoints:
 }
 
 #[tokio::test]
-async fn test_crud_needs_db_pool() {
-    // CRUD endpoints without DB pools return an internal error since no pool exists.
-    let yaml = r#"
+async fn test_crud_needs_db_pool_across_backends() {
+    for backend in enabled_backends() {
+        // CRUD endpoints without DB pools return an internal error since no pool exists.
+        let yaml = format!(
+            r#"
 server:
   port: 0
 databases:
   main:
-    driver: "sqlite"
-    url: "sqlite://test.db"
+    driver: "{}"
+    url: "{}"
 tables:
   - name: "items"
     database: "main"
     columns:
       - name: "id"
-        type: "integer"
+        type: "serial"
         primary_key: true
 endpoints:
   - path: "/api/items"
@@ -222,17 +224,25 @@ endpoints:
       table: "items"
       database: "main"
     auth: "none"
-"#;
-    let (app, _f) = setup_server(yaml).await;
+"#,
+            backend.as_str(),
+            backend.configured_url(&tempfile::TempDir::new().unwrap(), "items")
+        );
+        let (app, _f) = setup_server(&yaml).await;
 
-    let req = Request::builder()
-        .uri("/api/items")
-        .body(Body::empty())
-        .unwrap();
+        let req = Request::builder()
+            .uri("/api/items")
+            .body(Body::empty())
+            .unwrap();
 
-    let response = app.oneshot(req).await.unwrap();
-    // Without a real DB pool in state, the handler returns 500.
-    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let response = app.oneshot(req).await.unwrap();
+        // Without a real DB pool in state, the handler returns 500.
+        assert_eq!(
+            response.status(),
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "backend: {backend}"
+        );
+    }
 }
 
 #[tokio::test]
@@ -251,11 +261,11 @@ async fn test_nonexistent_route_returns_404() {
 #[tokio::test]
 async fn test_reload_adds_column_on_db_backed_config_across_backends() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "reload_add_column");
-        let (app, state, pools) = test_db.setup_app(RELOAD_DB_V1, "reload_v1.yaml").await;
+        let mut test_db = TestDatabase::new(backend, "reload_add_column");
+        let (app, state) = test_db.setup_app(RELOAD_DB_V1, "reload_v1.yaml").await;
         let config_path = test_db.root_dir.path().join("reload_v1.yaml");
         {
-            let pool = pools.get("main").unwrap();
+            let pool = test_db.db_pools().unwrap().get("main").unwrap();
             let insert_sql = format!(
                 "INSERT INTO {} (title) VALUES ({})",
                 test_db.table_name,
@@ -296,8 +306,8 @@ async fn test_reload_adds_column_on_db_backed_config_across_backends() {
 #[tokio::test]
 async fn test_reload_drops_column_with_allow_destructive_across_backends() {
     for backend in enabled_backends() {
-        let test_db = TestDatabase::new(backend, "reload_drop_column");
-        let (app, _state, pools) = test_db
+        let mut test_db = TestDatabase::new(backend, "reload_drop_column");
+        let (app, _state) = test_db
             .setup_app(RELOAD_DB_V1_DROP, "reload_drop_v1.yaml")
             .await;
         let config_path = test_db.root_dir.path().join("reload_drop_v1.yaml");
@@ -314,7 +324,9 @@ async fn test_reload_drops_column_with_allow_destructive_across_backends() {
         assert_eq!(response.status(), StatusCode::OK, "backend: {backend}");
 
         let select_sql = format!("SELECT body FROM {} LIMIT 1", test_db.table_name);
-        let select_result = pools
+        let select_result = test_db
+            .db_pools()
+            .unwrap()
             .get("main")
             .unwrap()
             .fetch_all_json(&select_sql, &[])

@@ -286,6 +286,13 @@ macro_rules! impl_db_helpers {
                             })
                     })
                     .or_else(|_| {
+                        row.try_get::<Option<i32>, _>(col.ordinal())
+                            .map(|opt| match opt {
+                                Some(v) => serde_json::json!(v),
+                                None => serde_json::Value::Null,
+                            })
+                    })
+                    .or_else(|_| {
                         row.try_get::<Option<f64>, _>(col.ordinal())
                             .map(|opt| match opt {
                                 Some(v) => serde_json::json!(v),

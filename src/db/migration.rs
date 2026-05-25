@@ -30,6 +30,9 @@ use crate::error::AppError;
 ///   against the YAML config to produce `ALTER TABLE ... ADD COLUMN` and,
 ///   when `allow_destructive` is enabled, `ALTER TABLE ... DROP COLUMN` statements.
 ///
+/// Tables are sorted topologically so that tables referenced by foreign keys
+/// are created first, which is required by Postgres and MySQL.
+///
 /// # Errors
 ///
 /// Returns `AppError::Database` if any SQL statement fails, or `AppError::Internal`
@@ -40,7 +43,10 @@ pub async fn run_migrations(
     pools: &HashMap<String, DatabasePool>,
     databases: &HashMap<String, DatabaseConfig>,
 ) -> Result<(), AppError> {
-    for table_config in tables {
+    // Sort tables topologically: tables referenced by foreign keys must come first.
+    let sorted = sort_tables_topologically(tables);
+
+    for table_config in &sorted {
         let table_name = &table_config.name;
         let db_name = &table_config.database;
 
@@ -534,6 +540,77 @@ fn fk_action_to_sql(action: &ForeignKeyAction) -> &'static str {
         ForeignKeyAction::Restrict => "RESTRICT",
         ForeignKeyAction::NoAction => "NO ACTION",
     }
+}
+
+/// Sort tables topologically so that referenced tables come before referencing tables.
+///
+/// This ensures foreign key constraints are valid when CREATE TABLE is executed,
+/// which is required by Postgres and MySQL (SQLite ignores FK constraints by default).
+fn sort_tables_topologically(tables: &[TableConfig]) -> Vec<TableConfig> {
+    // Build a map of table_name -> index
+    let table_map: std::collections::HashMap<&str, usize> = tables
+        .iter()
+        .enumerate()
+        .map(|(i, t)| (t.name.as_str(), i))
+        .collect();
+
+    // Build adjacency list: table_idx -> set of table indices it depends on
+    let mut deps: std::collections::HashMap<usize, Vec<usize>> = std::collections::HashMap::new();
+    for table in tables {
+        let idx = *table_map.get(table.name.as_str()).unwrap_or_else(|| {
+            panic!("Table '{}' not found in table_map", table.name);
+        });
+        deps.entry(idx).or_default();
+        for fk in &table.foreign_keys {
+            if let Some(dep_idx) = table_map.get(fk.references_table.as_str()) {
+                deps.entry(idx).or_default().push(*dep_idx);
+            }
+        }
+    }
+
+    // Kahn's algorithm for topological sort
+    let mut in_degree: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+    let mut reverse: std::collections::HashMap<usize, Vec<usize>> =
+        std::collections::HashMap::new();
+
+    for (idx, table_deps) in &deps {
+        in_degree.entry(*idx).or_insert(0);
+        for &dep in table_deps {
+            reverse.entry(dep).or_default();
+            reverse.get_mut(&dep).unwrap().push(*idx);
+            *in_degree.entry(*idx).or_insert(0) += 1;
+        }
+    }
+
+    let mut queue: Vec<usize> = in_degree
+        .iter()
+        .filter(|&(_, &deg)| deg == 0)
+        .map(|(&idx, _)| idx)
+        .collect();
+    queue.sort();
+
+    let mut result = Vec::new();
+    while let Some(idx) = queue.first().copied() {
+        queue.remove(0);
+        result.push(idx);
+        if let Some(dependents) = reverse.get(&idx) {
+            for &dependent in dependents {
+                *in_degree.get_mut(&dependent).unwrap() -= 1;
+                if *in_degree.get(&dependent).unwrap() == 0 {
+                    queue.push(dependent);
+                    queue.sort();
+                }
+            }
+        }
+    }
+
+    // If there's a cycle, return the original order
+    if result.len() != tables.len() {
+        return tables.to_vec();
+    }
+
+    // Build result in sorted order
+    result.iter().map(|&idx| tables[idx].clone()).collect()
 }
 
 #[cfg(test)]
