@@ -1,6 +1,6 @@
 # Maintainer: Main Serve Contributors <https://github.com/dekoding/main-serve>
 pkgname=main-serve-bin
-pkgver=0.2.1
+pkgver=0.2.2
 pkgrel=1
 pkgdesc="A high-performance, YAML-configured web server (pre-built binary)"
 arch=('x86_64' 'aarch64')
@@ -14,11 +14,6 @@ source=(
     "main-serve::https://github.com/dekoding/main-serve/releases/download/v${pkgver}/main-serve"
 )
 checksums=()
-
-pkgver() {
-    cd "$srcdir"
-    sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1
-}
 
 package() {
     install -Dm755 "main-serve" "$pkgdir/usr/bin/main-serve"
