@@ -370,6 +370,22 @@ impl Default for StaticFilesConfig {
     }
 }
 
+/// Normalize allowed extensions by stripping leading dots.
+///
+/// Handles compound extensions like `.tar.gz` correctly by only
+/// removing the leading dot, preserving internal dots.
+fn normalize_extension(ext: &str) -> String {
+    ext.strip_prefix('.').unwrap_or(ext).to_string()
+}
+
+fn deserialize_allowed_extensions<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = Vec::<String>::deserialize(deserializer)?;
+    Ok(raw.into_iter().map(|s| normalize_extension(&s)).collect())
+}
+
 /// File upload configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -379,6 +395,8 @@ pub struct UploadConfig {
     /// Maximum upload size in bytes.
     pub max_size: u64,
     /// Allowed file extensions (empty = all).
+    /// Leading dots are stripped during parsing, so both `.jpg` and `jpg` work.
+    #[serde(deserialize_with = "deserialize_allowed_extensions")]
     pub allowed_extensions: Vec<String>,
     /// Subdirectory pattern for organizing uploads.
     /// Available placeholders: {user_id}, {year}, {month}, {day}, {uuid}
