@@ -1,14 +1,14 @@
 use futures_util::future::FutureExt;
 use std::collections::HashMap;
-use std::net::SocketAddr;
 
 use axum::Router;
 use axum::body::Body;
 use axum::debug_handler;
 use axum::extract::Multipart;
-use axum::extract::{Extension, MatchedPath, Path, Query, State};
+use axum::extract::{MatchedPath, Path, Query, State};
 use axum::http::{HeaderMap, Method as HttpMethod, Uri};
 use axum::response::{IntoResponse, Response};
+use http::Extensions;
 use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
 
 use super::prefix_match::find_prefix_match;
@@ -21,7 +21,7 @@ use crate::handlers::crud::handle_crud;
 use crate::handlers::custom_response::handle_custom_response;
 use crate::handlers::proxy::handle_proxy;
 use crate::handlers::static_files::routing::{handle_file_upload_route, handle_static_files};
-use crate::middleware::auth::extractor::RequestContext;
+use crate::middleware::auth::extractor::{AuthInfo, RequestContext};
 use crate::middleware::auth::{
     auth_middleware,
     handler::{handle_oauth2_authorize, handle_oauth2_callback},
@@ -260,10 +260,6 @@ pub async fn build_router(config: &AppConfig, state: AppState) -> Router {
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
 }
 
-fn extract_addr(ext: Option<Extension<SocketAddr>>) -> Option<SocketAddr> {
-    ext.map(|Extension(a)| a)
-}
-
 /// Look up an endpoint config by prefix-matching the path.
 /// Used by route handlers when method-specific lookup fails.
 async fn lookup_endpoint_by_prefix(state: &State<AppState>, path: &str) -> Option<EndpointConfig> {
@@ -275,10 +271,10 @@ fn add_endpoint_route(
     mut app: Router<AppState>,
     path: &str,
     method: ConfigHttpMethod,
-    _endpoint: &EndpointConfig,
+    endpoint: &EndpointConfig,
     cors: Option<&crate::config::types::CorsConfig>,
 ) -> Router<AppState> {
-    match _endpoint.action {
+    match endpoint.action {
         EndpointAction::CustomResponse => {
             let handler = handle_custom_response_route;
             let method_router = match method {
@@ -343,7 +339,7 @@ fn add_endpoint_route(
         }
 
         EndpointAction::Static => {
-            let has_upload = _endpoint
+            let has_upload = endpoint
                 .static_files
                 .as_ref()
                 .and_then(|sf| sf.upload.as_ref())
@@ -398,11 +394,7 @@ async fn handle_custom_response_route(
     state: State<AppState>,
     method: axum::http::Method,
     matched_path: MatchedPath,
-    remote_addr: Option<Extension<SocketAddr>>,
-    headers: HeaderMap,
-    query: Query<HashMap<String, String>>,
 ) -> Result<Response, AppError> {
-    let query_map = query.0.clone();
     let path_str = matched_path.as_str();
 
     let endpoint = state
@@ -415,15 +407,6 @@ async fn handle_custom_response_route(
         })
         .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
 
-    let state_clone = state.clone();
-    run_pre_checks(
-        state_clone,
-        &headers,
-        &query_map,
-        &endpoint,
-        extract_addr(remote_addr),
-    )
-    .await?;
     Ok(handle_custom_response(state, endpoint)
         .await
         .into_response())
@@ -434,7 +417,7 @@ async fn handle_custom_response_route(
 async fn handle_crud_route(
     state: State<AppState>,
     matched_path: MatchedPath,
-    remote_addr: Option<Extension<SocketAddr>>,
+    extensions: Extensions,
     method: HttpMethod,
     headers: HeaderMap,
     path_params: Option<Path<HashMap<String, String>>>,
@@ -471,15 +454,7 @@ async fn handle_crud_route(
         None
     };
 
-    let state_clone = state.clone();
-    let auth_info = run_pre_checks(
-        state_clone,
-        &headers,
-        &query_map,
-        &endpoint,
-        extract_addr(remote_addr),
-    )
-    .await?;
+    let auth_info = extensions.get::<AuthInfo>().cloned().unwrap_or_default();
     let context = RequestContext {
         user_id: auth_info.subject.clone().into(),
         user_role: auth_info.role,
@@ -505,18 +480,14 @@ async fn handle_crud_route(
 }
 
 #[debug_handler]
-#[allow(clippy::too_many_arguments)]
 async fn handle_proxy_route(
     state: State<AppState>,
     matched_path: MatchedPath,
-    remote_addr: Option<Extension<SocketAddr>>,
     method: HttpMethod,
     uri: Uri,
-    query: Query<HashMap<String, String>>,
     headers: HeaderMap,
     body: Body,
 ) -> Result<Response, AppError> {
-    let query_map = query.0.clone();
     let path_str = matched_path.as_str();
 
     let endpoint = state
@@ -529,31 +500,18 @@ async fn handle_proxy_route(
         })
         .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
 
-    let state_clone = state.clone();
-    run_pre_checks(
-        state_clone,
-        &headers,
-        &query_map,
-        &endpoint,
-        extract_addr(remote_addr),
-    )
-    .await?;
     handle_proxy(state, method, uri, headers, body, endpoint).await
 }
 
 #[debug_handler]
-#[allow(clippy::too_many_arguments)]
 async fn handle_upload_route(
     state: State<AppState>,
     matched_path: MatchedPath,
-    remote_addr: Option<Extension<SocketAddr>>,
     method: axum::http::Method,
     uri: Uri,
-    query: Query<HashMap<String, String>>,
     headers: HeaderMap,
     multipart: Multipart,
 ) -> Result<Response, AppError> {
-    let query_map = query.0.clone();
     let path_str = matched_path.as_str();
 
     let endpoint = state
@@ -566,15 +524,6 @@ async fn handle_upload_route(
         })
         .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
 
-    let state_clone = state.clone();
-    run_pre_checks(
-        state_clone,
-        &headers,
-        &query_map,
-        &endpoint,
-        extract_addr(remote_addr),
-    )
-    .await?;
     handle_file_upload_route(multipart, state, uri, method, endpoint, headers).await
 }
 
@@ -582,13 +531,11 @@ async fn handle_upload_route(
 async fn handle_static_files_route(
     state: State<AppState>,
     matched_path: MatchedPath,
-    remote_addr: Option<Extension<SocketAddr>>,
     method: axum::http::Method,
     uri: Uri,
     query: Query<HashMap<String, String>>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
-    let query_map = query.0.clone();
     let path_str = matched_path.as_str();
 
     let endpoint = state
@@ -601,51 +548,6 @@ async fn handle_static_files_route(
         })
         .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
 
-    let state_clone = state.clone();
-    run_pre_checks(
-        state_clone,
-        &headers,
-        &query_map,
-        &endpoint,
-        extract_addr(remote_addr),
-    )
-    .await?;
-    let response = handle_static_files(
-        state,
-        method,
-        uri,
-        endpoint,
-        headers,
-        Some(Query(query_map)),
-    )
-    .await?;
+    let response = handle_static_files(state, method, uri, endpoint, headers, Some(query)).await?;
     Ok(response)
-}
-
-async fn run_pre_checks(
-    state: axum::extract::State<AppState>,
-    headers: &HeaderMap,
-    query_params: &HashMap<String, String>,
-    endpoint: &EndpointConfig,
-    _remote_addr: Option<std::net::SocketAddr>,
-) -> Result<crate::middleware::auth::validate::AuthInfo, AppError> {
-    if endpoint.auth == "none" {
-        return Ok(crate::middleware::auth::validate::AuthInfo::default());
-    }
-
-    let config = state.0.config.read().await;
-
-    let auth_info = crate::middleware::auth::validate::authenticate(
-        &endpoint.auth,
-        &config.auth,
-        headers,
-        query_params,
-    )
-    .await?;
-
-    drop(config);
-
-    crate::middleware::auth::validate::check_roles(&auth_info, &endpoint.roles)?;
-
-    Ok(auth_info)
 }
