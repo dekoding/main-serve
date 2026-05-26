@@ -575,7 +575,7 @@ pub fn is_valid_filter_column(field: &str, columns: &[crate::config::types::Colu
 /// Extract the JSONB path string from a dotted field name or bracket notation.
 /// Converts `metadata.role` to `$.role` and `metadata[role]` to `$.role`.
 /// Converts `metadata.user.profile` to `$.user.profile` and `metadata[user][profile]` to `$.user.profile`.
-pub fn extract_jsonb_sort_path(field: &str) -> String {
+pub fn extract_jsonb_path(field: &str) -> String {
     let (_, path) = parse_sort_field(field);
     if path.is_empty() {
         return "$".to_string();
@@ -592,19 +592,6 @@ pub fn is_jsonb_column(column_name: &str, columns: &[crate::config::types::Colum
                 crate::config::types::ColumnType::Json | crate::config::types::ColumnType::Jsonb
             )
     })
-}
-
-/// Extract the JSONB path string from a dotted field name.
-/// Converts `metadata.role` to `$.role` and `metadata.user.profile` to `$.user.profile`.
-pub fn extract_jsonb_path(field: &str) -> (String, String) {
-    let parts: Vec<&str> = field.split('.').collect();
-    if parts.len() == 1 {
-        return (field.to_string(), "$".to_string());
-    }
-    let table = parts[0];
-    // Join with '.' and prepend '$.' to form proper JSONPath
-    let path = format!("$.{}", parts[1..].join("."));
-    (table.to_string(), path)
 }
 
 /// Validate that a string is a safe SQL expression (for JSONB computed fields).

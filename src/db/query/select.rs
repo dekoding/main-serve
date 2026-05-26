@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use crate::config::types::{ColumnType, CrudConfig, DatabaseDriver, SortOrder, TableConfig};
 use crate::db::query::helpers::{
     FilterExpression, FilterOperator, build_filter_param, extract_base_column,
-    extract_jsonb_sort_path, is_bracket_notation, is_jsonb_column, is_jsonb_path,
+    extract_jsonb_path, is_bracket_notation, is_jsonb_column, is_jsonb_path,
     is_valid_expression, is_valid_filter_column, is_valid_sort_field, parse_filter_key,
     parse_sort_field, placeholder, resolve_single_key,
 };
@@ -694,7 +694,7 @@ impl SelectBuilder {
 
         let order_clause = if is_jsonb_path(sort_field) || is_bracket_notation(sort_field) {
             if is_jsonb_column(&base_col, &table_config.columns) {
-                let path_str = extract_jsonb_sort_path(sort_field);
+                let path_str = extract_jsonb_path(sort_field);
                 let jsonb_expr = match self.driver {
                     DatabaseDriver::Postgres => {
                         // PostgreSQL #>> operator expects text array syntax {a,b}, not JSONPath $.a.b
