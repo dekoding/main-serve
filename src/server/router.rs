@@ -11,6 +11,7 @@ use axum::http::{HeaderMap, Method as HttpMethod, Uri};
 use axum::response::{IntoResponse, Response};
 use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
 
+use super::prefix_match::find_prefix_match;
 use super::reload::{handle_health, handle_reload};
 use super::state::AppState;
 use crate::config::AppConfig;
@@ -20,6 +21,7 @@ use crate::handlers::crud::handle_crud;
 use crate::handlers::custom_response::handle_custom_response;
 use crate::handlers::proxy::handle_proxy;
 use crate::handlers::static_files::routing::{handle_file_upload_route, handle_static_files};
+use crate::middleware::auth::extractor::RequestContext;
 use crate::middleware::auth::{
     auth_middleware,
     handler::{handle_oauth2_authorize, handle_oauth2_callback},
@@ -44,15 +46,7 @@ pub async fn build_router(config: &AppConfig, state: AppState) -> Router {
         // Store endpoint config with path#method key for each method
         // This allows different auth settings per method for the same path
         for method in &endpoint.methods {
-            let method_str = match method {
-                crate::config::types::HttpMethod::Get => "GET",
-                crate::config::types::HttpMethod::Post => "POST",
-                crate::config::types::HttpMethod::Put => "PUT",
-                crate::config::types::HttpMethod::Patch => "PATCH",
-                crate::config::types::HttpMethod::Delete => "DELETE",
-                crate::config::types::HttpMethod::Head => "HEAD",
-                crate::config::types::HttpMethod::Options => "OPTIONS",
-            };
+            let method_str = method.as_str();
             let method_path = format!("{}#{}", path, method_str);
             endpoint_configs.insert(method_path, endpoint.clone());
         }
@@ -270,23 +264,11 @@ fn extract_addr(ext: Option<Extension<SocketAddr>>) -> Option<SocketAddr> {
     ext.map(|Extension(a)| a)
 }
 
-async fn find_prefix_match<'a>(
-    state: &'a State<AppState>,
-    path: &'a str,
-) -> Option<EndpointConfig> {
+/// Look up an endpoint config by prefix-matching the path.
+/// Used by route handlers when method-specific lookup fails.
+async fn lookup_endpoint_by_prefix(state: &State<AppState>, path: &str) -> Option<EndpointConfig> {
     let configs = state.endpoint_configs.read().await;
-    let mut current = path;
-    while !current.is_empty() {
-        if let Some(endpoint) = configs.get(current) {
-            return Some(endpoint.clone());
-        }
-        if let Some(pos) = current.rfind('/') {
-            current = &current[..pos];
-        } else {
-            break;
-        }
-    }
-    None
+    find_prefix_match(&configs, path, |_| true)
 }
 
 fn add_endpoint_route(
@@ -426,7 +408,11 @@ async fn handle_custom_response_route(
     let endpoint = state
         .get_endpoint_config_for_method(path_str, &method)
         .await
-        .or_else(|| find_prefix_match(&state, path_str).now_or_never().flatten())
+        .or_else(|| {
+            lookup_endpoint_by_prefix(&state, path_str)
+                .now_or_never()
+                .flatten()
+        })
         .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
 
     let state_clone = state.clone();
@@ -461,7 +447,11 @@ async fn handle_crud_route(
     let endpoint = state
         .get_endpoint_config_for_method(path_str, &method)
         .await
-        .or_else(|| find_prefix_match(&state, path_str).now_or_never().flatten())
+        .or_else(|| {
+            lookup_endpoint_by_prefix(&state, path_str)
+                .now_or_never()
+                .flatten()
+        })
         .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
 
     let json_body: Option<axum::Json<serde_json::Value>> = if headers
@@ -490,7 +480,7 @@ async fn handle_crud_route(
         extract_addr(remote_addr),
     )
     .await?;
-    let context = crate::context::RequestContext {
+    let context = RequestContext {
         user_id: auth_info.subject.clone().into(),
         user_role: auth_info.role,
         headers: headers
@@ -532,7 +522,11 @@ async fn handle_proxy_route(
     let endpoint = state
         .get_endpoint_config_for_method(path_str, &method)
         .await
-        .or_else(|| find_prefix_match(&state, path_str).now_or_never().flatten())
+        .or_else(|| {
+            lookup_endpoint_by_prefix(&state, path_str)
+                .now_or_never()
+                .flatten()
+        })
         .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
 
     let state_clone = state.clone();
@@ -565,7 +559,11 @@ async fn handle_upload_route(
     let endpoint = state
         .get_endpoint_config_for_method(path_str, &method)
         .await
-        .or_else(|| find_prefix_match(&state, path_str).now_or_never().flatten())
+        .or_else(|| {
+            lookup_endpoint_by_prefix(&state, path_str)
+                .now_or_never()
+                .flatten()
+        })
         .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
 
     let state_clone = state.clone();
@@ -596,7 +594,11 @@ async fn handle_static_files_route(
     let endpoint = state
         .get_endpoint_config_for_method(path_str, &method)
         .await
-        .or_else(|| find_prefix_match(&state, path_str).now_or_never().flatten())
+        .or_else(|| {
+            lookup_endpoint_by_prefix(&state, path_str)
+                .now_or_never()
+                .flatten()
+        })
         .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
 
     let state_clone = state.clone();
@@ -647,37 +649,3 @@ async fn run_pre_checks(
 
     Ok(auth_info)
 }
-
-// /// Route a handler to a specific HTTP method on a path.
-// ///
-// /// If a per-endpoint CORS config is provided, it is applied as a route-level
-// /// layer by nesting the route in a sub-router, overriding the global CORS config.
-// fn route_method<F>(
-//     mut app: Router<AppState>,
-//     path: &str,
-//     method: HttpMethod,
-//     handler: F,
-//     cors_override: Option<&crate::config::types::CorsConfig>,
-// ) -> Router<AppState>
-// where
-//     F: axum::handler::Handler<(), AppState> + Clone + Send + 'static,
-// {
-//     let method_router = match method {
-//         HttpMethod::Get => axum::routing::get(handler.clone()),
-//         HttpMethod::Post => axum::routing::post(handler.clone()),
-//         HttpMethod::Put => axum::routing::put(handler.clone()),
-//         HttpMethod::Patch => axum::routing::patch(handler.clone()),
-//         HttpMethod::Delete => axum::routing::delete(handler.clone()),
-//         HttpMethod::Head => axum::routing::head(handler.clone()),
-//         HttpMethod::Options => axum::routing::options(handler.clone()),
-//     };
-
-//     if let Some(cors_config) = cors_override {
-//         let sub = Router::<AppState>::new()
-//             .route(path, method_router)
-//             .layer(build_cors_layer(cors_config));
-//         app.merge(sub)
-//     } else {
-//         app.route(path, method_router)
-//     }
-// }

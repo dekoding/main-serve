@@ -2,7 +2,6 @@
 ///
 /// This library crate exposes all modules for use in integration tests.
 pub mod config;
-pub mod context;
 pub mod db;
 pub mod error;
 pub mod handlers;

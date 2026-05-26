@@ -5,7 +5,9 @@ use axum::response::IntoResponse;
 use axum::response::Response;
 
 use crate::error::AppError;
-use crate::handlers::static_files::utils::{apply_static_headers, format_size, html_escape};
+use crate::handlers::static_files::utils::{
+    apply_static_headers, format_modified, format_size, html_escape,
+};
 use crate::storage::Storage;
 use percent_encoding::percent_decode_str;
 
@@ -34,16 +36,16 @@ pub async fn generate_directory_listing(
 
     let mut items: Vec<DirEntryInfo> = Vec::new();
     for entry in entries {
-        let is_dir = !entry.is_file();
+        let is_dir = entry.is_dir;
         let size = entry.size;
         items.push(DirEntryInfo {
             name: entry.name,
             is_dir,
             size,
-            modified: None,
-            mode: 0,
-            uid: 0,
-            gid: 0,
+            modified: entry.modified,
+            mode: entry.mode,
+            uid: entry.uid,
+            gid: entry.gid,
         });
     }
     items.sort_by(|a, b| b.is_dir.cmp(&a.is_dir).then_with(|| a.name.cmp(&b.name)));
@@ -93,15 +95,24 @@ pub async fn generate_directory_listing(
             format!("<a href=\"{base}{escaped_name}\">{escaped_name}</a>")
         };
 
+        let perms = format_permissions(item.mode, item.is_dir);
+        let owner = resolve_username(item.uid);
+        let group = resolve_group(item.gid);
         let size_str = if item.is_dir {
             "-".to_string()
         } else {
             format_size(item.size)
         };
+        let modified_str = item
+            .modified
+            .as_ref()
+            .map(|t| format_modified(*t))
+            .unwrap_or_else(|| "-".to_string());
 
         html.push_str("<tr>");
         html.push_str(&format!(
-            "<td class=\"size\">{size_str}</td><td>{link}</td></tr>\n"
+            "<td class=\"perms\">{perms}</td><td>{owner}</td><td>{group}</td>\
+             <td class=\"size\">{size_str}</td><td>{modified_str}</td><td>{link}</td></tr>\n"
         ));
     }
 

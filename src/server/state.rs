@@ -14,6 +14,7 @@ use crate::config::types::EndpointConfig;
 use crate::db::pool::DatabasePool;
 use crate::middleware::auth::validators::oauth2::PendingOAuth2;
 use crate::middleware::rate_limit::RateLimiter;
+use crate::server::prefix_match::{find_prefix_match, find_wildcard_match};
 use crate::storage::backend::native::NativeStorage;
 
 /// Shared application state available to all handlers.
@@ -74,31 +75,12 @@ impl AppState {
         }
 
         // Try prefix matching for paths without wildcards
-        let mut current = path;
-        while !current.is_empty() {
-            if let Some(endpoint) = configs.get(current) {
-                return Some(endpoint.clone());
-            }
-            if let Some(pos) = current.rfind('/') {
-                current = &current[..pos];
-            } else {
-                break;
-            }
+        if let Some(endpoint) = find_prefix_match(&configs, path, |_| true) {
+            return Some(endpoint);
         }
 
         // Check for wildcard pattern matches (e.g., /app/{*rest} matches /app/foo/bar)
-        for (stored_path, endpoint) in configs.iter() {
-            if let Some(pattern_base) = stored_path
-                .split_once('{')
-                .map(|(base, _)| base.trim_end_matches('/'))
-                && path.starts_with(pattern_base)
-                && (path.len() == pattern_base.len() || path[pattern_base.len()..].starts_with('/'))
-            {
-                return Some(endpoint.clone());
-            }
-        }
-
-        None
+        find_wildcard_match(&configs, path, |_| true)
     }
 
     /// Get the endpoint configuration for a given path and method.
@@ -118,74 +100,22 @@ impl AppState {
             return Some(endpoint.clone());
         }
 
+        let method_check =
+            |endpoint: &EndpointConfig| endpoint.methods.iter().any(|m| m.matches(method));
+
         // Then try exact match on path
         if let Some(endpoint) = configs.get(path)
-            && endpoint
-                .methods
-                .iter()
-                .any(|m| matches_http_method(m, method))
+            && method_check(endpoint)
         {
             return Some(endpoint.clone());
         }
 
         // Try prefix matching for paths without wildcards
-        let mut current = path;
-        while !current.is_empty() {
-            if let Some(endpoint) = configs.get(current)
-                && endpoint
-                    .methods
-                    .iter()
-                    .any(|m| matches_http_method(m, method))
-            {
-                return Some(endpoint.clone());
-            }
-            if let Some(pos) = current.rfind('/') {
-                current = &current[..pos];
-            } else {
-                break;
-            }
+        if let Some(endpoint) = find_prefix_match(&configs, path, method_check) {
+            return Some(endpoint);
         }
 
         // Check for wildcard pattern matches (e.g., /app/{*rest} matches /app/foo/bar)
-        // Also handles method-specific keys like /app/{*rest}#GET
-        for (stored_path, endpoint) in configs.iter() {
-            // Extract the base path (without method suffix)
-            let path_without_method = stored_path
-                .split_once('#')
-                .map(|(base, _)| base)
-                .unwrap_or(stored_path);
-
-            if let Some(pattern_base) = path_without_method
-                .split_once('{')
-                .map(|(base, _)| base.trim_end_matches('/'))
-                // Match only if path equals pattern_base exactly, or starts with pattern_base + '/'
-                // This prevents /api/authors from matching /api/authors/{id}
-                && (path == pattern_base || path.starts_with(&(pattern_base.to_string() + "/")))
-                && endpoint
-                    .methods
-                    .iter()
-                    .any(|m| matches_http_method(m, method))
-            {
-                return Some(endpoint.clone());
-            }
-        }
-
-        None
-    }
-}
-
-fn matches_http_method(
-    config_method: &crate::config::types::HttpMethod,
-    req_method: &axum::http::Method,
-) -> bool {
-    use axum::http::Method;
-    match config_method {
-        crate::config::types::HttpMethod::Get => req_method == Method::GET,
-        crate::config::types::HttpMethod::Post => req_method == Method::POST,
-        crate::config::types::HttpMethod::Put => req_method == Method::PUT,
-        crate::config::types::HttpMethod::Patch => req_method == Method::PATCH,
-        crate::config::types::HttpMethod::Delete => req_method == Method::DELETE,
-        crate::config::types::HttpMethod::Head => req_method == Method::HEAD,
-        crate::config::types::HttpMethod::Options => req_method == Method::OPTIONS,
+        find_wildcard_match(&configs, path, method_check)
     }
 }

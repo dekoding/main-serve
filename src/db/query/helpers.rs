@@ -1,6 +1,6 @@
-use crate::config::types::DatabaseDriver;
-use crate::context::RequestContext;
+use crate::config::types::{ColumnConfig, DatabaseDriver};
 use crate::error::AppError;
+use crate::middleware::auth::extractor::RequestContext;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FilterOperator {
@@ -483,37 +483,20 @@ pub fn is_bracket_notation(field: &str) -> bool {
     field.contains('[')
 }
 
-/// Check if a sort field uses LHS bracket notation for sorting JSONB.
-/// This is different from filtering - it's just the field name, not the operator.
-pub fn is_jsonb_sort_field(field: &str, columns: &[crate::config::types::ColumnConfig]) -> bool {
-    let (base, _) = parse_sort_field(field);
-    is_jsonb_column(&base, columns)
-}
-
 /// Check if a filter column exists in the table schema.
-pub fn column_exists(column_name: &str, columns: &[crate::config::types::ColumnConfig]) -> bool {
+pub fn column_exists(column_name: &str, columns: &[ColumnConfig]) -> bool {
     columns.iter().any(|c| c.name == column_name)
-}
-
-/// Check if a filter path's base column is a JSONB column in the table schema.
-pub fn is_valid_jsonb_filter_column(
-    field: &str,
-    columns: &[crate::config::types::ColumnConfig],
-) -> bool {
-    let (base, _) = parse_sort_field(field);
-    is_jsonb_column(&base, columns)
 }
 
 /// Validate that a sort field exists in the table schema.
 /// Returns true if the field is valid (either a regular column or a JSONB nested path).
-pub fn is_valid_sort_field(field: &str, columns: &[crate::config::types::ColumnConfig]) -> bool {
+pub fn is_valid_sort_field(field: &str, columns: &[ColumnConfig]) -> bool {
+    let (base, _) = parse_sort_field(field);
     // Allow bracket notation (e.g., metadata[role])
     if is_bracket_notation(field) {
-        let (base, _) = parse_sort_field(field);
         is_jsonb_column(&base, columns) || column_exists(&base, columns)
     } else if is_jsonb_path(field) {
         // For JSONB paths, check if base column is a JSON/JSONB column
-        let (base, _) = parse_sort_field(field);
         is_jsonb_column(&base, columns)
     } else {
         // Regular field
@@ -567,7 +550,7 @@ pub fn extract_base_column(field: &str) -> String {
 
 /// Validate that a filter column exists in the table schema.
 /// Returns true if the column is valid (either a regular column or a JSONB column).
-pub fn is_valid_filter_column(field: &str, columns: &[crate::config::types::ColumnConfig]) -> bool {
+pub fn is_valid_filter_column(field: &str, columns: &[ColumnConfig]) -> bool {
     let base = extract_base_column(field);
     is_jsonb_column(&base, columns) || column_exists(&base, columns)
 }
@@ -575,7 +558,7 @@ pub fn is_valid_filter_column(field: &str, columns: &[crate::config::types::Colu
 /// Extract the JSONB path string from a dotted field name or bracket notation.
 /// Converts `metadata.role` to `$.role` and `metadata[role]` to `$.role`.
 /// Converts `metadata.user.profile` to `$.user.profile` and `metadata[user][profile]` to `$.user.profile`.
-pub fn extract_jsonb_sort_path(field: &str) -> String {
+pub fn extract_jsonb_path(field: &str) -> String {
     let (_, path) = parse_sort_field(field);
     if path.is_empty() {
         return "$".to_string();
@@ -584,7 +567,7 @@ pub fn extract_jsonb_sort_path(field: &str) -> String {
 }
 
 /// Check if a column in the table config is a JSON or JSONB type.
-pub fn is_jsonb_column(column_name: &str, columns: &[crate::config::types::ColumnConfig]) -> bool {
+pub fn is_jsonb_column(column_name: &str, columns: &[ColumnConfig]) -> bool {
     columns.iter().any(|c| {
         c.name == column_name
             && matches!(
@@ -592,19 +575,6 @@ pub fn is_jsonb_column(column_name: &str, columns: &[crate::config::types::Colum
                 crate::config::types::ColumnType::Json | crate::config::types::ColumnType::Jsonb
             )
     })
-}
-
-/// Extract the JSONB path string from a dotted field name.
-/// Converts `metadata.role` to `$.role` and `metadata.user.profile` to `$.user.profile`.
-pub fn extract_jsonb_path(field: &str) -> (String, String) {
-    let parts: Vec<&str> = field.split('.').collect();
-    if parts.len() == 1 {
-        return (field.to_string(), "$".to_string());
-    }
-    let table = parts[0];
-    // Join with '.' and prepend '$.' to form proper JSONPath
-    let path = format!("$.{}", parts[1..].join("."));
-    (table.to_string(), path)
 }
 
 /// Validate that a string is a safe SQL expression (for JSONB computed fields).

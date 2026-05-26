@@ -6,16 +6,16 @@
 use std::collections::HashMap;
 
 use crate::config::types::{ColumnType, CrudConfig, DatabaseDriver, SortOrder, TableConfig};
-use crate::context::RequestContext;
 use crate::db::query::helpers::{
-    FilterExpression, FilterOperator, build_filter_param, extract_base_column,
-    extract_jsonb_sort_path, is_bracket_notation, is_jsonb_column, is_jsonb_path,
-    is_valid_expression, is_valid_filter_column, is_valid_sort_field, parse_filter_key,
-    parse_sort_field, placeholder,
+    FilterExpression, FilterOperator, build_filter_param, extract_base_column, extract_jsonb_path,
+    is_bracket_notation, is_jsonb_column, is_jsonb_path, is_valid_expression,
+    is_valid_filter_column, is_valid_sort_field, parse_filter_key, parse_sort_field, placeholder,
+    resolve_single_key,
 };
 use crate::db::query::traits::{FilterBehavior, MysqlFilter, PostgresFilter, SqliteFilter};
 use crate::db::query::types::{BuiltQuery, QueryParams};
 use crate::error::AppError;
+use crate::middleware::auth::extractor::RequestContext;
 
 impl SelectBuilder {
     /// Get the filter behavior for this driver.
@@ -145,7 +145,7 @@ impl SelectBuilder {
 
             new_string.push_str(&wc[last_match_end..full_match.start()]);
 
-            let mut resolved_value = self.resolve_context_key(key, context);
+            let mut resolved_value = resolve_single_key(key, context);
 
             // Handle default values: ${key:-default}
             if resolved_value.is_none()
@@ -154,9 +154,8 @@ impl SelectBuilder {
             {
                 let base_key = &key[..idx];
                 let default_val = &key[idx + 2..];
-                resolved_value = self
-                    .resolve_context_key(base_key, context)
-                    .or(Some(default_val.to_string()));
+                resolved_value =
+                    resolve_single_key(base_key, context).or(Some(default_val.to_string()));
             }
 
             if let Some(val) = resolved_value {
@@ -175,25 +174,6 @@ impl SelectBuilder {
 
         new_string.push_str(&wc[last_match_end..]);
         Ok(new_string)
-    }
-
-    /// Helper to resolve a single context key.
-    fn resolve_context_key(&self, key: &str, context: &RequestContext) -> Option<String> {
-        if key == "request.user.id" {
-            context.user_id.clone()
-        } else if key == "request.user.role" {
-            context.user_role.clone()
-        } else if key == "request.method" {
-            Some(context.method.clone())
-        } else if key == "request.path" {
-            Some(context.path.clone())
-        } else if let Some(header_name) = key.strip_prefix("request.headers.") {
-            context.headers.get(header_name).cloned()
-        } else if let Some(query_key) = key.strip_prefix("request.query.") {
-            context.query_params.get(query_key).cloned()
-        } else {
-            None
-        }
     }
 
     /// Append user-supplied filter conditions as parameterized WHERE terms.
@@ -714,7 +694,7 @@ impl SelectBuilder {
 
         let order_clause = if is_jsonb_path(sort_field) || is_bracket_notation(sort_field) {
             if is_jsonb_column(&base_col, &table_config.columns) {
-                let path_str = extract_jsonb_sort_path(sort_field);
+                let path_str = extract_jsonb_path(sort_field);
                 let jsonb_expr = match self.driver {
                     DatabaseDriver::Postgres => {
                         // PostgreSQL #>> operator expects text array syntax {a,b}, not JSONPath $.a.b

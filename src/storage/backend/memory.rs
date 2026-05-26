@@ -140,15 +140,19 @@ impl Storage for MemoryStorage {
             if let Some(parent) = dir_path.parent()
                 && parent == dir
             {
-                entries.push(DirEntry::new(
-                    dir_path
-                        .file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .to_string(),
-                    true,
-                    0,
-                ));
+                entries.push(
+                    DirEntry::new(
+                        dir_path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string(),
+                        true,
+                        0,
+                    )
+                    .with_mode(0o40755)
+                    .with_modified(None),
+                );
             }
         }
 
@@ -157,15 +161,19 @@ impl Storage for MemoryStorage {
             if let Some(parent) = file_path.parent()
                 && parent == dir
             {
-                entries.push(DirEntry::new(
-                    file_path
-                        .file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .to_string(),
-                    false,
-                    data.get(file_path).map_or(0, |v| v.len() as u64),
-                ));
+                entries.push(
+                    DirEntry::new(
+                        file_path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .to_string(),
+                        false,
+                        data.get(file_path).map_or(0, |v| v.len() as u64),
+                    )
+                    .with_mode(0o100644)
+                    .with_modified(None),
+                );
             }
         }
 

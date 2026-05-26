@@ -5,6 +5,9 @@ use tokio::io::AsyncWriteExt;
 
 use crate::storage::{DirEntry, FileMetadata, Result, Storage, StorageError};
 
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
+
 /// Native filesystem storage backend.
 ///
 /// Uses tokio::fs for all file operations.
@@ -113,7 +116,23 @@ impl Storage for NativeStorage {
 
             match entry.metadata().await {
                 Ok(meta) => {
-                    entries.push(DirEntry::new(name, meta.is_dir(), meta.len()).with_path(path));
+                    let is_dir = meta.is_dir();
+                    let size = meta.len();
+                    #[cfg(unix)]
+                    let (mode, uid, gid) = (meta.mode(), meta.uid(), meta.gid());
+                    #[cfg(not(unix))]
+                    let (mode, uid, gid) = (0, 0, 0);
+
+                    let modified = meta.modified().ok();
+
+                    entries.push(
+                        DirEntry::new(name, is_dir, size)
+                            .with_path(path)
+                            .with_mode(mode)
+                            .with_uid(uid)
+                            .with_gid(gid)
+                            .with_modified(modified),
+                    );
                 }
                 Err(e) => {
                     return Err(StorageError::Io(dir.to_path_buf(), e));

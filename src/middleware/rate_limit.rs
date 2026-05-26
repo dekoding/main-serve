@@ -126,29 +126,6 @@ fn extract_key(
     }
 }
 
-/// Axum middleware wrapper for rate limiting.
-///
-/// Runs after auth middleware so it can use auth info (token) for rate limiting.
-///
-/// This version accepts the rate_limiter directly, which is useful for the coordinator pattern.
-pub async fn rate_limit_middleware_with_limiter(
-    limiter: RateLimiter,
-    config: RateLimitConfig,
-    req: Request<Body>,
-    next: Next,
-) -> Result<Response, AppError> {
-    let remote_addr = req.extensions().get::<SocketAddr>().copied();
-
-    let headers = req.headers().clone();
-
-    // Use the passed rate limiter
-    limiter
-        .check_rate_limit(&config, &headers, remote_addr)
-        .await?;
-
-    Ok(next.run(req).await)
-}
-
 /// Axum middleware wrapper for rate limiting that reads config from AppState.
 ///
 /// Runs after auth middleware so it can use auth info (token) for rate limiting.

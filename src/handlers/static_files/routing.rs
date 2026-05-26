@@ -28,6 +28,22 @@ pub struct StaticGetContext<'a> {
     pub headers: &'a axum::http::HeaderMap,
 }
 
+/// Extract the relative file path from a request URI and endpoint path.
+///
+/// Strips the endpoint's base path prefix (handling `/*` and `{*rest}`
+/// wildcards) from the request path and returns the remaining segment.
+#[must_use]
+pub fn extract_relative_path(request_path: &str, endpoint_path: &str) -> String {
+    let ep_path = endpoint_path
+        .trim_end_matches("/*")
+        .trim_end_matches("{*rest}");
+    request_path
+        .strip_prefix(ep_path)
+        .unwrap_or(request_path)
+        .trim_start_matches('/')
+        .to_string()
+}
+
 /// Extract authentication info from request.
 ///
 /// # Errors
@@ -84,13 +100,6 @@ pub fn check_upload_role(
 /// Returns `AppError::Internal` if the static config is missing or the root
 /// directory does not exist. Returns `AppError::NotFound` if the requested
 /// file cannot be found. Returns `AppError::Forbidden` on path traversal attempts.
-/// Handle a static file endpoint - serves files, uploads, or deletes based on method.
-///
-/// # Errors
-///
-/// Returns `AppError::Internal` if the static config is missing or the root
-/// directory does not exist. Returns `AppError::NotFound` if the requested
-/// file cannot be found. Returns `AppError::Forbidden` on path traversal attempts.
 #[allow(clippy::implicit_hasher)]
 pub async fn handle_static_files(
     state: State<AppState>,
@@ -115,16 +124,8 @@ pub async fn handle_static_files(
     }
 
     let request_path = uri.path();
-    let ep_path = endpoint
-        .path
-        .trim_end_matches("/*")
-        .trim_end_matches("{*rest}");
-    let relative = request_path
-        .strip_prefix(ep_path)
-        .unwrap_or(request_path)
-        .trim_start_matches('/');
-
-    let relative = percent_encoding::percent_decode_str(relative)
+    let relative_str = extract_relative_path(request_path, &endpoint.path);
+    let relative = percent_encoding::percent_decode_str(&relative_str)
         .decode_utf8()
         .map_err(|_| AppError::BadRequest("Invalid UTF-8 in path".to_string()))?
         .into_owned();
@@ -203,16 +204,8 @@ pub async fn handle_file_upload_route(
             }
 
             let request_path = uri.path();
-            let ep_path = endpoint
-                .path
-                .trim_end_matches("/*")
-                .trim_end_matches("{*rest}");
-            let relative = request_path
-                .strip_prefix(ep_path)
-                .unwrap_or(request_path)
-                .trim_start_matches('/');
-
-            let relative = percent_encoding::percent_decode_str(relative)
+            let relative_str = extract_relative_path(request_path, &endpoint.path);
+            let relative = percent_encoding::percent_decode_str(&relative_str)
                 .decode_utf8()
                 .map_err(|_| AppError::BadRequest("Invalid UTF-8 in path".to_string()))?
                 .into_owned();
