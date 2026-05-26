@@ -7,8 +7,8 @@ pub mod validators;
 use axum::middleware::Next;
 use axum::{body::Body, http::Request, response::Response};
 
-use crate::context::RequestContext;
 use crate::error::AppError;
+use crate::middleware::auth::extractor::RequestContext;
 use crate::server::AppState;
 
 /// Routes that should skip authentication.

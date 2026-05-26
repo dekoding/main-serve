@@ -1,5 +1,4 @@
 use crate::config::types::{ColumnType, CrudConfig, DatabaseDriver, TableConfig};
-use crate::context::RequestContext;
 use crate::db::query::helpers::{
     coerce_pk_value, find_pk_column, interpolate_value, is_valid_identifier, placeholder,
     resolve_writable_fields,
@@ -7,6 +6,7 @@ use crate::db::query::helpers::{
 use crate::db::query::select::SelectBuilder;
 use crate::db::query::types::BuiltQuery;
 use crate::error::AppError;
+use crate::middleware::auth::extractor::RequestContext;
 
 // =============================================================================
 // CRUD Query Builders
@@ -505,7 +505,7 @@ mod tests {
         let table = test_table();
         let crud = test_crud();
         let body = serde_json::json!({"title": "Updated"});
-        let context = crate::context::RequestContext::new();
+        let context = RequestContext::new();
         let q = build_update(
             "posts",
             &table,

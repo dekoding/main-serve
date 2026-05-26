@@ -61,6 +61,36 @@ pub enum HttpMethod {
     Head,
 }
 
+impl HttpMethod {
+    /// Check if this config method matches the given HTTP request method.
+    #[must_use]
+    pub fn matches(&self, method: &axum::http::Method) -> bool {
+        match self {
+            HttpMethod::Get => method == axum::http::Method::GET,
+            HttpMethod::Post => method == axum::http::Method::POST,
+            HttpMethod::Put => method == axum::http::Method::PUT,
+            HttpMethod::Patch => method == axum::http::Method::PATCH,
+            HttpMethod::Delete => method == axum::http::Method::DELETE,
+            HttpMethod::Head => method == axum::http::Method::HEAD,
+            HttpMethod::Options => method == axum::http::Method::OPTIONS,
+        }
+    }
+
+    /// Return the uppercase string representation of this HTTP method.
+    #[must_use]
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            HttpMethod::Get => "GET",
+            HttpMethod::Post => "POST",
+            HttpMethod::Put => "PUT",
+            HttpMethod::Patch => "PATCH",
+            HttpMethod::Delete => "DELETE",
+            HttpMethod::Head => "HEAD",
+            HttpMethod::Options => "OPTIONS",
+        }
+    }
+}
+
 /// The type of action an endpoint performs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]

@@ -19,6 +19,7 @@ use crate::db::query::builders::{
 };
 use crate::db::query::types::QueryParams;
 use crate::error::AppError;
+use crate::middleware::auth::extractor::RequestContext;
 use crate::server::state::AppState;
 
 /// Handle a CRUD endpoint - dispatches by method and path params.
@@ -35,7 +36,7 @@ pub async fn handle_crud(
     Query(query_string): Query<HashMap<String, String>>,
     body: Option<Json<serde_json::Value>>,
     endpoint: EndpointConfig,
-    context: crate::context::RequestContext,
+    context: RequestContext,
 ) -> Result<impl IntoResponse, AppError> {
     let crud = endpoint
         .crud

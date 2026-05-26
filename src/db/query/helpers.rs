@@ -1,6 +1,6 @@
 use crate::config::types::DatabaseDriver;
-use crate::context::RequestContext;
 use crate::error::AppError;
+use crate::middleware::auth::extractor::RequestContext;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FilterOperator {

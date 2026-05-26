@@ -10,9 +10,9 @@ use main_serve::config::types::ColumnType;
 use main_serve::config::types::CrudConfig;
 use main_serve::config::types::DatabaseDriver;
 use main_serve::config::types::TableConfig;
-use main_serve::context::RequestContext;
 use main_serve::db::query::builders::{build_insert, build_select_list, build_update};
 use main_serve::db::query::types::QueryParams;
+use main_serve::middleware::auth::extractor::RequestContext;
 
 // =============================================================================
 // Test Environment Setup
