@@ -177,11 +177,12 @@ fn validate_endpoints(config: &AppConfig, errors: &mut Vec<String>) {
                             crud.table
                         ));
                     }
-                    if let Some(ref db) = crud.database
-                        && !config.databases.contains_key(db)
-                    {
+                    if crud.database.is_empty() {
+                        errors.push(format!("{label}: crud.database must not be empty"));
+                    } else if !config.databases.contains_key(&crud.database) {
                         errors.push(format!(
-                            "{label}: crud.database '{db}' is not defined in databases"
+                            "{label}: crud.database '{}' is not defined in databases",
+                            crud.database
                         ));
                     }
                     // Validate SQL fragments embedded in queries.

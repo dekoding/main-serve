@@ -346,6 +346,7 @@ endpoints:
     action: "crud"
     crud:
       table: "__TABLE_NAME__"
+      database: "main"
       writable_fields: ["title", "active"]
       where_clause: "active = true"
     auth: "none"
@@ -355,6 +356,7 @@ endpoints:
     action: "crud"
     crud:
       table: "__TABLE_NAME__"
+      database: "main"
       where_clause: "active = true"
     auth: "none"
 "#;

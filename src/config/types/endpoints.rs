@@ -111,8 +111,8 @@ pub enum EndpointAction {
 pub struct CrudConfig {
     /// Name of the table to operate on.
     pub table: String,
-    /// Database name override (defaults to the table's database).
-    pub database: Option<String>,
+    /// Named database this table belongs to (must match a key in `databases`).
+    pub database: String,
     /// Fields to include in SELECT queries (`["*"]` for all).
     pub fields: Vec<String>,
     /// Fields allowed in INSERT/UPDATE bodies.
@@ -137,7 +137,7 @@ impl Default for CrudConfig {
     fn default() -> Self {
         Self {
             table: String::new(),
-            database: None,
+            database: String::new(),
             fields: vec!["*".to_string()],
             writable_fields: Vec::new(),
             pagination: PaginationConfig::default(),

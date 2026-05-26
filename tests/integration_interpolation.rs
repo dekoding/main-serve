@@ -57,7 +57,7 @@ fn setup_test_env() -> (TableConfig, CrudConfig) {
 
     let crud = CrudConfig {
         table: "posts".to_string(),
-        database: Some("test".to_string()),
+        database: "test".to_string(),
         fields: vec![
             "id".to_string(),
             "user_id".to_string(),
