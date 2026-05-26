@@ -47,16 +47,19 @@ pub async fn handle_crud(
     let table_config = config
         .tables
         .iter()
-        .find(|t| t.name == crud.table)
-        .ok_or_else(|| AppError::Internal(format!("Table '{}' not found in config", crud.table)))?;
-
-    let db_name = crud.database.as_deref().unwrap_or(&table_config.database);
+        .find(|t| t.name == crud.table && t.database == crud.database)
+        .ok_or_else(|| {
+            AppError::Internal(format!(
+                "Table '{}' in database '{}' not found in config",
+                crud.table, crud.database
+            ))
+        })?;
 
     let pool = {
         let pools = state.db_pools.read().await;
         pools
-            .get(db_name)
-            .ok_or_else(|| AppError::Internal(format!("Database '{db_name}' has no pool")))?
+            .get(crud.database.as_str())
+            .ok_or_else(|| AppError::Internal(format!("Database '{}' has no pool", crud.database)))?
             .clone()
     };
     let driver = pool.driver();

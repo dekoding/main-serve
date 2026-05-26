@@ -28,6 +28,11 @@ pub use crate::middleware::auth::extractor::AuthInfo;
 /// Returns `AppError::Config` if the auth type requires a config section that
 /// is missing. Returns `AppError::Auth` or `AppError::AuthChallenge` if
 /// credentials are missing or invalid.
+///
+/// The `implicit_hasher` allow is needed because the function passes
+/// `query_params` to `validate_api_key` which calls `HashMap::get()`,
+/// invoking the default `DefaultHasher`. An explicit `RandomState` type
+/// parameter would be verbose without practical benefit for string keys.
 #[allow(clippy::implicit_hasher)]
 pub async fn authenticate<'a>(
     auth_type: &'a str,

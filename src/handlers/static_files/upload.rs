@@ -13,7 +13,6 @@ use crate::error::AppError;
 use crate::handlers::static_files::routing::{check_upload_role, extract_auth_info};
 use crate::handlers::static_files::utils::mime_from_path;
 use crate::server::state::AppState;
-use crate::storage::Storage;
 
 /// Handle file upload (POST/PUT/PATCH).
 pub async fn handle_file_upload(
@@ -235,20 +234,15 @@ fn generate_upload_filename(
         .to_lowercase();
 
     // Validate extension if we have one
-    if !extension.is_empty() && !allowed_extensions.is_empty() {
-        // Remove leading dot from allowed extensions if present
-        let normalized_allowed: Vec<&str> = allowed_extensions
-            .iter()
-            .map(|ext| ext.strip_prefix('.').unwrap_or(ext))
-            .collect();
-
-        if !normalized_allowed.contains(&extension.as_str()) {
-            return Err(AppError::BadRequest(format!(
-                "File extension .{} is not allowed. Allowed: {}",
-                extension,
-                allowed_extensions.join(", ")
-            )));
-        }
+    if !extension.is_empty()
+        && !allowed_extensions.is_empty()
+        && !allowed_extensions.iter().any(|ext| ext == &extension)
+    {
+        return Err(AppError::BadRequest(format!(
+            "File extension .{} is not allowed. Allowed: {}",
+            extension,
+            allowed_extensions.join(", ")
+        )));
     }
 
     // Generate UUID-based filename to prevent collisions and overwrites

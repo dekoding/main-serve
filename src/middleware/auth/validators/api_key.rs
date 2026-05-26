@@ -15,6 +15,12 @@ use crate::error::AppError;
 /// # Errors
 ///
 /// Returns `AppError::Auth` if the key is missing or invalid.
+///
+/// The `implicit_hasher` allow is needed because the function receives a
+/// `&HashMap<String, String>` parameter. While this function itself only
+/// iterates over the map (no `.get()` calls), the public parameter type
+/// triggers the lint. Using `HashMap<String, String, RandomState>` explicitly
+/// in the signature would be verbose without adding safety.
 #[allow(clippy::implicit_hasher)]
 pub fn validate_api_key(
     headers: &HeaderMap,

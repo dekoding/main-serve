@@ -32,7 +32,7 @@ pub async fn handle_static_get(
     state: State<AppState>,
     ctx: StaticGetContext<'_>,
 ) -> Result<Response, AppError> {
-    let storage = &state.storage;
+    let storage = &*state.storage;
     let resolved = if ctx.relative.is_empty() {
         ctx.root.to_path_buf()
     } else {

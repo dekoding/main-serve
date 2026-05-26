@@ -15,7 +15,6 @@ use crate::handlers::static_files::delete::handle_file_delete;
 use crate::middleware::auth::extractor::AuthInfo;
 use crate::middleware::cors;
 use crate::server::state::AppState;
-use crate::storage::Storage;
 
 /// Context for handling static file GET requests.
 pub struct StaticGetContext<'a> {
@@ -50,6 +49,11 @@ pub fn extract_relative_path(request_path: &str, endpoint_path: &str) -> String 
 ///
 /// Returns `AppError::Auth` if authentication fails.
 /// Returns `AppError::Config` if the auth config is missing.
+///
+/// The `implicit_hasher` allow is needed because the function passes
+/// `query_params` (a `&HashMap<String, String>`) to `validate::authenticate`,
+/// which invokes the default `DefaultHasher` for lookups. An explicit
+/// `RandomState` type parameter would be verbose without practical benefit.
 #[allow(clippy::implicit_hasher)]
 pub async fn extract_auth_info(
     state: &AppState,
@@ -100,6 +104,11 @@ pub fn check_upload_role(
 /// Returns `AppError::Internal` if the static config is missing or the root
 /// directory does not exist. Returns `AppError::NotFound` if the requested
 /// file cannot be found. Returns `AppError::Forbidden` on path traversal attempts.
+///
+/// The `implicit_hasher` allow is needed because the function receives a
+/// `Query<HashMap<String, String>>` parameter. While axum's Query extractor
+/// handles parsing, the parameter type itself triggers the lint since it
+/// is later passed to internal functions that use HashMap lookups.
 #[allow(clippy::implicit_hasher)]
 pub async fn handle_static_files(
     state: State<AppState>,
@@ -109,14 +118,13 @@ pub async fn handle_static_files(
     headers: axum::http::HeaderMap,
     query: Option<Query<HashMap<String, String>>>,
 ) -> Result<Response, AppError> {
-    let storage = state.storage;
     let static_config = endpoint
         .static_files
         .as_ref()
         .ok_or_else(|| AppError::Internal("Static file configuration missing".to_string()))?;
 
     let root = Path::new(&static_config.root);
-    if !storage.exists(root).await {
+    if !state.storage.exists(root).await {
         return Err(AppError::Internal(format!(
             "Static file root '{}' does not exist",
             static_config.root
@@ -151,8 +159,9 @@ pub async fn handle_static_files(
             .await
         }
         Method::DELETE => {
+            let state_for_delete = state.clone();
             handle_file_delete(
-                &storage,
+                &*state_for_delete.storage,
                 state,
                 &endpoint,
                 static_config,

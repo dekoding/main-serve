@@ -301,7 +301,7 @@ mod tests {
     fn test_crud() -> CrudConfig {
         CrudConfig {
             table: "posts".to_string(),
-            database: Some("main".to_string()),
+            database: "main".to_string(),
             fields: vec!["id".to_string(), "title".to_string(), "author".to_string()],
             writable_fields: vec!["title".to_string(), "author".to_string()],
             ..Default::default()
@@ -348,7 +348,7 @@ mod tests {
     fn test_crud_with_jsonb_filtering() -> CrudConfig {
         CrudConfig {
             table: "posts".to_string(),
-            database: Some("main".to_string()),
+            database: "main".to_string(),
             fields: vec![
                 "id".to_string(),
                 "title".to_string(),

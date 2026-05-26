@@ -111,8 +111,8 @@ pub enum EndpointAction {
 pub struct CrudConfig {
     /// Name of the table to operate on.
     pub table: String,
-    /// Database name override (defaults to the table's database).
-    pub database: Option<String>,
+    /// Named database this table belongs to (must match a key in `databases`).
+    pub database: String,
     /// Fields to include in SELECT queries (`["*"]` for all).
     pub fields: Vec<String>,
     /// Fields allowed in INSERT/UPDATE bodies.
@@ -137,7 +137,7 @@ impl Default for CrudConfig {
     fn default() -> Self {
         Self {
             table: String::new(),
-            database: None,
+            database: String::new(),
             fields: vec!["*".to_string()],
             writable_fields: Vec::new(),
             pagination: PaginationConfig::default(),
@@ -370,6 +370,22 @@ impl Default for StaticFilesConfig {
     }
 }
 
+/// Normalize allowed extensions by stripping leading dots.
+///
+/// Handles compound extensions like `.tar.gz` correctly by only
+/// removing the leading dot, preserving internal dots.
+fn normalize_extension(ext: &str) -> String {
+    ext.strip_prefix('.').unwrap_or(ext).to_string()
+}
+
+fn deserialize_allowed_extensions<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let raw = Vec::<String>::deserialize(deserializer)?;
+    Ok(raw.into_iter().map(|s| normalize_extension(&s)).collect())
+}
+
 /// File upload configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -379,6 +395,8 @@ pub struct UploadConfig {
     /// Maximum upload size in bytes.
     pub max_size: u64,
     /// Allowed file extensions (empty = all).
+    /// Leading dots are stripped during parsing, so both `.jpg` and `jpg` work.
+    #[serde(deserialize_with = "deserialize_allowed_extensions")]
     pub allowed_extensions: Vec<String>,
     /// Subdirectory pattern for organizing uploads.
     /// Available placeholders: {user_id}, {year}, {month}, {day}, {uuid}
