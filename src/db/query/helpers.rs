@@ -490,11 +490,6 @@ pub fn is_jsonb_sort_field(field: &str, columns: &[crate::config::types::ColumnC
     is_jsonb_column(&base, columns)
 }
 
-/// Check if a filter column exists in the table schema.
-pub fn column_exists(column_name: &str, columns: &[crate::config::types::ColumnConfig]) -> bool {
-    columns.iter().any(|c| c.name == column_name)
-}
-
 /// Check if a filter path's base column is a JSONB column in the table schema.
 pub fn is_valid_jsonb_filter_column(
     field: &str,
