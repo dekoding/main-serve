@@ -15,7 +15,6 @@ use crate::handlers::static_files::delete::handle_file_delete;
 use crate::middleware::auth::extractor::AuthInfo;
 use crate::middleware::cors;
 use crate::server::state::AppState;
-use crate::storage::Storage;
 
 /// Context for handling static file GET requests.
 pub struct StaticGetContext<'a> {
@@ -119,14 +118,13 @@ pub async fn handle_static_files(
     headers: axum::http::HeaderMap,
     query: Option<Query<HashMap<String, String>>>,
 ) -> Result<Response, AppError> {
-    let storage = state.storage;
     let static_config = endpoint
         .static_files
         .as_ref()
         .ok_or_else(|| AppError::Internal("Static file configuration missing".to_string()))?;
 
     let root = Path::new(&static_config.root);
-    if !storage.exists(root).await {
+    if !state.storage.exists(root).await {
         return Err(AppError::Internal(format!(
             "Static file root '{}' does not exist",
             static_config.root
@@ -161,8 +159,9 @@ pub async fn handle_static_files(
             .await
         }
         Method::DELETE => {
+            let state_for_delete = state.clone();
             handle_file_delete(
-                &storage,
+                &*state_for_delete.storage,
                 state,
                 &endpoint,
                 static_config,

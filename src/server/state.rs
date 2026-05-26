@@ -15,7 +15,7 @@ use crate::db::pool::DatabasePool;
 use crate::middleware::auth::validators::oauth2::PendingOAuth2;
 use crate::middleware::rate_limit::RateLimiter;
 use crate::server::prefix_match::{find_prefix_match, find_wildcard_match};
-use crate::storage::backend::native::NativeStorage;
+use crate::storage::{Storage, get_backend};
 
 /// Shared application state available to all handlers.
 #[derive(Clone)]
@@ -45,7 +45,7 @@ pub struct AppState {
     pub endpoint_configs: Arc<RwLock<HashMap<String, EndpointConfig>>>,
 
     /// File storage backend for static file serving.
-    pub storage: NativeStorage,
+    pub storage: Arc<dyn Storage>,
 }
 
 impl AppState {
@@ -60,7 +60,9 @@ impl AppState {
             rate_limiter: RateLimiter::new(),
             oauth2_pending: Arc::new(Mutex::new(HashMap::new())),
             endpoint_configs: Arc::new(RwLock::new(HashMap::new())),
-            storage: NativeStorage::new(),
+            storage: Arc::from(
+                get_backend("native").expect("native storage backend must be available"),
+            ),
         }
     }
 

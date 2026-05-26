@@ -13,7 +13,6 @@ use crate::error::AppError;
 use crate::handlers::static_files::routing::{check_upload_role, extract_auth_info};
 use crate::handlers::static_files::utils::mime_from_path;
 use crate::server::state::AppState;
-use crate::storage::Storage;
 
 /// Handle file upload (POST/PUT/PATCH).
 pub async fn handle_file_upload(
