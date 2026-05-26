@@ -63,6 +63,7 @@ endpoints:
     action: "crud"
     crud:
       table: "todos"
+      database: "main"
       fields: ["id", "title", "done"]
       writable_fields: ["title", "done"]
     auth: "none"
@@ -72,6 +73,7 @@ endpoints:
     action: "crud"
     crud:
       table: "todos"
+      database: "main"
       fields: ["id", "title", "done"]
       writable_fields: ["title", "done"]
     auth: "none"
@@ -205,6 +207,7 @@ endpoints:
     action: "crud"
     crud:
       table: "users"
+      database: "main"
       fields: ["id", "email", "name"]
       writable_fields: ["email", "name"]
       pagination:

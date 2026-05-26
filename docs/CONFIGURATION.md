@@ -231,9 +231,9 @@ cors:
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `allowed_origins` | list of strings | `["*"]` | Origins allowed to make cross-origin requests. Use `["*"]` to allow all origins. For specific origins, list them individually: `["https://example.com", "https://app.example.com"]`. |
-| `allowed_methods` | list of strings | `["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]` | HTTP methods allowed in cross-origin requests. Values: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, `HEAD`. |
-| `allowed_headers` | list of strings | `["*"]` | Request headers allowed in cross-origin requests. Use `["*"]` to allow all headers. Common values: `Content-Type`, `Authorization`, `X-API-Key`. |
+| `allowed_origins` | list of strings | `[]` | Origins allowed to make cross-origin requests. Empty or omitted means no cross-origin access. Use `["*"]` to allow all origins. For specific origins, list them individually: `["https://example.com", "https://app.example.com"]`. |
+| `allowed_methods` | list of strings | `[]` | HTTP methods allowed in cross-origin requests. Values: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `OPTIONS`, `HEAD`. |
+| `allowed_headers` | list of strings | `[]` | Request headers allowed in cross-origin requests. Empty or omitted means no cross-origin access. |
 | `allow_credentials` | boolean | `false` | Whether the browser should include credentials (cookies, authorization headers, TLS client certificates) in cross-origin requests. **Note:** When `true`, `allowed_origins` cannot be `["*"]` - you must list specific origins. |
 | `max_age` | integer | `86400` (24 hours) | How long (in seconds) browsers can cache the results of a preflight (`OPTIONS`) request. |
 
@@ -301,8 +301,8 @@ Each key under `databases` is a unique name you'll use to reference this databas
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `driver` | enum | `"sqlite"` | Database driver. One of: `postgres`, `mysql`, `sqlite`. |
-| `url` | string | `""` | Connection URL. **Required.** Use `${ENV_VAR}` for secrets. See format examples below. |
+| `driver` | enum | *(required)* | Database driver. One of: `postgres`, `mysql`, `sqlite`. |
+| `url` | string | *(required)* | Connection URL. Use `${ENV_VAR}` for secrets. See format examples below. |
 | `min_connections` | integer | `1` | Minimum number of connections maintained in the pool. |
 | `max_connections` | integer | `10` | Maximum number of connections in the pool. Must be greater than 0 and >= `min_connections`. |
 | `auto_migrate` | boolean | `true` | When `true`, Main Serve automatically creates or updates tables (defined in the `tables` section) for this database on startup and on config reload. |
@@ -619,7 +619,7 @@ The core of Main Serve. Each entry in the `endpoints` list defines an HTTP route
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `path` | string | *(required)* | URL path pattern. Supports path parameters (`:id`) and wildcards (`*`). Examples: `/api/users`, `/api/users/:id`, `/static/*`. |
-| `methods` | list of enums | *(required)* | HTTP methods this endpoint responds to. Values: `get`, `post`, `put`, `patch`, `delete`, `options`, `head`. |
+| `methods` | list of enums | *(required)* | HTTP methods this endpoint responds to. Values: `get`, `post`, `put`, `patch`, `delete`. |
 | `action` | enum | *(required)* | What this endpoint does. One of: `crud`, `proxy`, `static`, `custom_response`. |
 | `auth` | string | `"none"` | Authentication method. Must be `"none"` or the name of a provider defined in the `auth` section: `"jwt"`, `"api_key"`, `"basic"`, `"oauth2"`. |
 | `roles` | list of strings | *(optional)* | Roles allowed to access this endpoint. If omitted, any authenticated user is allowed. Only meaningful when `auth` is not `"none"`. |
@@ -675,7 +675,7 @@ Automatically map HTTP methods to SQL operations on a defined table.
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `table` | string | *(required)* | Table name. Must match a key in the `tables` section. |
-| `database` | string | table's `database` or `"main"` | Which named database to query. Must match a key in `databases`. |
+| `database` | string | *(required)* | Which named database to query. Must match a key in `databases`. |
 | `fields` | list of strings | `["*"]` | Columns to include in GET responses. Use `["*"]` for all columns. This controls what data is returned to the client - use it to exclude sensitive fields like `password_hash`. |
 | `writable_fields` | list of strings | *(all non-PK)* | Columns that can be set via POST/PUT/PATCH. If omitted, all non-primary-key columns are writable. Use this to prevent clients from setting fields like `created_at` or `id`. |
 
