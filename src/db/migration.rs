@@ -37,6 +37,11 @@ use crate::error::AppError;
 ///
 /// Returns `AppError::Database` if any SQL statement fails, or `AppError::Internal`
 /// if a referenced database pool is missing.
+///
+/// The `implicit_hasher` allow is needed because the function uses `HashMap::get()`
+/// on both `pools` and `databases` to look up entries by string key, which invokes
+/// the default `DefaultHasher`. Using an explicit `RandomState` in the parameter
+/// types would be verbose without adding safety (the keys are strings, not secrets).
 #[allow(clippy::implicit_hasher)]
 pub async fn run_migrations(
     tables: &[TableConfig],

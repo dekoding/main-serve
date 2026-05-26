@@ -50,6 +50,11 @@ pub fn extract_relative_path(request_path: &str, endpoint_path: &str) -> String 
 ///
 /// Returns `AppError::Auth` if authentication fails.
 /// Returns `AppError::Config` if the auth config is missing.
+///
+/// The `implicit_hasher` allow is needed because the function passes
+/// `query_params` (a `&HashMap<String, String>`) to `validate::authenticate`,
+/// which invokes the default `DefaultHasher` for lookups. An explicit
+/// `RandomState` type parameter would be verbose without practical benefit.
 #[allow(clippy::implicit_hasher)]
 pub async fn extract_auth_info(
     state: &AppState,
@@ -100,6 +105,11 @@ pub fn check_upload_role(
 /// Returns `AppError::Internal` if the static config is missing or the root
 /// directory does not exist. Returns `AppError::NotFound` if the requested
 /// file cannot be found. Returns `AppError::Forbidden` on path traversal attempts.
+///
+/// The `implicit_hasher` allow is needed because the function receives a
+/// `Query<HashMap<String, String>>` parameter. While axum's Query extractor
+/// handles parsing, the parameter type itself triggers the lint since it
+/// is later passed to internal functions that use HashMap lookups.
 #[allow(clippy::implicit_hasher)]
 pub async fn handle_static_files(
     state: State<AppState>,
