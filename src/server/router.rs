@@ -649,37 +649,3 @@ async fn run_pre_checks(
 
     Ok(auth_info)
 }
-
-// /// Route a handler to a specific HTTP method on a path.
-// ///
-// /// If a per-endpoint CORS config is provided, it is applied as a route-level
-// /// layer by nesting the route in a sub-router, overriding the global CORS config.
-// fn route_method<F>(
-//     mut app: Router<AppState>,
-//     path: &str,
-//     method: HttpMethod,
-//     handler: F,
-//     cors_override: Option<&crate::config::types::CorsConfig>,
-// ) -> Router<AppState>
-// where
-//     F: axum::handler::Handler<(), AppState> + Clone + Send + 'static,
-// {
-//     let method_router = match method {
-//         HttpMethod::Get => axum::routing::get(handler.clone()),
-//         HttpMethod::Post => axum::routing::post(handler.clone()),
-//         HttpMethod::Put => axum::routing::put(handler.clone()),
-//         HttpMethod::Patch => axum::routing::patch(handler.clone()),
-//         HttpMethod::Delete => axum::routing::delete(handler.clone()),
-//         HttpMethod::Head => axum::routing::head(handler.clone()),
-//         HttpMethod::Options => axum::routing::options(handler.clone()),
-//     };
-
-//     if let Some(cors_config) = cors_override {
-//         let sub = Router::<AppState>::new()
-//             .route(path, method_router)
-//             .layer(build_cors_layer(cors_config));
-//         app.merge(sub)
-//     } else {
-//         app.route(path, method_router)
-//     }
-// }
