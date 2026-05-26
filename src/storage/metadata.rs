@@ -45,6 +45,14 @@ pub struct DirEntry {
     pub size: u64,
     /// Full path to the entry (if available).
     pub path: PathBuf,
+    /// Unix file mode (permissions + file type bits).
+    pub mode: u32,
+    /// Numeric user ID (UID).
+    pub uid: u32,
+    /// Numeric group ID (GID).
+    pub gid: u32,
+    /// Last modification time, if available.
+    pub modified: Option<std::time::SystemTime>,
 }
 
 impl DirEntry {
@@ -55,12 +63,40 @@ impl DirEntry {
             is_dir,
             size,
             path: PathBuf::new(),
+            mode: 0,
+            uid: 0,
+            gid: 0,
+            modified: None,
         }
     }
 
     /// Set the full path for this entry.
     pub fn with_path(mut self, path: PathBuf) -> Self {
         self.path = path;
+        self
+    }
+
+    /// Set the Unix mode bits for this entry.
+    pub fn with_mode(mut self, mode: u32) -> Self {
+        self.mode = mode;
+        self
+    }
+
+    /// Set the UID for this entry.
+    pub fn with_uid(mut self, uid: u32) -> Self {
+        self.uid = uid;
+        self
+    }
+
+    /// Set the GID for this entry.
+    pub fn with_gid(mut self, gid: u32) -> Self {
+        self.gid = gid;
+        self
+    }
+
+    /// Set the last modification time for this entry.
+    pub fn with_modified(mut self, modified: Option<std::time::SystemTime>) -> Self {
+        self.modified = modified;
         self
     }
 
