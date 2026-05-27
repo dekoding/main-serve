@@ -80,7 +80,6 @@ pub async fn handle_crud(
                     }
                 };
 
-            eprintln!("DEBUG SQL: {} | params: {:?}", built.sql, built.params);
             let rows = match pool.fetch_all_json(&built.sql, &built.params).await {
                 Ok(r) => r,
                 Err(e) => {
