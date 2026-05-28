@@ -417,7 +417,7 @@ mod tests {
             .write(&dir_path.join("file.txt"), b"data")
             .await
             .unwrap();
-       let result = storage.remove_dir(&dir_path).await;
+        let result = storage.remove_dir(&dir_path).await;
         // Native remove_dir rejects non-empty directories; the directory must still exist
         assert!(result.is_err());
         assert!(storage.exists(&dir_path).await);

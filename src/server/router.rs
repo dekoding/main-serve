@@ -1,6 +1,6 @@
 use futures_util::future::FutureExt;
-use tower_http::compression::CompressionLayer;
 use std::collections::HashMap;
+use tower_http::compression::CompressionLayer;
 
 use axum::Router;
 use axum::body::Body;
