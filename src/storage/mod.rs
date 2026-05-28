@@ -87,3 +87,38 @@ pub fn get_backend(backend_type: &str) -> Result<Box<dyn Storage>> {
         other => Err(StorageError::InvalidBackend(other.to_string())),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_backend_native() {
+        let result = get_backend("native");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_get_backend_default_empty_string() {
+        let result = get_backend("");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_get_backend_memory() {
+        let result = get_backend("memory");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_get_backend_invalid() {
+        let result = get_backend("invalid_backend");
+        assert!(matches!(result, Err(StorageError::InvalidBackend(_))));
+    }
+
+    #[test]
+    fn test_get_backend_unknown() {
+        let result = get_backend("s3");
+        assert!(result.is_err());
+    }
+}
