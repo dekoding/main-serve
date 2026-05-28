@@ -673,9 +673,11 @@ pub fn is_valid_expression(s: &str) -> bool {
 
     // 6. Whitelist of allowed characters.
     // Added '#' to support PostgreSQL JSONB operators like #> and #>>.
-    // Added '[' and ']' to support bracket notation
+    // Added '[' and ']' to support bracket notation.
+    // Whitespace is not allowed - expressions with spaces produce malformed SQL
+    // and can be used to inject additional SQL tokens.
     s.chars()
-        .all(|c| c.is_alphanumeric() || c.is_whitespace() || "_.,()=<>+-*/'#[]".contains(c))
+        .all(|c| c.is_alphanumeric() || "_.,()=<>+-*/'#[]".contains(c))
 }
 
 // =============================================================================
@@ -1414,9 +1416,10 @@ mod tests {
     }
 
     #[test]
-    fn test_is_valid_expression_safe_with_spaces() {
-        // Whitespace is allowed in the fallback whitelist
-        assert!(is_valid_expression("metadata . role"));
+    fn test_is_valid_expression_rejects_spaces() {
+        // Whitespace is not allowed in expressions to prevent malformed SQL.
+        // Expressions with spaces would produce invalid SQL and should be rejected.
+        assert!(!is_valid_expression("metadata . role"));
     }
 
     #[test]
