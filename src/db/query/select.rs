@@ -280,7 +280,7 @@ impl SelectBuilder {
                 let exists_cond =
                     self.build_exists(is_jsonb_field, &base_column, &path_str, behavior)?;
                 self.conditions.push(exists_cond);
-                // Exists generates IS NOT NULL — skip parameter addition
+                // Exists generates IS NOT NULL - skip parameter addition
                 return Ok(());
             }
             FilterOperator::Eq => self.build_comparison(

@@ -296,21 +296,34 @@ fn interpolate_env_vars(input: &str) -> Result<String, AppError> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
     use super::*;
+
+    /// Serializes all env-var-mutating tests so they never run in parallel.
+    /// Environment variables are process-global, so concurrent tests can
+    /// stomp on each other's state.
+    fn env_lock() -> &'static Mutex<()> {
+        use std::sync::OnceLock;
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     #[test]
     fn test_interpolate_with_set_var() {
-        // SAFETY: test-only, single-threaded test runner
+        let _lock = env_lock().lock().unwrap();
+        // SAFETY: test-only code, serialized by env_lock mutex
         unsafe { std::env::set_var("TEST_INTERP_VAR", "hello") };
         let result = interpolate_env_vars("value: ${TEST_INTERP_VAR}").unwrap();
         assert_eq!(result, "value: hello");
-        // SAFETY: test-only, single-threaded test runner
+        // SAFETY: test-only code, serialized by env_lock mutex
         unsafe { std::env::remove_var("TEST_INTERP_VAR") };
     }
 
     #[test]
     fn test_interpolate_with_default() {
-        // SAFETY: test-only, single-threaded test runner
+        let _lock = env_lock().lock().unwrap();
+        // SAFETY: test-only code, serialized by env_lock mutex
         unsafe { std::env::remove_var("TEST_MISSING_VAR") };
         let result = interpolate_env_vars("value: ${TEST_MISSING_VAR:-fallback}").unwrap();
         assert_eq!(result, "value: fallback");
@@ -318,7 +331,8 @@ mod tests {
 
     #[test]
     fn test_interpolate_missing_no_default() {
-        // SAFETY: test-only, single-threaded test runner
+        let _lock = env_lock().lock().unwrap();
+        // SAFETY: test-only code, serialized by env_lock mutex
         unsafe { std::env::remove_var("TEST_REQUIRED_VAR_MISSING") };
         let err = interpolate_env_vars("value: ${TEST_REQUIRED_VAR_MISSING}").unwrap_err();
         assert!(
@@ -329,14 +343,15 @@ mod tests {
 
     #[test]
     fn test_interpolate_multiple() {
-        // SAFETY: test-only
+        let _lock = env_lock().lock().unwrap();
+        // SAFETY: test-only code, serialized by env_lock mutex
         unsafe {
             std::env::set_var("TEST_A", "aaa");
             std::env::set_var("TEST_B", "bbb");
         }
         let result = interpolate_env_vars("a: ${TEST_A}, b: ${TEST_B}").unwrap();
         assert_eq!(result, "a: aaa, b: bbb");
-        // SAFETY: test-only, single-threaded test runner
+        // SAFETY: test-only code, serialized by env_lock mutex
         unsafe {
             std::env::remove_var("TEST_A");
             std::env::remove_var("TEST_B");

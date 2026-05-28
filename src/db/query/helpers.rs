@@ -781,8 +781,6 @@ mod tests {
         }
     }
 
-    // ── resolve_writable / resolve_fields ──────────────────────────────────
-
     #[test]
     fn test_resolve_wildcard_fields() {
         let table = test_table();
@@ -805,8 +803,6 @@ mod tests {
         assert_eq!(resolved, vec!["title"]);
     }
 
-    // ── find_pk_column ─────────────────────────────────────────────────────
-
     #[test]
     fn test_find_pk_column_found() {
         let table = test_table();
@@ -819,8 +815,6 @@ mod tests {
         table.columns.iter_mut().for_each(|c| c.primary_key = false);
         assert!(find_pk_column(&table).is_err());
     }
-
-    // ── coerce_pk_value ────────────────────────────────────────────────────
 
     #[test]
     fn test_coerce_pk_value_integer() {
@@ -843,8 +837,6 @@ mod tests {
         let table = test_table();
         assert_eq!(coerce_pk_value(&table, "-7"), serde_json::json!(-7i64));
     }
-
-    // ── coerce_filter_value ────────────────────────────────────────────────
 
     #[test]
     fn test_coerce_filter_value_null() {
@@ -890,8 +882,6 @@ mod tests {
         let val = coerce_filter_value("1e400");
         assert!(matches!(val, serde_json::Value::String(_)));
     }
-
-    // ── coerce_filter_value_by_type ────────────────────────────────────────
 
     #[test]
     fn test_coerce_by_type_integer_valid() {
@@ -947,8 +937,6 @@ mod tests {
         assert!(matches!(val, serde_json::Value::Null));
     }
 
-    // ── build_filter_param ─────────────────────────────────────────────────
-
     #[test]
     fn test_build_filter_param_with_type() {
         let table = float_table();
@@ -962,8 +950,6 @@ mod tests {
         let val = build_filter_param("hello", None, DatabaseDriver::Sqlite);
         assert_eq!(val, serde_json::json!("hello"));
     }
-
-    // ── parse_filter_key ───────────────────────────────────────────────────
 
     #[test]
     fn test_parse_filter_key_simple_eq() {
@@ -1024,8 +1010,6 @@ mod tests {
         let err = parse_filter_key("field[foo]").unwrap_err();
         assert!(err.to_string().contains("Unsupported operator"));
     }
-
-    // ── interpolate_value / resolve_single_key ─────────────────────────────
 
     fn test_context() -> RequestContext {
         RequestContext {
@@ -1114,8 +1098,6 @@ mod tests {
         assert_eq!(resolve_single_key("unknown.key", &ctx), None);
     }
 
-    // ── placeholder ────────────────────────────────────────────────────────
-
     #[test]
     fn test_placeholder_sqlite() {
         assert_eq!(placeholder(DatabaseDriver::Sqlite, 1), "?");
@@ -1132,8 +1114,6 @@ mod tests {
     fn test_placeholder_mysql() {
         assert_eq!(placeholder(DatabaseDriver::Mysql, 1), "?");
     }
-
-    // ── is_valid_identifier ────────────────────────────────────────────────
 
     #[test]
     fn test_is_valid_identifier() {
@@ -1152,8 +1132,6 @@ mod tests {
         // Hyphens ARE allowed in identifiers (MySQL-style backtick-optional names)
         assert!(is_valid_identifier("field--comment"));
     }
-
-    // ── is_jsonb_path / is_bracket_notation ────────────────────────────────
 
     #[test]
     fn test_is_jsonb_path_true() {
@@ -1178,8 +1156,6 @@ mod tests {
         assert!(!is_bracket_notation("metadata.role"));
         assert!(!is_bracket_notation("title"));
     }
-
-    // ── parse_sort_field ───────────────────────────────────────────────────
 
     #[test]
     fn test_parse_sort_field_simple() {
@@ -1216,8 +1192,6 @@ mod tests {
         assert_eq!(path, vec!["b", "c", "d"]);
     }
 
-    // ── column_exists ──────────────────────────────────────────────────────
-
     #[test]
     fn test_column_exists_found() {
         let table = test_table();
@@ -1231,8 +1205,6 @@ mod tests {
         assert!(!column_exists("nonexistent", &table.columns));
     }
 
-    // ── is_jsonb_column ────────────────────────────────────────────────────
-
     #[test]
     fn test_is_jsonb_column_true() {
         let table = jsonb_table();
@@ -1245,8 +1217,6 @@ mod tests {
         assert!(!is_jsonb_column("title", &table.columns));
         assert!(!is_jsonb_column("nonexistent", &table.columns));
     }
-
-    // ── is_valid_sort_field / is_valid_filter_column ───────────────────────
 
     #[test]
     fn test_is_valid_sort_field_regular_column() {
@@ -1291,8 +1261,6 @@ mod tests {
         assert!(!is_valid_filter_column("nonexistent", &table.columns));
     }
 
-    // ── extract_base_column ────────────────────────────────────────────────
-
     #[test]
     fn test_extract_base_column_simple() {
         assert_eq!(extract_base_column("title"), "title");
@@ -1323,8 +1291,6 @@ mod tests {
         assert_eq!(extract_base_column("metadata#>>'{role}'"), "metadata");
     }
 
-    // ── extract_jsonb_path ─────────────────────────────────────────────────
-
     #[test]
     fn test_extract_jsonb_path_single() {
         assert_eq!(extract_jsonb_path("metadata.role"), "$.role");
@@ -1347,9 +1313,6 @@ mod tests {
     fn test_extract_jsonb_path_no_path() {
         assert_eq!(extract_jsonb_path("metadata"), "$");
     }
-
-    // ── is_valid_expression ────────────────────────────────────────────────
-    // These are the critical security tests — the SQL injection guard.
 
     #[test]
     fn test_is_valid_expression_safe_simple() {
