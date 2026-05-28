@@ -21,12 +21,6 @@ impl MemoryStorage {
             dirs: Arc::new(RwLock::new(HashMap::new())),
         }
     }
-
-    /// Clear all data from the storage.
-    pub fn clear(&self) {
-        self.data.write().unwrap().clear();
-        self.dirs.write().unwrap().clear();
-    }
 }
 
 impl Default for MemoryStorage {
@@ -40,7 +34,10 @@ impl Storage for MemoryStorage {
     async fn exists(&self, path: &Path) -> bool {
         let data = self.data.read().unwrap();
         let dirs = self.dirs.read().unwrap();
-        data.contains_key(path) || dirs.contains_key(path)
+        data.contains_key(path)
+            || dirs.contains_key(path)
+            // A directory "exists" if any file path starts with it
+            || data.keys().any(|k| k.starts_with(path) && k != path)
     }
 
     async fn is_file(&self, path: &Path) -> bool {
@@ -184,17 +181,26 @@ impl Storage for MemoryStorage {
     }
 
     async fn create_dir(&self, path: &Path) -> Result<()> {
-        let mut dirs = self.dirs.write().unwrap();
-        if dirs.contains_key(path) {
+        // Check if path already exists in dirs
+        if self.dirs.read().unwrap().contains_key(path) {
             return Err(StorageError::AlreadyExists(path.to_path_buf()));
         }
+        // The root path "/" always implicitly exists.
+        // For other paths, check if the parent directory exists (either in dirs or implied by files)
         if let Some(parent) = path.parent()
-            && !dirs.contains_key(parent)
-            && !self.dirs.read().unwrap().contains_key(parent)
+            && parent != Path::new("/")
         {
-            return Err(StorageError::NotFound(parent.to_path_buf()));
+            let has_parent = {
+                let dirs = self.dirs.read().unwrap();
+                let data = self.data.read().unwrap();
+                dirs.contains_key(parent)
+                    || data.keys().any(|k| k.starts_with(parent) && k != parent)
+            };
+            if !has_parent {
+                return Err(StorageError::NotFound(parent.to_path_buf()));
+            }
         }
-        dirs.insert(path.to_path_buf(), ());
+        self.dirs.write().unwrap().insert(path.to_path_buf(), ());
         Ok(())
     }
 
@@ -267,14 +273,17 @@ impl Storage for MemoryStorage {
     }
 
     async fn copy(&self, from: &Path, to: &Path) -> Result<()> {
-        let data = self.data.read().unwrap();
-        let contents = data
-            .get(from)
-            .cloned()
-            .ok_or_else(|| StorageError::NotFound(from.to_path_buf()))?;
-
-        let mut data_write = self.data.write().unwrap();
-        data_write.insert(to.to_path_buf(), contents);
+        let contents = {
+            let data = self.data.read().unwrap();
+            data.get(from)
+                .cloned()
+                .ok_or_else(|| StorageError::NotFound(from.to_path_buf()))?
+        };
+        // Read lock dropped above; now acquire write lock to insert
+        self.data
+            .write()
+            .unwrap()
+            .insert(to.to_path_buf(), contents);
         Ok(())
     }
 
@@ -288,5 +297,418 @@ impl Storage for MemoryStorage {
         data.get(path)
             .map(|v| v.len() as u64)
             .ok_or_else(|| StorageError::NotFound(path.to_path_buf()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::Storage;
+
+    #[tokio::test]
+    async fn test_write_and_read() {
+        let storage = MemoryStorage::new();
+        let path = PathBuf::from("/test/hello.txt");
+        let contents = b"Hello, world!";
+        storage.write(&path, contents).await.unwrap();
+        let result = storage.read(&path).await.unwrap();
+        assert_eq!(result, contents);
+    }
+
+    #[tokio::test]
+    async fn test_read_nonexistent() {
+        let storage = MemoryStorage::new();
+        let path = PathBuf::from("/nonexistent.txt");
+        let result = storage.read(&path).await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), StorageError::NotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn test_exists() {
+        let storage = MemoryStorage::new();
+        let path = PathBuf::from("/exists.txt");
+        assert!(!storage.exists(&path).await);
+        storage.write(&path, b"data").await.unwrap();
+        assert!(storage.exists(&path).await);
+    }
+
+    #[tokio::test]
+    async fn test_is_file() {
+        let storage = MemoryStorage::new();
+        let path = PathBuf::from("/file.txt");
+        storage.write(&path, b"data").await.unwrap();
+        assert!(storage.is_file(&path).await);
+        assert!(!storage.is_file(&PathBuf::from("/nonexistent.txt")).await);
+    }
+
+    #[tokio::test]
+    async fn test_is_dir() {
+        let storage = MemoryStorage::new();
+        let path = PathBuf::from("/mydir");
+        storage.create_dir(&path).await.unwrap();
+        assert!(storage.is_dir(&path).await);
+        assert!(!storage.is_dir(&PathBuf::from("/nonexistent")).await);
+    }
+
+    #[tokio::test]
+    async fn test_write_overwrite() {
+        let storage = MemoryStorage::new();
+        let path = PathBuf::from("/overwrite.txt");
+        storage.write(&path, b"first").await.unwrap();
+        storage.write(&path, b"second").await.unwrap();
+        let result = storage.read(&path).await.unwrap();
+        assert_eq!(result, b"second");
+    }
+
+    #[tokio::test]
+    async fn test_append_creates_file() {
+        let storage = MemoryStorage::new();
+        let path = PathBuf::from("/append_test.txt");
+        storage.append(&path, b"part1").await.unwrap();
+        storage.append(&path, b"part2").await.unwrap();
+        let result = storage.read(&path).await.unwrap();
+        assert_eq!(result, b"part1part2");
+    }
+
+    #[tokio::test]
+    async fn test_append_existing_file() {
+        let storage = MemoryStorage::new();
+        let path = PathBuf::from("/append_existing.txt");
+        storage.write(&path, b"first").await.unwrap();
+        storage.append(&path, b"second").await.unwrap();
+        let result = storage.read(&path).await.unwrap();
+        assert_eq!(result, b"firstsecond");
+    }
+
+    #[tokio::test]
+    async fn test_delete_file() {
+        let storage = MemoryStorage::new();
+        let path = PathBuf::from("/delete.txt");
+        storage.write(&path, b"data").await.unwrap();
+        storage.delete(&path).await.unwrap();
+        assert!(!storage.exists(&path).await);
+    }
+
+    #[tokio::test]
+    async fn test_delete_nonexistent() {
+        let storage = MemoryStorage::new();
+        let result = storage.delete(&PathBuf::from("/nonexistent.txt")).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_delete_dir_removes_children() {
+        let storage = MemoryStorage::new();
+        storage
+            .write(&PathBuf::from("/dir/file1.txt"), b"data1")
+            .await
+            .unwrap();
+        storage
+            .write(&PathBuf::from("/dir/file2.txt"), b"data2")
+            .await
+            .unwrap();
+        storage.create_dir(&PathBuf::from("/dir")).await.unwrap();
+        storage.delete(&PathBuf::from("/dir")).await.unwrap();
+        assert!(!storage.exists(&PathBuf::from("/dir")).await);
+        assert!(!storage.exists(&PathBuf::from("/dir/file1.txt")).await);
+        assert!(!storage.exists(&PathBuf::from("/dir/file2.txt")).await);
+    }
+
+    #[tokio::test]
+    async fn test_metadata_file() {
+        let storage = MemoryStorage::new();
+        let path = PathBuf::from("/meta_file.txt");
+        let contents = b"metadata test content";
+        storage.write(&path, contents).await.unwrap();
+        let meta = storage.metadata(&path).await.unwrap();
+        assert!(meta.is_file);
+        assert!(!meta.is_dir());
+        assert_eq!(meta.size, contents.len() as u64);
+        assert_eq!(meta.name, "meta_file.txt");
+    }
+
+    #[tokio::test]
+    async fn test_metadata_dir() {
+        let storage = MemoryStorage::new();
+        let path = PathBuf::from("/meta_dir");
+        storage.create_dir(&path).await.unwrap();
+        let meta = storage.metadata(&path).await.unwrap();
+        assert!(!meta.is_file);
+        assert!(meta.is_dir());
+        assert_eq!(meta.size, 0);
+        assert_eq!(meta.name, "meta_dir");
+    }
+
+    #[tokio::test]
+    async fn test_metadata_nonexistent() {
+        let storage = MemoryStorage::new();
+        let result = storage.metadata(&PathBuf::from("/nonexistent")).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_create_dir() {
+        let storage = MemoryStorage::new();
+        storage.create_dir(&PathBuf::from("/mydir")).await.unwrap();
+        assert!(storage.is_dir(&PathBuf::from("/mydir")).await);
+    }
+
+    #[tokio::test]
+    async fn test_create_dir_already_exists() {
+        let storage = MemoryStorage::new();
+        storage.create_dir(&PathBuf::from("/mydir")).await.unwrap();
+        let result = storage.create_dir(&PathBuf::from("/mydir")).await;
+        assert!(matches!(
+            result.unwrap_err(),
+            StorageError::AlreadyExists(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_create_dir_no_parent() {
+        let storage = MemoryStorage::new();
+        let result = storage.create_dir(&PathBuf::from("/nonexistent/dir")).await;
+        assert!(matches!(result.unwrap_err(), StorageError::NotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn test_create_dir_all() {
+        let storage = MemoryStorage::new();
+        storage
+            .create_dir_all(&PathBuf::from("/a/b/c"))
+            .await
+            .unwrap();
+        assert!(storage.is_dir(&PathBuf::from("/a")).await);
+        assert!(storage.is_dir(&PathBuf::from("/a/b")).await);
+        assert!(storage.is_dir(&PathBuf::from("/a/b/c")).await);
+    }
+
+    #[tokio::test]
+    async fn test_remove_dir_empty() {
+        let storage = MemoryStorage::new();
+        storage
+            .create_dir(&PathBuf::from("/empty_dir"))
+            .await
+            .unwrap();
+        storage
+            .remove_dir(&PathBuf::from("/empty_dir"))
+            .await
+            .unwrap();
+        assert!(!storage.exists(&PathBuf::from("/empty_dir")).await);
+    }
+
+    #[tokio::test]
+    async fn test_remove_dir_not_empty() {
+        let storage = MemoryStorage::new();
+        storage.create_dir(&PathBuf::from("/dir")).await.unwrap();
+        storage
+            .write(&PathBuf::from("/dir/file.txt"), b"data")
+            .await
+            .unwrap();
+        let result = storage.remove_dir(&PathBuf::from("/dir")).await;
+        assert!(matches!(
+            result.unwrap_err(),
+            StorageError::DirectoryNotEmpty(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_remove_dir_nonexistent() {
+        let storage = MemoryStorage::new();
+        let result = storage.remove_dir(&PathBuf::from("/nonexistent")).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_remove_dir_all() {
+        let storage = MemoryStorage::new();
+        storage
+            .write(&PathBuf::from("/dir/file1.txt"), b"data1")
+            .await
+            .unwrap();
+        storage
+            .write(&PathBuf::from("/dir/file2.txt"), b"data2")
+            .await
+            .unwrap();
+        storage
+            .create_dir(&PathBuf::from("/dir/subdir"))
+            .await
+            .unwrap();
+        storage
+            .write(&PathBuf::from("/dir/subdir/file3.txt"), b"data3")
+            .await
+            .unwrap();
+        storage
+            .remove_dir_all(&PathBuf::from("/dir"))
+            .await
+            .unwrap();
+        assert!(!storage.exists(&PathBuf::from("/dir")).await);
+        assert!(!storage.exists(&PathBuf::from("/dir/file1.txt")).await);
+        assert!(!storage.exists(&PathBuf::from("/dir/subdir")).await);
+    }
+
+    #[tokio::test]
+    async fn test_rename_file() {
+        let storage = MemoryStorage::new();
+        let from = PathBuf::from("/old.txt");
+        let to = PathBuf::from("/new.txt");
+        storage.write(&from, b"data").await.unwrap();
+        storage.rename(&from, &to).await.unwrap();
+        assert!(!storage.exists(&from).await);
+        assert!(storage.exists(&to).await);
+        assert_eq!(storage.read(&to).await.unwrap(), b"data");
+    }
+
+    #[tokio::test]
+    async fn test_rename_dir() {
+        let storage = MemoryStorage::new();
+        let from = PathBuf::from("/olddir");
+        let to = PathBuf::from("/newdir");
+        storage.create_dir(&from).await.unwrap();
+        storage.rename(&from, &to).await.unwrap();
+        assert!(!storage.exists(&from).await);
+        assert!(storage.is_dir(&to).await);
+    }
+
+    #[tokio::test]
+    async fn test_rename_nonexistent() {
+        let storage = MemoryStorage::new();
+        let result = storage
+            .rename(
+                &PathBuf::from("/nonexistent.txt"),
+                &PathBuf::from("/new.txt"),
+            )
+            .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_copy_file() {
+        let storage = MemoryStorage::new();
+        let from = PathBuf::from("/source.txt");
+        let to = PathBuf::from("/dest.txt");
+        storage.write(&from, b"copy me").await.unwrap();
+        storage.copy(&from, &to).await.unwrap();
+        assert!(storage.exists(&to).await);
+        assert_eq!(storage.read(&to).await.unwrap(), b"copy me");
+        assert_eq!(storage.read(&from).await.unwrap(), b"copy me");
+    }
+
+    #[tokio::test]
+    async fn test_copy_nonexistent_source() {
+        let storage = MemoryStorage::new();
+        let result = storage
+            .copy(
+                &PathBuf::from("/nonexistent.txt"),
+                &PathBuf::from("/dest.txt"),
+            )
+            .await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_canonicalize() {
+        let storage = MemoryStorage::new();
+        let path = PathBuf::from("/foo/bar/baz.txt");
+        let result = storage.canonicalize(&path).await.unwrap();
+        assert_eq!(result, path);
+    }
+
+    #[tokio::test]
+    async fn test_size() {
+        let storage = MemoryStorage::new();
+        let path = PathBuf::from("/size_test.txt");
+        let contents = b"12345";
+        storage.write(&path, contents).await.unwrap();
+        let size = storage.size(&path).await.unwrap();
+        assert_eq!(size, 5);
+    }
+
+    #[tokio::test]
+    async fn test_size_nonexistent() {
+        let storage = MemoryStorage::new();
+        let result = storage.size(&PathBuf::from("/nonexistent.txt")).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_list_empty_dir() {
+        let storage = MemoryStorage::new();
+        storage.create_dir(&PathBuf::from("/empty")).await.unwrap();
+        let entries = storage.list(&PathBuf::from("/empty")).await.unwrap();
+        assert!(entries.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_list_files_and_dirs() {
+        let storage = MemoryStorage::new();
+        storage
+            .create_dir(&PathBuf::from("/list_dir"))
+            .await
+            .unwrap();
+        storage
+            .write(&PathBuf::from("/list_dir/file1.txt"), b"data")
+            .await
+            .unwrap();
+        storage
+            .write(&PathBuf::from("/list_dir/file2.txt"), b"data")
+            .await
+            .unwrap();
+        storage
+            .create_dir(&PathBuf::from("/list_dir/subdir"))
+            .await
+            .unwrap();
+        let entries = storage.list(&PathBuf::from("/list_dir")).await.unwrap();
+        assert_eq!(entries.len(), 3);
+        // Verify sorted order
+        assert_eq!(entries[0].name, "file1.txt");
+        assert_eq!(entries[1].name, "file2.txt");
+        assert_eq!(entries[2].name, "subdir");
+        // Check modes
+        assert_eq!(entries[0].mode, 0o100644);
+        assert_eq!(entries[2].mode, 0o40755);
+    }
+
+    #[tokio::test]
+    async fn test_list_sorted() {
+        let storage = MemoryStorage::new();
+        storage
+            .write(&PathBuf::from("/sort/z.txt"), b"a")
+            .await
+            .unwrap();
+        storage
+            .write(&PathBuf::from("/sort/a.txt"), b"b")
+            .await
+            .unwrap();
+        storage
+            .write(&PathBuf::from("/sort/m.txt"), b"c")
+            .await
+            .unwrap();
+        let entries = storage.list(&PathBuf::from("/sort")).await.unwrap();
+        assert_eq!(entries[0].name, "a.txt");
+        assert_eq!(entries[1].name, "m.txt");
+        assert_eq!(entries[2].name, "z.txt");
+    }
+
+    #[tokio::test]
+    async fn test_default() {
+        let storage = MemoryStorage::default();
+        let path = PathBuf::from("/default.txt");
+        storage.write(&path, b"test").await.unwrap();
+        assert!(storage.exists(&path).await);
+    }
+
+    #[tokio::test]
+    async fn test_memory_storage_not_supported_for_open() {
+        let storage = MemoryStorage::new();
+        let result = storage.open(&PathBuf::from("/test.txt")).await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            StorageError::Internal(msg) => {
+                assert!(msg.contains("open() not supported"));
+            }
+            _ => panic!("expected Internal error for open()"),
+        }
     }
 }
