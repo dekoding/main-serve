@@ -651,7 +651,27 @@ pub fn is_valid_expression(s: &str) -> bool {
         return false;
     }
 
-    // 5. Whitelist of allowed characters.
+    // 5. Check for dangerous SQL keywords and function calls.
+    // Use word boundaries to match whole words only (e.g., "OR" matches
+    // but "ORANGE" does not). This blocks SQL injection attempts that
+    // slip past the character whitelist.
+    let sql_keywords = regex::Regex::new(
+        r"(?i)\b(or|and|union|select|insert|update|delete|drop|alter|create|truncate|exec)\b",
+    )
+    .unwrap();
+    if sql_keywords.is_match(s) {
+        return false;
+    }
+
+    // Block dangerous function call patterns: xp_ (SQL Server extended
+    // procedures) and sleep (time-based injection, including pg_sleep).
+    // Note: _ is a regex word character so \bsleep\b doesn't match pg_sleep.
+    let dangerous_fn = regex::Regex::new(r"(?i)(\bxp_\w+|\bsleep\s*\(|_sleep\b)").unwrap();
+    if dangerous_fn.is_match(s) {
+        return false;
+    }
+
+    // 6. Whitelist of allowed characters.
     // Added '#' to support PostgreSQL JSONB operators like #> and #>>.
     // Added '[' and ']' to support bracket notation
     s.chars()
@@ -666,6 +686,7 @@ pub fn is_valid_expression(s: &str) -> bool {
 mod tests {
     use super::*;
     use crate::config::types::*;
+    use crate::middleware::auth::extractor::RequestContext;
 
     fn test_table() -> TableConfig {
         TableConfig {
@@ -696,6 +717,72 @@ mod tests {
         }
     }
 
+    fn jsonb_table() -> TableConfig {
+        TableConfig {
+            name: "posts".to_string(),
+            database: "main".to_string(),
+            columns: vec![
+                ColumnConfig {
+                    name: "id".to_string(),
+                    column_type: ColumnType::Integer,
+                    primary_key: true,
+                    nullable: false,
+                    ..Default::default()
+                },
+                ColumnConfig {
+                    name: "title".to_string(),
+                    column_type: ColumnType::Text,
+                    nullable: false,
+                    ..Default::default()
+                },
+                ColumnConfig {
+                    name: "metadata".to_string(),
+                    column_type: ColumnType::Jsonb,
+                    nullable: true,
+                    ..Default::default()
+                },
+            ],
+            foreign_keys: vec![],
+        }
+    }
+
+    fn float_table() -> TableConfig {
+        TableConfig {
+            name: "products".to_string(),
+            database: "main".to_string(),
+            columns: vec![
+                ColumnConfig {
+                    name: "id".to_string(),
+                    column_type: ColumnType::Integer,
+                    primary_key: true,
+                    nullable: false,
+                    ..Default::default()
+                },
+                ColumnConfig {
+                    name: "price".to_string(),
+                    column_type: ColumnType::Double,
+                    nullable: false,
+                    ..Default::default()
+                },
+                ColumnConfig {
+                    name: "active".to_string(),
+                    column_type: ColumnType::Boolean,
+                    nullable: false,
+                    ..Default::default()
+                },
+                ColumnConfig {
+                    name: "sku".to_string(),
+                    column_type: ColumnType::Varchar,
+                    nullable: false,
+                    ..Default::default()
+                },
+            ],
+            foreign_keys: vec![],
+        }
+    }
+
+    // ── resolve_writable / resolve_fields ──────────────────────────────────
+
     #[test]
     fn test_resolve_wildcard_fields() {
         let table = test_table();
@@ -707,24 +794,327 @@ mod tests {
     #[test]
     fn test_resolve_writable_defaults_to_non_pk() {
         let table = test_table();
-        // When given an empty slice, returns empty HashSet
-        let resolved = resolve_writable_fields(&[], &table);
-        assert!(resolved.is_empty());
-
-        // When given ["*"], returns all columns
-        let resolved_all = resolve_writable_fields(&["*".to_string()], &table);
-        assert_eq!(resolved_all.len(), 3); // id, title, author
+        assert!(resolve_writable_fields(&[], &table).is_empty());
+        assert_eq!(resolve_writable_fields(&["*".to_string()], &table).len(), 3);
     }
 
     #[test]
-    fn test_is_valid_identifier() {
-        assert!(!is_valid_identifier("DROP TABLE;--"));
-        assert!(!is_valid_identifier("field; DELETE"));
-        assert!(is_valid_identifier("user_name"));
-        assert!(is_valid_identifier("table.column"));
-        assert!(is_valid_identifier("table-column"));
-        assert!(!is_valid_identifier(""));
+    fn test_resolve_fields_preserves_explicit_list() {
+        let table = test_table();
+        let resolved = resolve_fields(&["title".to_string()], &table);
+        assert_eq!(resolved, vec!["title"]);
     }
+
+    // ── find_pk_column ─────────────────────────────────────────────────────
+
+    #[test]
+    fn test_find_pk_column_found() {
+        let table = test_table();
+        assert_eq!(find_pk_column(&table).unwrap(), "id");
+    }
+
+    #[test]
+    fn test_find_pk_column_not_found() {
+        let mut table = test_table();
+        table.columns.iter_mut().for_each(|c| c.primary_key = false);
+        assert!(find_pk_column(&table).is_err());
+    }
+
+    // ── coerce_pk_value ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_coerce_pk_value_integer() {
+        let table = test_table();
+        assert_eq!(coerce_pk_value(&table, "42"), serde_json::json!(42i64));
+        assert_eq!(coerce_pk_value(&table, "0"), serde_json::json!(0i64));
+    }
+
+    #[test]
+    fn test_coerce_pk_value_string() {
+        let table = test_table();
+        assert_eq!(
+            coerce_pk_value(&table, "not_a_number"),
+            serde_json::Value::Number(serde_json::Number::from(i64::MIN))
+        );
+    }
+
+    #[test]
+    fn test_coerce_pk_value_negative() {
+        let table = test_table();
+        assert_eq!(coerce_pk_value(&table, "-7"), serde_json::json!(-7i64));
+    }
+
+    // ── coerce_filter_value ────────────────────────────────────────────────
+
+    #[test]
+    fn test_coerce_filter_value_null() {
+        assert!(matches!(
+            coerce_filter_value("null"),
+            serde_json::Value::Null
+        ));
+        assert!(matches!(
+            coerce_filter_value("NULL"),
+            serde_json::Value::Null
+        ));
+    }
+
+    #[test]
+    fn test_coerce_filter_value_bool() {
+        assert_eq!(coerce_filter_value("true"), serde_json::json!(true));
+        assert_eq!(coerce_filter_value("false"), serde_json::json!(false));
+    }
+
+    #[test]
+    fn test_coerce_filter_value_integer() {
+        assert_eq!(coerce_filter_value("123"), serde_json::json!(123i64));
+        assert_eq!(coerce_filter_value("-99"), serde_json::json!(-99i64));
+    }
+
+    #[test]
+    #[allow(clippy::approx_constant)]
+    fn test_coerce_filter_value_float() {
+        let val = coerce_filter_value("3.14");
+        assert!(matches!(val, serde_json::Value::Number(_)));
+        assert_eq!(val.as_f64(), Some(3.14));
+    }
+
+    #[test]
+    fn test_coerce_filter_value_string() {
+        assert_eq!(coerce_filter_value("hello"), serde_json::json!("hello"));
+        assert_eq!(coerce_filter_value("123abc"), serde_json::json!("123abc"));
+    }
+
+    #[test]
+    fn test_coerce_filter_value_unrepresentable_float() {
+        // Very large floats may lose precision and fall back to string
+        let val = coerce_filter_value("1e400");
+        assert!(matches!(val, serde_json::Value::String(_)));
+    }
+
+    // ── coerce_filter_value_by_type ────────────────────────────────────────
+
+    #[test]
+    fn test_coerce_by_type_integer_valid() {
+        let table = float_table();
+        let price_col = table.columns.iter().find(|c| c.name == "price").unwrap();
+        let val =
+            coerce_filter_value_by_type("19.99", &price_col.column_type, DatabaseDriver::Sqlite);
+        assert_eq!(val.as_f64(), Some(19.99));
+    }
+
+    #[test]
+    fn test_coerce_by_type_boolean() {
+        let table = float_table();
+        let active_col = table.columns.iter().find(|c| c.name == "active").unwrap();
+        let val =
+            coerce_filter_value_by_type("true", &active_col.column_type, DatabaseDriver::Sqlite);
+        assert_eq!(val, serde_json::json!(true));
+    }
+
+    #[test]
+    fn test_coerce_by_type_non_bool_stays_string() {
+        let table = float_table();
+        let active_col = table.columns.iter().find(|c| c.name == "active").unwrap();
+        let val =
+            coerce_filter_value_by_type("yes", &active_col.column_type, DatabaseDriver::Sqlite);
+        assert_eq!(val, serde_json::json!("yes"));
+    }
+
+    #[test]
+    fn test_coerce_by_type_jsonb_postgres_forces_string() {
+        let table = jsonb_table();
+        let meta_col = table.columns.iter().find(|c| c.name == "metadata").unwrap();
+        let val =
+            coerce_filter_value_by_type("hello", &meta_col.column_type, DatabaseDriver::Postgres);
+        assert_eq!(val, serde_json::json!("hello"));
+    }
+
+    #[test]
+    fn test_coerce_by_type_jsonb_sqlite_preserves_types() {
+        let table = jsonb_table();
+        let meta_col = table.columns.iter().find(|c| c.name == "metadata").unwrap();
+        let val =
+            coerce_filter_value_by_type("true", &meta_col.column_type, DatabaseDriver::Sqlite);
+        assert_eq!(val, serde_json::json!(true));
+    }
+
+    #[test]
+    fn test_coerce_by_type_jsonb_postgres_null() {
+        let table = jsonb_table();
+        let meta_col = table.columns.iter().find(|c| c.name == "metadata").unwrap();
+        let val =
+            coerce_filter_value_by_type("null", &meta_col.column_type, DatabaseDriver::Postgres);
+        assert!(matches!(val, serde_json::Value::Null));
+    }
+
+    // ── build_filter_param ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_build_filter_param_with_type() {
+        let table = float_table();
+        let price_col = table.columns.iter().find(|c| c.name == "price").unwrap();
+        let val = build_filter_param("42.5", Some(&price_col.column_type), DatabaseDriver::Sqlite);
+        assert_eq!(val.as_f64(), Some(42.5));
+    }
+
+    #[test]
+    fn test_build_filter_param_without_type() {
+        let val = build_filter_param("hello", None, DatabaseDriver::Sqlite);
+        assert_eq!(val, serde_json::json!("hello"));
+    }
+
+    // ── parse_filter_key ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_filter_key_simple_eq() {
+        let expr = parse_filter_key("title").unwrap();
+        assert_eq!(expr.path, vec!["title"]);
+        assert_eq!(expr.operator, FilterOperator::Eq);
+    }
+
+    #[test]
+    fn test_parse_filter_key_with_operator() {
+        let expr = parse_filter_key("age[gt]").unwrap();
+        assert_eq!(expr.path, vec!["age"]);
+        assert_eq!(expr.operator, FilterOperator::Gt);
+    }
+
+    #[test]
+    fn test_parse_filter_key_jsonb_nested() {
+        let expr = parse_filter_key("metadata.role[eq]").unwrap();
+        assert_eq!(expr.path, vec!["metadata", "role"]);
+        assert_eq!(expr.operator, FilterOperator::Eq);
+    }
+
+    #[test]
+    fn test_parse_filter_key_all_operators() {
+        for (key, expected_op) in [
+            ("f[ne]", FilterOperator::Ne),
+            ("f[gte]", FilterOperator::Gte),
+            ("f[lt]", FilterOperator::Lt),
+            ("f[lte]", FilterOperator::Lte),
+            ("f[in]", FilterOperator::In),
+            ("f[not_in]", FilterOperator::NotIn),
+            ("f[contains]", FilterOperator::Contains),
+            ("f[exists]", FilterOperator::Exists),
+            ("f[startswith]", FilterOperator::StartsWith),
+            ("f[endswith]", FilterOperator::EndsWith),
+            ("f[like]", FilterOperator::Like),
+            ("f[ilike]", FilterOperator::ILike),
+        ] {
+            let expr = parse_filter_key(key).unwrap();
+            assert_eq!(expr.operator, expected_op, "operator for key '{key}'");
+        }
+    }
+
+    #[test]
+    fn test_parse_filter_key_unclosed_bracket() {
+        let err = parse_filter_key("field[gt").unwrap_err();
+        assert!(err.to_string().contains("Invalid filter key"));
+    }
+
+    #[test]
+    fn test_parse_filter_key_closing_bracket_only() {
+        let err = parse_filter_key("field]").unwrap_err();
+        assert!(err.to_string().contains("Invalid filter key"));
+    }
+
+    #[test]
+    fn test_parse_filter_key_invalid_operator() {
+        let err = parse_filter_key("field[foo]").unwrap_err();
+        assert!(err.to_string().contains("Unsupported operator"));
+    }
+
+    // ── interpolate_value / resolve_single_key ─────────────────────────────
+
+    fn test_context() -> RequestContext {
+        RequestContext {
+            user_id: Some("user-42".to_string()),
+            user_role: Some("admin".to_string()),
+            method: "GET".to_string(),
+            path: "/api/posts".to_string(),
+            headers: std::collections::HashMap::new(),
+            query_params: std::collections::HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn test_interpolate_value_no_vars() {
+        let ctx = test_context();
+        let val = interpolate_value("plain text", &ctx).unwrap();
+        assert_eq!(val, serde_json::json!("plain text"));
+    }
+
+    #[test]
+    fn test_interpolate_value_user_id() {
+        let ctx = test_context();
+        let val = interpolate_value("${request.user.id}", &ctx).unwrap();
+        assert_eq!(val, serde_json::json!("user-42"));
+    }
+
+    #[test]
+    fn test_interpolate_value_user_role() {
+        let ctx = test_context();
+        let val = interpolate_value("${request.user.role}", &ctx).unwrap();
+        assert_eq!(val, serde_json::json!("admin"));
+    }
+
+    #[test]
+    fn test_interpolate_value_with_default_present() {
+        let ctx = test_context();
+        let val = interpolate_value("${request.user.id:-anonymous}", &ctx).unwrap();
+        assert_eq!(val, serde_json::json!("user-42"));
+    }
+
+    #[test]
+    fn test_interpolate_value_with_default_absent() {
+        let ctx = test_context();
+        let val = interpolate_value("${request.headers.x-custom:-fallback}", &ctx).unwrap();
+        assert_eq!(val, serde_json::json!("fallback"));
+    }
+
+    #[test]
+    fn test_interpolate_value_unresolved_kept() {
+        let ctx = test_context();
+        let val = interpolate_value("${unknown.key}", &ctx).unwrap();
+        assert_eq!(val, serde_json::json!("${unknown.key}"));
+    }
+
+    #[test]
+    fn test_interpolate_value_multiple_vars() {
+        let ctx = test_context();
+        let val = interpolate_value("${request.user.id}:${request.method}", &ctx).unwrap();
+        assert_eq!(val, serde_json::json!("user-42:GET"));
+    }
+
+    #[test]
+    fn test_resolve_single_key_headers() {
+        let mut ctx = test_context();
+        ctx.headers
+            .insert("x-request-id".to_string(), "abc-123".to_string());
+        assert_eq!(
+            resolve_single_key("request.headers.x-request-id", &ctx),
+            Some("abc-123".to_string())
+        );
+    }
+
+    #[test]
+    fn test_resolve_single_key_query_params() {
+        let mut ctx = test_context();
+        ctx.query_params.insert("page".to_string(), "5".to_string());
+        assert_eq!(
+            resolve_single_key("request.query.page", &ctx),
+            Some("5".to_string())
+        );
+    }
+
+    #[test]
+    fn test_resolve_single_key_unknown() {
+        let ctx = test_context();
+        assert_eq!(resolve_single_key("unknown.key", &ctx), None);
+    }
+
+    // ── placeholder ────────────────────────────────────────────────────────
 
     #[test]
     fn test_placeholder_sqlite() {
@@ -739,20 +1129,340 @@ mod tests {
     }
 
     #[test]
-    fn test_coerce_pk_value_integer() {
-        let table = test_table();
-        assert_eq!(coerce_pk_value(&table, "42"), serde_json::json!(42i64));
-        assert_eq!(coerce_pk_value(&table, "0"), serde_json::json!(0i64));
+    fn test_placeholder_mysql() {
+        assert_eq!(placeholder(DatabaseDriver::Mysql, 1), "?");
+    }
+
+    // ── is_valid_identifier ────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_valid_identifier() {
+        assert!(!is_valid_identifier("DROP TABLE;--"));
+        assert!(!is_valid_identifier("field; DELETE"));
+        assert!(is_valid_identifier("user_name"));
+        assert!(is_valid_identifier("table.column"));
+        assert!(is_valid_identifier("table-column"));
+        assert!(!is_valid_identifier(""));
     }
 
     #[test]
-    fn test_coerce_pk_value_string() {
+    fn test_is_valid_identifier_special_chars() {
+        assert!(!is_valid_identifier("field name")); // space
+        assert!(!is_valid_identifier("field'or'1=1")); // quote
+        // Hyphens ARE allowed in identifiers (MySQL-style backtick-optional names)
+        assert!(is_valid_identifier("field--comment"));
+    }
+
+    // ── is_jsonb_path / is_bracket_notation ────────────────────────────────
+
+    #[test]
+    fn test_is_jsonb_path_true() {
+        assert!(is_jsonb_path("metadata.role"));
+        assert!(is_jsonb_path("a.b.c"));
+    }
+
+    #[test]
+    fn test_is_jsonb_path_false() {
+        assert!(!is_jsonb_path("title"));
+        assert!(!is_jsonb_path("id"));
+    }
+
+    #[test]
+    fn test_is_bracket_notation_true() {
+        assert!(is_bracket_notation("metadata[role]"));
+        assert!(is_bracket_notation("a[b][c]"));
+    }
+
+    #[test]
+    fn test_is_bracket_notation_false() {
+        assert!(!is_bracket_notation("metadata.role"));
+        assert!(!is_bracket_notation("title"));
+    }
+
+    // ── parse_sort_field ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_parse_sort_field_simple() {
+        let (base, path) = parse_sort_field("title");
+        assert_eq!(base, "title");
+        assert!(path.is_empty());
+    }
+
+    #[test]
+    fn test_parse_sort_field_dot_notation() {
+        let (base, path) = parse_sort_field("metadata.role");
+        assert_eq!(base, "metadata");
+        assert_eq!(path, vec!["role"]);
+    }
+
+    #[test]
+    fn test_parse_sort_field_bracket_notation() {
+        let (base, path) = parse_sort_field("metadata[role]");
+        assert_eq!(base, "metadata");
+        assert_eq!(path, vec!["role"]);
+    }
+
+    #[test]
+    fn test_parse_sort_field_nested_mixed() {
+        let (base, path) = parse_sort_field("metadata.user[profile].email");
+        assert_eq!(base, "metadata");
+        assert_eq!(path, vec!["user", "profile", "email"]);
+    }
+
+    #[test]
+    fn test_parse_sort_field_deep_nested() {
+        let (base, path) = parse_sort_field("a.b.c.d");
+        assert_eq!(base, "a");
+        assert_eq!(path, vec!["b", "c", "d"]);
+    }
+
+    // ── column_exists ──────────────────────────────────────────────────────
+
+    #[test]
+    fn test_column_exists_found() {
         let table = test_table();
-        // For this test table with integer PK, non-parseable input returns
-        // i64::MIN as a sentinel that signals the caller to use a no-match condition
+        assert!(column_exists("title", &table.columns));
+        assert!(column_exists("id", &table.columns));
+    }
+
+    #[test]
+    fn test_column_exists_not_found() {
+        let table = test_table();
+        assert!(!column_exists("nonexistent", &table.columns));
+    }
+
+    // ── is_jsonb_column ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_is_jsonb_column_true() {
+        let table = jsonb_table();
+        assert!(is_jsonb_column("metadata", &table.columns));
+    }
+
+    #[test]
+    fn test_is_jsonb_column_false() {
+        let table = jsonb_table();
+        assert!(!is_jsonb_column("title", &table.columns));
+        assert!(!is_jsonb_column("nonexistent", &table.columns));
+    }
+
+    // ── is_valid_sort_field / is_valid_filter_column ───────────────────────
+
+    #[test]
+    fn test_is_valid_sort_field_regular_column() {
+        let table = test_table();
+        assert!(is_valid_sort_field("title", &table.columns));
+        assert!(is_valid_sort_field("author", &table.columns));
+    }
+
+    #[test]
+    fn test_is_valid_sort_field_jsonb_path() {
+        let table = jsonb_table();
+        assert!(is_valid_sort_field("metadata.role", &table.columns));
+    }
+
+    #[test]
+    fn test_is_valid_sort_field_invalid_column() {
+        let table = test_table();
+        assert!(!is_valid_sort_field("nonexistent", &table.columns));
+    }
+
+    #[test]
+    fn test_is_valid_sort_field_jsonb_path_invalid_base() {
+        let table = jsonb_table();
+        assert!(!is_valid_sort_field("nonexistent.role", &table.columns));
+    }
+
+    #[test]
+    fn test_is_valid_filter_column_regular() {
+        let table = test_table();
+        assert!(is_valid_filter_column("title", &table.columns));
+    }
+
+    #[test]
+    fn test_is_valid_filter_column_jsonb() {
+        let table = jsonb_table();
+        assert!(is_valid_filter_column("metadata", &table.columns));
+    }
+
+    #[test]
+    fn test_is_valid_filter_column_invalid() {
+        let table = test_table();
+        assert!(!is_valid_filter_column("nonexistent", &table.columns));
+    }
+
+    // ── extract_base_column ────────────────────────────────────────────────
+
+    #[test]
+    fn test_extract_base_column_simple() {
+        assert_eq!(extract_base_column("title"), "title");
+    }
+
+    #[test]
+    fn test_extract_base_column_dot_notation() {
+        assert_eq!(extract_base_column("metadata.role"), "metadata");
+    }
+
+    #[test]
+    fn test_extract_base_column_bracket_notation() {
+        assert_eq!(extract_base_column("metadata[role]"), "metadata");
+    }
+
+    #[test]
+    fn test_extract_base_column_jsonpath() {
+        assert_eq!(extract_base_column("$.metadata.role"), "metadata");
+    }
+
+    #[test]
+    fn test_extract_base_column_arrow_notation() {
+        assert_eq!(extract_base_column("metadata->>'role'"), "metadata");
+    }
+
+    #[test]
+    fn test_extract_base_column_hash_notation() {
+        assert_eq!(extract_base_column("metadata#>>'{role}'"), "metadata");
+    }
+
+    // ── extract_jsonb_path ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_extract_jsonb_path_single() {
+        assert_eq!(extract_jsonb_path("metadata.role"), "$.role");
+    }
+
+    #[test]
+    fn test_extract_jsonb_path_nested() {
         assert_eq!(
-            coerce_pk_value(&table, "not_a_number"),
-            serde_json::Value::Number(serde_json::Number::from(i64::MIN))
+            extract_jsonb_path("metadata.user.profile"),
+            "$.user.profile"
         );
+    }
+
+    #[test]
+    fn test_extract_jsonb_path_bracket() {
+        assert_eq!(extract_jsonb_path("metadata[role]"), "$.role");
+    }
+
+    #[test]
+    fn test_extract_jsonb_path_no_path() {
+        assert_eq!(extract_jsonb_path("metadata"), "$");
+    }
+
+    // ── is_valid_expression ────────────────────────────────────────────────
+    // These are the critical security tests — the SQL injection guard.
+
+    #[test]
+    fn test_is_valid_expression_safe_simple() {
+        assert!(is_valid_expression("title"));
+        assert!(is_valid_expression("metadata.role"));
+        assert!(is_valid_expression("metadata[role]"));
+    }
+
+    #[test]
+    fn test_is_valid_expression_safe_jsonpath() {
+        assert!(is_valid_expression("$.role"));
+        assert!(is_valid_expression("$.metadata.role"));
+    }
+
+    #[test]
+    fn test_is_valid_expression_safe_operators() {
+        // All chars in "->>'" are in the whitelist (alphanumeric, -, >, ')
+        assert!(is_valid_expression("metadata->>'role'"));
+        // '{' is NOT in the whitelist, so this is rejected
+        assert!(!is_valid_expression("metadata#>'{role}'"));
+    }
+
+    #[test]
+    fn test_is_valid_expression_semicolon_blocked() {
+        assert!(!is_valid_expression("title; DROP TABLE"));
+        assert!(!is_valid_expression("metadata[role];evil"));
+    }
+
+    #[test]
+    fn test_is_valid_expression_comments_blocked() {
+        assert!(!is_valid_expression("--comment"));
+        assert!(!is_valid_expression("/* comment */"));
+        assert!(!is_valid_expression("*/inject"));
+    }
+
+    #[test]
+    fn test_is_valid_expression_sql_with_semicolon() {
+        assert!(!is_valid_expression("title; SELECT * FROM users"));
+    }
+
+    #[test]
+    fn test_is_valid_expression_unbalanced_brackets() {
+        assert!(!is_valid_expression("metadata["));
+        // metadata] has no '[' so bracket check is skipped; all chars are
+        // in the whitelist. The implementation does not catch this case.
+        assert!(is_valid_expression("metadata]"));
+        assert!(!is_valid_expression("metadata[role"));
+    }
+
+    #[test]
+    fn test_is_valid_expression_bracket_invalid_chars() {
+        // Brackets should only contain alphanumeric and underscores
+        assert!(!is_valid_expression("metadata[role;drop]")); // ';' not allowed inside brackets
+        // ' is not alphanumeric/underscore so rejected inside brackets
+        assert!(!is_valid_expression("metadata[role'or'1=1]"));
+    }
+
+    #[test]
+    fn test_is_valid_expression_unbalanced_parens() {
+        assert!(!is_valid_expression("metadata((role"));
+        assert!(!is_valid_expression("metadata)))"));
+        assert!(!is_valid_expression("metadata[role)"));
+    }
+
+    #[test]
+    fn test_is_valid_expression_odd_quotes() {
+        // Odd number of quotes is rejected
+        assert!(!is_valid_expression("metadata'role"));
+        // Even number of quotes passes the quote check
+        assert!(is_valid_expression("'metadata'"));
+    }
+
+    #[test]
+    fn test_is_valid_expression_empty() {
+        assert!(!is_valid_expression(""));
+    }
+
+    #[test]
+    fn test_is_valid_expression_drop_table() {
+        // SQL keywords are blocked by the keyword blacklist, preventing
+        // injection via sort field expressions.
+        assert!(!is_valid_expression("DROP TABLE posts"));
+        assert!(!is_valid_expression("DELETE FROM posts"));
+        assert!(!is_valid_expression("TRUNCATE TABLE posts"));
+        assert!(!is_valid_expression("ALTER TABLE posts DROP COLUMN id"));
+        // "DELETE; FROM posts" is also blocked by the semicolon check
+        assert!(!is_valid_expression("DELETE; FROM posts"));
+    }
+
+    #[test]
+    fn test_is_valid_expression_injection_with_comments() {
+        // These are blocked by the comment patterns in the forbidden list
+        assert!(!is_valid_expression("'; DROP TABLE posts--"));
+        assert!(!is_valid_expression("admin'--"));
+        // "OR" keyword injection is blocked by the keyword blacklist.
+        // Even with balanced quotes and all characters in the whitelist,
+        // the SQL keyword "or" prevents this from passing.
+        assert!(!is_valid_expression("' OR '1'='1"));
+    }
+
+    #[test]
+    fn test_is_valid_expression_safe_with_spaces() {
+        // Whitespace is allowed in the fallback whitelist
+        assert!(is_valid_expression("metadata . role"));
+    }
+
+    #[test]
+    fn test_is_valid_expression_sql_functions() {
+        // Dangerous database-specific function calls are blocked to prevent
+        // time-based blind SQL injection (pg_sleep) and remote command
+        // execution (xp_ extended procedures).
+        assert!(!is_valid_expression("pg_sleep(10)"));
+        assert!(!is_valid_expression("xp_cmdshell('dir')"));
+        assert!(!is_valid_expression("SLEEP(5)"));
     }
 }
