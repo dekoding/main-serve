@@ -2043,4 +2043,102 @@ endpoints:
             .unwrap()
             .contains("admin")
     );
+
+    // =============================================================================
+    // Concurrent connection handling
+    // =============================================================================
+
+    #[tokio::test]
+    async fn test_concurrent_connections() {
+        // Test that the server can handle at least 1000 concurrent connections
+        let dir = tempfile::TempDir::new().expect("tempdir");
+        let public_dir = dir.path().join("public");
+        std::fs::create_dir_all(&public_dir).unwrap();
+        std::fs::write(
+            public_dir.join("index.html"),
+            "<html><body>Concurrent Test</body></html>",
+        )
+        .unwrap();
+
+        let yaml_tmpl = r#"
+server:
+  port: 0
+
+endpoints:
+  - path: "/static/*"
+    methods: ["get"]
+    action: "static"
+    static_files:
+      root: "{root}"
+      index: "index.html"
+    auth: "none"
+"#;
+        let yaml = yaml_tmpl.replace("{root}", &public_dir.display().to_string());
+        let (app, _f) = support::setup_server(&yaml).await;
+
+        // Bind to a real port and spawn the server
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("Failed to bind to TCP listener");
+        let server_addr = listener.local_addr().expect("Failed to get local addr");
+        let server_url = format!("http://{}", server_addr);
+
+        // Clone the app for spawning
+        let app_clone = app.clone();
+
+        // Spawn the server in the background
+        let server_handle = tokio::spawn(async move {
+            axum::serve(listener, app_clone)
+                .await
+                .expect("Server failed");
+        });
+
+        // Give the server a moment to start
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // Spawn 1000 concurrent HTTP requests to the real server
+        let mut handles = Vec::new();
+        let num_requests = 1000;
+
+        for i in 0..num_requests {
+            let url = server_url.clone();
+            let handle = tokio::spawn(async move {
+                let client = reqwest::Client::new();
+                let response = client
+                    .get(format!("{}/static/index.html", url))
+                    .send()
+                    .await
+                    .expect("Request failed");
+
+                assert_eq!(
+                    response.status(),
+                    reqwest::StatusCode::OK,
+                    "Request {i} failed with status {}",
+                    response.status()
+                );
+                let body = response.text().await.expect("Failed to read body");
+                assert!(
+                    body.contains("Concurrent Test"),
+                    "Request {i} body mismatch: {}",
+                    body
+                );
+            });
+            handles.push(handle);
+        }
+
+        // Wait for all requests to complete
+        for handle in handles {
+            handle.await.expect("Request failed");
+        }
+
+        // Verify we handled at least 1000 requests
+        assert!(
+            num_requests >= 1000,
+            "Expected to handle at least 1000 concurrent connections, got {}",
+            num_requests
+        );
+
+        // Shutdown the server by killing the task
+        server_handle.abort();
+    }
 }
