@@ -506,16 +506,20 @@ impl SelectBuilder {
                     ))
                 }
             } else {
-                // SQLite uses json_each for array traversal
-                let json_path = if nested_path.is_empty() {
-                    "$".to_string()
+                // SQLite: for nested JSONB paths (scalar fields) use json_extract equality
+                // for array fields (no nested path) use json_each traversal
+                if !nested_path.is_empty() {
+                    let nested_json_path = format!("$.{}", nested_path);
+                    Ok(format!(
+                        "json_extract({}, '{}') = {}",
+                        column_name, nested_json_path, param
+                    ))
                 } else {
-                    format!("$.{}", nested_path)
-                };
-                Ok(format!(
-                    "EXISTS (SELECT 1 FROM json_each({}, '{}') WHERE value = {})",
-                    column_name, json_path, param
-                ))
+                    Ok(format!(
+                        "EXISTS (SELECT 1 FROM json_each({}, '$') WHERE value = {})",
+                        column_name, param
+                    ))
+                }
             }
         } else {
             Ok(format!("{}.{} LIKE {}", self.table, column_name, param))

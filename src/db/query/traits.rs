@@ -175,7 +175,7 @@ impl FilterBehavior for SqliteFilter {
         param.to_string()
     }
     fn like_pattern_start(&self, param: &str) -> String {
-        format!("{param}%")
+        format!("CONCAT({param}, '%')")
     }
     fn like_pattern_end(&self, param: &str) -> String {
         format!("CONCAT('%', {param})")
