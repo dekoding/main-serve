@@ -22,7 +22,6 @@ use tower::ServiceExt;
 
 use crate::support::configs::crud_operations_configs::JSONB_EXPRESSIONS_CONFIG;
 use crate::support::db::enabled_backends;
-use crate::support::json_body;
 
 // =============================================================================
 // Test Configuration: JSONB-enabled table for expression testing
@@ -257,18 +256,13 @@ async fn test_jsonpath_parser_bypass() {
 
         let response = app.clone().oneshot(req).await.unwrap();
 
-        // This should either be rejected or handled safely
-        // It should NOT result in SQL injection
-        if response.status() == StatusCode::OK {
-            // If accepted, verify it doesn't expose unauthorized data
-            let json = json_body(response).await;
-            let data = json["data"].as_array().unwrap();
-            // Just verify the query executed without crashing
-            let _ = data.len();
-        } else {
-            // If rejected, that's also acceptable
-            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-        }
+        // Complex JSONPath patterns should be rejected as invalid sort expressions.
+        // If accepted, the returned data must not expose fields outside allowed_fields.
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "backend: {backend} - complex JSONPath bypass attempt should be rejected"
+        );
     }
 }
 
@@ -353,11 +347,11 @@ async fn test_postgres_jsonb_operator_abuse() {
 
         let response = app.clone().oneshot(req).await.unwrap();
 
-        // If metadata.secret is not in allowed_fields, this should be rejected
-        // If it is, it should work but only expose what's allowed
-        assert!(
-            response.status() == StatusCode::BAD_REQUEST || response.status() == StatusCode::OK,
-            "backend: {backend} - unexpected status for JSONB operator abuse"
+        // The #>> operator is not a valid sort expression. It should be rejected.
+        assert_eq!(
+            response.status(),
+            StatusCode::BAD_REQUEST,
+            "backend: {backend} - JSONB #>> operator abuse should be rejected as invalid sort field"
         );
     }
 }

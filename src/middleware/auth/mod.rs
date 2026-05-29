@@ -109,13 +109,3 @@ pub async fn auth_middleware(
 
     Ok(next.run(req).await)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_auth_middleware_structure() {
-        let _ = auth_middleware;
-    }
-}

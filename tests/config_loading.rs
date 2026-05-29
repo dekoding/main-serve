@@ -178,7 +178,7 @@ auth:
 
 #[test]
 fn test_env_var_interpolation() {
-    // SAFETY: test-only env var manipulation
+    // SAFETY: test-only env var manipulation, serialized by test framework
     unsafe { std::env::set_var("TEST_DB_URL", "postgres://localhost/testdb") };
     let yaml = r#"
 databases:

@@ -1059,11 +1059,12 @@ mod tests {
         )
         .unwrap();
 
-        // SQLite uses EXISTS with json_each for nested JSONB paths
+        // SQLite uses json_extract equality for nested JSONB paths
         assert!(q.sql.contains("SELECT"));
         assert!(q.sql.contains("posts"));
-        assert!(q.sql.contains("EXISTS (SELECT 1 FROM json_each(metadata"));
+        assert!(q.sql.contains("json_extract(metadata"));
         assert!(q.sql.contains("$.tags"));
+        assert!(q.sql.contains("="));
     }
 
     #[test]

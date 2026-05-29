@@ -279,4 +279,83 @@ mod tests {
             "Expected 'sub' empty error, got: {err}"
         );
     }
+
+    #[test]
+    fn test_validate_expired_token() {
+        let config = test_config();
+        let now = usize::try_from(chrono::Utc::now().timestamp()).unwrap();
+        let claims = serde_json::json!({
+            "sub": "user1",
+            "iat": now - 7200,
+            "exp": now - 3600,
+            "iss": config.issuer,
+            "aud": config.audience,
+        });
+        let header = Header::new(map_algorithm(config.algorithm));
+        let key = EncodingKey::from_secret(config.secret.as_bytes());
+        let token = encode(&header, &claims, &key).unwrap();
+
+        let err = validate_token(&token, &config).unwrap_err();
+        assert!(
+            err.to_string().contains("Invalid JWT"),
+            "Expired token should be rejected, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_validate_wrong_issuer() {
+        let config = test_config();
+        let token = create_token("user1", None, &config).unwrap();
+
+        let mut wrong_config = test_config();
+        wrong_config.issuer = "different-issuer".to_string();
+        let err = validate_token(&token, &wrong_config).unwrap_err();
+        assert!(
+            err.to_string().contains("Invalid JWT"),
+            "Token with wrong issuer should be rejected, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_validate_wrong_audience() {
+        let config = test_config();
+        let token = create_token("user1", None, &config).unwrap();
+
+        let mut wrong_config = test_config();
+        wrong_config.audience = "different-audience".to_string();
+        let err = validate_token(&token, &wrong_config).unwrap_err();
+        assert!(
+            err.to_string().contains("Invalid JWT"),
+            "Token with wrong audience should be rejected, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_none_algorithm_rejected() {
+        use base64::Engine;
+
+        let now = usize::try_from(chrono::Utc::now().timestamp()).unwrap();
+        let exp = now + 3600;
+
+        // Manually construct a JWT with "alg": "none" to test that it's rejected.
+        let header_json = serde_json::json!({"alg": "none", "typ": "JWT"});
+        let payload_json = serde_json::json!({
+            "sub": "attacker",
+            "iat": now,
+            "exp": exp,
+        });
+
+        let header_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::to_string(&header_json).unwrap().as_bytes());
+        let payload_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::to_string(&payload_json).unwrap().as_bytes());
+        let token = format!("{}.{}.{}", header_b64, payload_b64, "");
+
+        let config = test_config();
+        let err = validate_token(&token, &config).unwrap_err();
+        assert!(
+            err.to_string().contains("Invalid JWT"),
+            "Token with 'alg: none' should be rejected, got: {err}"
+        );
+    }
 }

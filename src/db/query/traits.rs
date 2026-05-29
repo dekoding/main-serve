@@ -120,7 +120,7 @@ impl FilterBehavior for MysqlFilter {
         "LIKE"
     }
     fn ilike_op(&self) -> &'static str {
-        "LIKE COLLATE utf8mb4_general_ci"
+        "LIKE"
     }
     fn uses_jsonb_ops(&self) -> bool {
         false
@@ -175,7 +175,7 @@ impl FilterBehavior for SqliteFilter {
         param.to_string()
     }
     fn like_pattern_start(&self, param: &str) -> String {
-        format!("{param}%")
+        format!("CONCAT({param}, '%')")
     }
     fn like_pattern_end(&self, param: &str) -> String {
         format!("CONCAT('%', {param})")

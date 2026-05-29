@@ -140,3 +140,190 @@ pub fn apply_cors_headers(
             .unwrap_or(HeaderValue::from_static("86400")),
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_cors_config() -> CorsConfig {
+        CorsConfig {
+            allowed_origins: vec!["https://example.com".to_string()],
+            allowed_methods: vec!["GET".to_string(), "POST".to_string()],
+            allowed_headers: vec!["Content-Type".to_string()],
+            allow_credentials: false,
+            max_age: 3600,
+        }
+    }
+
+    fn make_wildcard_cors_config() -> CorsConfig {
+        CorsConfig {
+            allowed_origins: vec!["*".to_string()],
+            allowed_methods: vec!["GET".to_string(), "POST".to_string(), "PUT".to_string()],
+            allowed_headers: vec!["*".to_string()],
+            allow_credentials: false,
+            max_age: 7200,
+        }
+    }
+
+    fn make_creds_cors_config() -> CorsConfig {
+        CorsConfig {
+            allowed_origins: vec!["https://example.com".to_string()],
+            allowed_methods: vec!["GET".to_string()],
+            allowed_headers: vec!["Authorization".to_string()],
+            allow_credentials: true,
+            max_age: 600,
+        }
+    }
+
+    #[test]
+    fn test_build_cors_layer_specific_origins() {
+        let config = make_cors_config();
+        let _layer = build_cors_layer(&config);
+        // Layer is built successfully - actual CORS checking happens at request time.
+        assert!(
+            !config.allowed_origins.contains(&"*".to_string()),
+            "Config should not be wildcard for this test"
+        );
+    }
+
+    #[test]
+    fn test_build_cors_layer_wildcard_origin() {
+        let config = make_wildcard_cors_config();
+        let _layer = build_cors_layer(&config);
+        // Wildcard origins without credentials is acceptable.
+        assert!(
+            !config.allow_credentials,
+            "Wildcard origins test must not have credentials enabled"
+        );
+    }
+
+    #[test]
+    fn test_build_cors_layer_credentials() {
+        let config = make_creds_cors_config();
+        let _layer = build_cors_layer(&config);
+        // Layer is built. With credentials, origins must not be wildcard.
+        assert!(config.allow_credentials, "Credentials should be enabled");
+        assert!(
+            !config.allowed_origins.contains(&"*".to_string()),
+            "When credentials are allowed, origins must NOT be wildcard"
+        );
+    }
+
+    #[test]
+    fn test_apply_cors_headers_specific_origin() {
+        let config = make_cors_config();
+        let mut response = axum::response::Response::new(axum::body::Body::empty());
+        let origin = HeaderValue::from_str("https://example.com").unwrap();
+        apply_cors_headers(&mut response, &config, Some(&origin));
+
+        let headers = response.headers();
+        assert_eq!(
+            headers.get(header::ACCESS_CONTROL_ALLOW_ORIGIN),
+            Some(&HeaderValue::from_str("https://example.com").unwrap())
+        );
+    }
+
+    #[test]
+    fn test_apply_cors_headers_wildcard_no_credentials() {
+        let mut config = make_wildcard_cors_config();
+        config.allow_credentials = false;
+        let mut response = axum::response::Response::new(axum::body::Body::empty());
+        let origin = HeaderValue::from_str("https://attacker.com").unwrap();
+        apply_cors_headers(&mut response, &config, Some(&origin));
+
+        let headers = response.headers();
+        assert_eq!(
+            headers.get(header::ACCESS_CONTROL_ALLOW_ORIGIN),
+            Some(&HeaderValue::from_static("*"))
+        );
+    }
+
+    #[test]
+    fn test_apply_cors_headers_credentials_echoes_origin() {
+        let config = make_creds_cors_config();
+        let mut response = axum::response::Response::new(axum::body::Body::empty());
+        let origin = HeaderValue::from_str("https://example.com").unwrap();
+        apply_cors_headers(&mut response, &config, Some(&origin));
+
+        let headers = response.headers();
+        // With credentials, the origin must be echoed back, NOT wildcard.
+        assert_eq!(
+            headers.get(header::ACCESS_CONTROL_ALLOW_ORIGIN),
+            Some(&HeaderValue::from_str("https://example.com").unwrap()),
+            "With credentials, origin must be echoed back, not wildcard"
+        );
+        assert_eq!(
+            headers.get(header::ACCESS_CONTROL_ALLOW_CREDENTIALS),
+            Some(&HeaderValue::from_static("true"))
+        );
+    }
+
+    #[test]
+    fn test_apply_cors_headers_credentials_wildcard_origins_uses_echo() {
+        let mut config = make_creds_cors_config();
+        config.allowed_origins = vec!["*".to_string()];
+        let mut response = axum::response::Response::new(axum::body::Body::empty());
+        let origin = HeaderValue::from_str("https://example.com").unwrap();
+        apply_cors_headers(&mut response, &config, Some(&origin));
+
+        let headers = response.headers();
+        // When allowed_origins is wildcard and credentials enabled, the request's origin is echoed back.
+        assert_eq!(
+            headers.get(header::ACCESS_CONTROL_ALLOW_ORIGIN),
+            Some(&HeaderValue::from_str("https://example.com").unwrap()),
+            "With wildcard origins + credentials, the request origin must be echoed back"
+        );
+        assert_ne!(
+            headers.get(header::ACCESS_CONTROL_ALLOW_ORIGIN),
+            Some(&HeaderValue::from_static("*")),
+            "With credentials, Access-Control-Allow-Origin MUST NOT be '*'"
+        );
+    }
+
+    #[test]
+    fn test_apply_cors_headers_unauthorized_origin_with_credentials() {
+        let config = make_creds_cors_config();
+        let mut response = axum::response::Response::new(axum::body::Body::empty());
+        let origin = HeaderValue::from_str("https://attacker.com").unwrap();
+        apply_cors_headers(&mut response, &config, Some(&origin));
+
+        let headers = response.headers();
+        // Unauthorized origin with credentials should get no origin header (or default).
+        // The behavior depends on whether the origin is in the allowed list.
+        // Since "https://attacker.com" is not in allowed_origins and not "*", the origin is None.
+        assert!(
+            headers.get(header::ACCESS_CONTROL_ALLOW_ORIGIN).is_none()
+                || headers.get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                    == Some(&HeaderValue::from_static("*")),
+            "Unauthorized origin with credentials should not echo the origin"
+        );
+    }
+
+    #[test]
+    fn test_apply_cors_headers_no_origin_header() {
+        let config = make_cors_config();
+        let mut response = axum::response::Response::new(axum::body::Body::empty());
+        apply_cors_headers(&mut response, &config, None);
+
+        let headers = response.headers();
+        // When no Origin header is present, the first allowed origin is used.
+        assert!(
+            headers.get(header::ACCESS_CONTROL_ALLOW_ORIGIN).is_some(),
+            "Should have an Allow-Origin header"
+        );
+    }
+
+    #[test]
+    fn test_apply_cors_headers_max_age() {
+        let config = make_cors_config();
+        let mut response = axum::response::Response::new(axum::body::Body::empty());
+        let origin = HeaderValue::from_str("https://example.com").unwrap();
+        apply_cors_headers(&mut response, &config, Some(&origin));
+
+        let headers = response.headers();
+        assert_eq!(
+            headers.get(header::ACCESS_CONTROL_MAX_AGE),
+            Some(&HeaderValue::from_str("3600").unwrap())
+        );
+    }
+}

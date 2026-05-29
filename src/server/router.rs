@@ -1,5 +1,6 @@
 use futures_util::future::FutureExt;
 use std::collections::HashMap;
+use tower_http::compression::CompressionLayer;
 
 use axum::Router;
 use axum::body::Body;
@@ -27,7 +28,6 @@ use crate::middleware::auth::{
     handler::{handle_oauth2_authorize, handle_oauth2_callback},
 };
 use crate::middleware::body_limit::body_limit_middleware;
-use crate::middleware::compression::build_compression_layer;
 use crate::middleware::cors::build_cors_layer;
 use crate::middleware::logging::{body_logging_middleware, build_trace_layer};
 use crate::middleware::rate_limit::rate_limit_middleware;
@@ -254,7 +254,7 @@ pub async fn build_router(config: &AppConfig, state: AppState) -> Router {
     ));
 
     router
-        .layer(build_compression_layer())
+        .layer(CompressionLayer::new())
         .layer(build_trace_layer())
         .layer(PropagateRequestIdLayer::x_request_id())
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))

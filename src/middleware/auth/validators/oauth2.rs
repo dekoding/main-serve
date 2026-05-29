@@ -163,3 +163,145 @@ pub fn extract_cookie(headers: &axum::http::HeaderMap, name: &str) -> Option<Str
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::{HeaderMap, HeaderValue};
+
+    #[test]
+    fn test_extract_cookie_found() {
+        let mut headers = HeaderMap::new();
+        headers.insert("cookie", "main_serve_token=abc123; Path=/".parse().unwrap());
+        let result = extract_cookie(&headers, "main_serve_token");
+        assert_eq!(result, Some("abc123".to_string()));
+    }
+
+    #[test]
+    fn test_extract_cookie_quoted() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "cookie",
+            "main_serve_token=\"quoted_value\"; Path=/".parse().unwrap(),
+        );
+        let result = extract_cookie(&headers, "main_serve_token");
+        assert_eq!(result, Some("quoted_value".to_string()));
+    }
+
+    #[test]
+    fn test_extract_cookie_not_found() {
+        let headers = HeaderMap::new();
+        let result = extract_cookie(&headers, "nonexistent");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_extract_cookie_no_cookie_header() {
+        let mut headers = HeaderMap::new();
+        headers.insert("other", "value".parse().unwrap());
+        let result = extract_cookie(&headers, "main_serve_token");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_extract_cookie_invalid_utf8() {
+        let mut headers = HeaderMap::new();
+        headers.insert("cookie", HeaderValue::from_bytes(b"\xff\xfe").unwrap());
+        let result = extract_cookie(&headers, "main_serve_token");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_extract_cookie_multiple_cookies() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "cookie",
+            "other=a; main_serve_token=mytoken; path=b".parse().unwrap(),
+        );
+        let result = extract_cookie(&headers, "main_serve_token");
+        assert_eq!(result, Some("mytoken".to_string()));
+    }
+
+    #[test]
+    fn test_extract_cookie_empty_name() {
+        let mut headers = HeaderMap::new();
+        headers.insert("cookie", "=value".parse().unwrap());
+        let result = extract_cookie(&headers, "");
+        // With empty name, the prefix is empty string, so all cookies match.
+        // First cookie with value "value" is returned.
+        assert_eq!(result, Some("value".to_string()));
+    }
+
+    #[test]
+    fn test_cleanup_expired_removes_old() {
+        let mut pending = HashMap::new();
+        let old = PendingOAuth2 {
+            code_verifier: "old".to_string(),
+            created_at: Instant::now() - std::time::Duration::from_secs(600),
+        };
+        let recent = PendingOAuth2 {
+            code_verifier: "recent".to_string(),
+            created_at: Instant::now(),
+        };
+        pending.insert("old".to_string(), old);
+        pending.insert("recent".to_string(), recent);
+
+        cleanup_expired(&mut pending, std::time::Duration::from_secs(300));
+        assert!(!pending.contains_key("old"), "Old entry should be removed");
+        assert!(pending.contains_key("recent"), "Recent entry should remain");
+    }
+
+    #[test]
+    fn test_cleanup_expired_empty_map() {
+        let mut pending: HashMap<String, PendingOAuth2> = HashMap::new();
+        cleanup_expired(&mut pending, std::time::Duration::from_secs(300));
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn test_cleanup_expired_all_recent() {
+        let mut pending = HashMap::new();
+        pending.insert(
+            "a".to_string(),
+            PendingOAuth2 {
+                code_verifier: "v1".to_string(),
+                created_at: Instant::now(),
+            },
+        );
+        pending.insert(
+            "b".to_string(),
+            PendingOAuth2 {
+                code_verifier: "v2".to_string(),
+                created_at: Instant::now(),
+            },
+        );
+        cleanup_expired(&mut pending, std::time::Duration::from_secs(300));
+        assert_eq!(pending.len(), 2, "All entries should remain");
+    }
+
+    #[test]
+    fn test_generate_pkce_pair_returns_values() {
+        let (verifier, challenge) = generate_pkce_pair();
+        assert!(!verifier.is_empty(), "Verifier should not be empty");
+        assert!(!challenge.is_empty(), "Challenge should not be empty");
+        // Verifier should be 96+ characters (3 UUIDs of 32 chars each = 96).
+        assert!(
+            verifier.len() >= 43,
+            "Verifier length {} should be >= 43",
+            verifier.len()
+        );
+        assert!(
+            verifier.len() <= 128,
+            "Verifier length {} should be <= 128",
+            verifier.len()
+        );
+    }
+
+    #[test]
+    fn test_generate_pkce_pair_uniqueness() {
+        let (v1, c1) = generate_pkce_pair();
+        let (v2, c2) = generate_pkce_pair();
+        assert_ne!(v1, v2, "Verifiers should be unique");
+        assert_ne!(c1, c2, "Challenges should be unique");
+    }
+}

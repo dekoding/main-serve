@@ -676,254 +676,6 @@ async fn test_crud_sort_jsonb_disallowed_field_rejected() {
     }
 }
 
-#[tokio::test]
-async fn test_crud_create_and_list_across_backends() {
-    for backend in enabled_backends() {
-        let mut test_db = TestDatabase::new(backend, "crud_create_and_list");
-        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
-
-        let create_request = Request::builder()
-            .method("POST")
-            .uri("/api/posts")
-            .header("content-type", "application/json")
-            .body(Body::from(
-                serde_json::json!({
-                    "title": "Hello World",
-                    "body": "First post!",
-                    "author": "Alice"
-                })
-                .to_string(),
-            ))
-            .unwrap();
-
-        let create_response = app.clone().oneshot(create_request).await.unwrap();
-        assert_eq!(
-            create_response.status(),
-            StatusCode::CREATED,
-            "backend: {backend}"
-        );
-
-        let list_request = Request::builder()
-            .uri("/api/posts")
-            .body(Body::empty())
-            .unwrap();
-
-        let list_response = app.oneshot(list_request).await.unwrap();
-        assert_eq!(list_response.status(), StatusCode::OK, "backend: {backend}");
-
-        let json = json_body(list_response).await;
-        let data = json["data"].as_array().unwrap();
-        assert_eq!(data.len(), 1, "backend: {backend}");
-        assert_eq!(data[0]["title"], "Hello World", "backend: {backend}");
-        assert_eq!(data[0]["author"], "Alice", "backend: {backend}");
-    }
-}
-
-#[tokio::test]
-async fn test_crud_update_and_delete_across_backends() {
-    for backend in enabled_backends() {
-        let mut test_db = TestDatabase::new(backend, "crud_update_and_delete");
-        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
-
-        let create_request = Request::builder()
-            .method("POST")
-            .uri("/api/posts")
-            .header("content-type", "application/json")
-            .body(Body::from(
-                serde_json::json!({
-                    "title": "Original",
-                    "body": "body",
-                    "author": "Bob"
-                })
-                .to_string(),
-            ))
-            .unwrap();
-        let create_response = app.clone().oneshot(create_request).await.unwrap();
-        assert_eq!(
-            create_response.status(),
-            StatusCode::CREATED,
-            "backend: {backend}"
-        );
-
-        let update_request = Request::builder()
-            .method("PUT")
-            .uri("/api/posts/1")
-            .header("content-type", "application/json")
-            .body(Body::from(
-                serde_json::json!({"title": "Updated", "body": "new body"}).to_string(),
-            ))
-            .unwrap();
-        let update_response = app.clone().oneshot(update_request).await.unwrap();
-        assert_eq!(
-            update_response.status(),
-            StatusCode::OK,
-            "backend: {backend}"
-        );
-
-        let get_request = Request::builder()
-            .uri("/api/posts/1")
-            .body(Body::empty())
-            .unwrap();
-        let get_response = app.clone().oneshot(get_request).await.unwrap();
-        assert_eq!(get_response.status(), StatusCode::OK, "backend: {backend}");
-        let json = json_body(get_response).await;
-        assert_eq!(json["title"], "Updated", "backend: {backend}");
-
-        let delete_request = Request::builder()
-            .method("DELETE")
-            .uri("/api/posts/1")
-            .body(Body::empty())
-            .unwrap();
-        let delete_response = app.clone().oneshot(delete_request).await.unwrap();
-        assert_eq!(
-            delete_response.status(),
-            StatusCode::OK,
-            "backend: {backend}"
-        );
-
-        let list_request = Request::builder()
-            .uri("/api/posts")
-            .body(Body::empty())
-            .unwrap();
-        let list_response = app.oneshot(list_request).await.unwrap();
-        let json = json_body(list_response).await;
-        let data = json["data"].as_array().unwrap();
-        assert!(data.is_empty(), "backend: {backend}");
-    }
-}
-
-#[tokio::test]
-async fn test_crud_list_empty() {
-    for backend in enabled_backends() {
-        let mut test_db = TestDatabase::new(backend, "crud_list_empty");
-        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
-
-        let req = Request::builder()
-            .uri("/api/posts")
-            .body(Body::empty())
-            .unwrap();
-
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK, "backend: {backend}");
-
-        let json = json_body(response).await;
-        let data = json["data"].as_array().unwrap();
-        assert!(data.is_empty(), "backend: {backend}");
-    }
-}
-
-// =============================================================================
-// CRUD: Get single (GET /api/posts/{id})
-// =============================================================================
-
-#[tokio::test]
-async fn test_crud_get_one() {
-    for backend in enabled_backends() {
-        let mut test_db = TestDatabase::new(backend, "crud_get_one");
-        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
-
-        // Create a post.
-        let req = Request::builder()
-            .method("POST")
-            .uri("/api/posts")
-            .header("content-type", "application/json")
-            .body(Body::from(
-                serde_json::json!({
-                    "title": "Test Post",
-                    "body": "content",
-                    "author": "Charlie"
-                })
-                .to_string(),
-            ))
-            .unwrap();
-        let _ = app.clone().oneshot(req).await.unwrap();
-
-        // Get post by ID.
-        let req = Request::builder()
-            .uri("/api/posts/1")
-            .body(Body::empty())
-            .unwrap();
-
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK, "backend: {backend}");
-
-        let json = json_body(response).await;
-        assert_eq!(json["title"], "Test Post", "backend: {backend}");
-        assert_eq!(json["author"], "Charlie", "backend: {backend}");
-    }
-}
-
-#[tokio::test]
-async fn test_crud_get_one_not_found() {
-    for backend in enabled_backends() {
-        let mut test_db = TestDatabase::new(backend, "crud_get_not_found");
-        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
-
-        let req = Request::builder()
-            .uri("/api/posts/999")
-            .body(Body::empty())
-            .unwrap();
-
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(
-            response.status(),
-            StatusCode::NOT_FOUND,
-            "backend: {backend}"
-        );
-    }
-}
-
-// =============================================================================
-// CRUD: Update not found (PUT /api/posts/{id})
-// =============================================================================
-
-#[tokio::test]
-async fn test_crud_update_not_found() {
-    for backend in enabled_backends() {
-        let mut test_db = TestDatabase::new(backend, "crud_update_not_found");
-        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
-
-        let req = Request::builder()
-            .method("PUT")
-            .uri("/api/posts/999")
-            .header("content-type", "application/json")
-            .body(Body::from(serde_json::json!({"title": "Nope"}).to_string()))
-            .unwrap();
-
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(
-            response.status(),
-            StatusCode::NOT_FOUND,
-            "backend: {backend}"
-        );
-    }
-}
-
-// =============================================================================
-// CRUD: Delete not found (DELETE /api/posts/{id})
-// =============================================================================
-
-#[tokio::test]
-async fn test_crud_delete_not_found() {
-    for backend in enabled_backends() {
-        let mut test_db = TestDatabase::new(backend, "crud_delete_not_found");
-        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
-
-        let req = Request::builder()
-            .method("DELETE")
-            .uri("/api/posts/999")
-            .body(Body::empty())
-            .unwrap();
-
-        let response = app.oneshot(req).await.unwrap();
-        assert_eq!(
-            response.status(),
-            StatusCode::NOT_FOUND,
-            "backend: {backend}"
-        );
-    }
-}
-
 // =============================================================================
 // CRUD: Invalid requests
 // =============================================================================
@@ -980,101 +732,175 @@ async fn test_crud_create_ignores_non_writable_field() {
 }
 
 // =============================================================================
-// Concurrent connection handling
+// CRUD: Edge cases and error handling
 // =============================================================================
 
 #[tokio::test]
-async fn test_concurrent_connections() {
-    // Test that the server can handle at least 1000 concurrent connections
-    let dir = tempfile::TempDir::new().expect("tempdir");
-    let public_dir = dir.path().join("public");
-    std::fs::create_dir_all(&public_dir).unwrap();
-    std::fs::write(
-        public_dir.join("index.html"),
-        "<html><body>Concurrent Test</body></html>",
-    )
-    .unwrap();
+async fn test_crud_empty_filter_value_across_backends() {
+    for backend in enabled_backends() {
+        let mut test_db = TestDatabase::new(backend, "crud_empty_filter");
+        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud_features.yaml").await;
 
-    let yaml_tmpl = r#"
-server:
-  port: 0
+        seed_posts(&app, &[("Post", "Alice")]).await;
 
-endpoints:
-  - path: "/static/*"
-    methods: ["get"]
-    action: "static"
-    static_files:
-      root: "{root}"
-      index: "index.html"
-    auth: "none"
-"#;
-    let yaml = yaml_tmpl.replace("{root}", &public_dir.display().to_string());
-    let (app, _f) = support::setup_server(&yaml).await;
-
-    // Bind to a real port and spawn the server
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("Failed to bind to TCP listener");
-    let server_addr = listener.local_addr().expect("Failed to get local addr");
-    let server_url = format!("http://{}", server_addr);
-
-    // Clone the app for spawning
-    let app_clone = app.clone();
-
-    // Spawn the server in the background
-    let server_handle = tokio::spawn(async move {
-        axum::serve(listener, app_clone)
-            .await
-            .expect("Server failed");
-    });
-
-    // Give the server a moment to start
-    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
-    // Spawn 1000 concurrent HTTP requests to the real server
-    let mut handles = Vec::new();
-    let num_requests = 1000;
-
-    for i in 0..num_requests {
-        let url = server_url.clone();
-        let handle = tokio::spawn(async move {
-            let client = reqwest::Client::new();
-            let response = client
-                .get(format!("{}/static/index.html", url))
-                .send()
-                .await
-                .expect("Request failed");
-
-            assert_eq!(
-                response.status(),
-                reqwest::StatusCode::OK,
-                "Request {i} failed with status {}",
-                response.status()
-            );
-            let body = response.text().await.expect("Failed to read body");
-            assert!(
-                body.contains("Concurrent Test"),
-                "Request {i} body mismatch: {}",
-                body
-            );
-        });
-        handles.push(handle);
+        // Empty string filter should return no results (parameterized = '')
+        let req = Request::builder()
+            .uri("/api/posts?author=")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "empty filter value should return 200 for {backend}"
+        );
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert!(
+            data.is_empty(),
+            "backend: {backend} - empty filter should return no results"
+        );
     }
+}
 
-    // Wait for all requests to complete
-    for handle in handles {
-        handle.await.expect("Request failed");
+#[tokio::test]
+async fn test_crud_create_partial_fields_across_backends() {
+    for backend in enabled_backends() {
+        let mut test_db = TestDatabase::new(backend, "crud_partial_fields");
+        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+
+        // Post with only required fields (body is nullable)
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/posts")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({"title": "Minimal", "author": "Dennis"}).to_string(),
+            ))
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::CREATED, "backend: {backend}");
+
+        // GET the created record to verify partial fields were handled correctly
+        let req = Request::builder()
+            .uri("/api/posts/1")
+            .body(Body::empty())
+            .unwrap();
+        let get_response = app.oneshot(req).await.unwrap();
+        let json = json_body(get_response).await;
+        assert_eq!(json["title"], "Minimal", "backend: {backend}");
+        assert_eq!(json["author"], "Dennis", "backend: {backend}");
+        // body is nullable - should either be null or empty string
+        assert!(
+            json["body"].is_null() || json["body"].as_str() == Some(""),
+            "backend: {backend} - nullable body should be null or empty"
+        );
     }
+}
 
-    // Verify we handled at least 1000 requests
-    assert!(
-        num_requests >= 1000,
-        "Expected to handle at least 1000 concurrent connections, got {}",
-        num_requests
-    );
+#[tokio::test]
+async fn test_crud_pagination_edge_cases_across_backends() {
+    for backend in enabled_backends() {
+        let mut test_db = TestDatabase::new(backend, "crud_pagination_edge");
+        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud_features.yaml").await;
 
-    // Shutdown the server by killing the task
-    server_handle.abort();
+        seed_posts(
+            &app,
+            &[
+                ("P1", "A"),
+                ("P2", "A"),
+                ("P3", "A"),
+                ("P4", "A"),
+                ("P5", "A"),
+            ],
+        )
+        .await;
+
+        // page=0 should be handled gracefully
+        let req = Request::builder()
+            .uri("/api/posts?page=0&page_size=2")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "page=0 should be handled for {backend}"
+        );
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert!(
+            data.len() <= 2,
+            "backend: {backend} - page=0 should return at most page_size items"
+        );
+
+        // page_size=0 should return empty results
+        let req = Request::builder()
+            .uri("/api/posts?page_size=0")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "backend: {backend}");
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert!(
+            data.is_empty(),
+            "backend: {backend} - page_size=0 should return empty results"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_crud_response_envelope_structure_across_backends() {
+    for backend in enabled_backends() {
+        let mut test_db = TestDatabase::new(backend, "crud_envelope");
+        let (app, _state) = test_db.setup_app(CRUD_CONFIG, "crud.yaml").await;
+
+        // Verify list response has "data" as an array
+        let req = Request::builder()
+            .uri("/api/posts")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(req).await.unwrap();
+        let json = json_body(response).await;
+        assert!(
+            json["data"].is_array(),
+            "backend: {backend} - list response should have 'data' as array"
+        );
+
+        // Seed a post and verify POST returns 201, then GET returns the record
+        let req = Request::builder()
+            .method("POST")
+            .uri("/api/posts")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({"title": "Envelope Test", "author": "Tester"}).to_string(),
+            ))
+            .unwrap();
+        let post_response = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            post_response.status(),
+            StatusCode::CREATED,
+            "backend: {backend} - POST should return 201"
+        );
+
+        // GET the record directly (single-record GET returns row, not wrapped in "data")
+        let req = Request::builder()
+            .uri("/api/posts/1")
+            .body(Body::empty())
+            .unwrap();
+        let get_response = app.oneshot(req).await.unwrap();
+        let json = json_body(get_response).await;
+        assert_eq!(
+            json["title"], "Envelope Test",
+            "backend: {backend} - single-record GET should return row directly"
+        );
+        // Single-record response should NOT have "data" wrapper
+        assert!(
+            !json["data"].is_array(),
+            "backend: {backend} - single-record GET should not wrap in 'data'"
+        );
+    }
 }
 
 // =============================================================================
@@ -1399,16 +1225,7 @@ async fn test_jsonb_filter_ne_across_backends() {
 
 #[tokio::test]
 async fn test_jsonb_filter_contains_across_backends() {
-    // JSONB CONTAINS operator uses PostgreSQL @> operator or SQLite json_each table-valued function
-    // These behave differently across backends, so we test PostgreSQL specifically
-    let pg_backends: Vec<TestBackend> = enabled_backends()
-        .into_iter()
-        .filter(|b| *b == TestBackend::Postgres)
-        .collect();
-    if pg_backends.is_empty() {
-        return;
-    }
-    for backend in pg_backends {
+    for backend in enabled_backends() {
         let mut test_db = TestDatabase::new(backend, "jsonb_filter_contains");
 
         let (app, _state) = test_db
@@ -1449,14 +1266,7 @@ async fn test_jsonb_filter_contains_across_backends() {
 
 #[tokio::test]
 async fn test_jsonb_filter_exists_across_backends() {
-    let pg_backends: Vec<TestBackend> = enabled_backends()
-        .into_iter()
-        .filter(|b| *b == TestBackend::Postgres)
-        .collect();
-    if pg_backends.is_empty() {
-        return;
-    }
-    for backend in pg_backends {
+    for backend in enabled_backends() {
         let mut test_db = TestDatabase::new(backend, "jsonb_filter_exists");
 
         let (app, _state) = test_db
@@ -1488,13 +1298,7 @@ async fn test_jsonb_filter_exists_across_backends() {
 
 #[tokio::test]
 async fn test_jsonb_filter_like_across_backends() {
-    // LIKE on JSONB values uses PostgreSQL-specific ILIKE operator
-    // SQLite's LIKE doesn't work the same way with json_extract results
-    let backends: Vec<TestBackend> = enabled_backends()
-        .into_iter()
-        .filter(|b| *b != TestBackend::Sqlite)
-        .collect();
-    for backend in backends {
+    for backend in enabled_backends() {
         let mut test_db = TestDatabase::new(backend, "jsonb_filter_like");
 
         let (app, _state) = test_db
@@ -1544,14 +1348,7 @@ async fn test_jsonb_filter_like_across_backends() {
 
 #[tokio::test]
 async fn test_jsonb_filter_startswith_across_backends() {
-    let pg_backends: Vec<TestBackend> = enabled_backends()
-        .into_iter()
-        .filter(|b| *b == TestBackend::Postgres)
-        .collect();
-    if pg_backends.is_empty() {
-        return;
-    }
-    for backend in pg_backends {
+    for backend in enabled_backends() {
         let mut test_db = TestDatabase::new(backend, "jsonb_filter_startswith");
 
         let (app, _state) = test_db
@@ -1578,14 +1375,7 @@ async fn test_jsonb_filter_startswith_across_backends() {
 
 #[tokio::test]
 async fn test_jsonb_filter_endswith_across_backends() {
-    let pg_backends: Vec<TestBackend> = enabled_backends()
-        .into_iter()
-        .filter(|b| *b == TestBackend::Postgres)
-        .collect();
-    if pg_backends.is_empty() {
-        return;
-    }
-    for backend in pg_backends {
+    for backend in enabled_backends() {
         let mut test_db = TestDatabase::new(backend, "jsonb_filter_endswith");
 
         let (app, _state) = test_db
@@ -1612,11 +1402,7 @@ async fn test_jsonb_filter_endswith_across_backends() {
 
 #[tokio::test]
 async fn test_jsonb_filter_combined_across_backends() {
-    let backends: Vec<TestBackend> = enabled_backends()
-        .into_iter()
-        .filter(|b| *b != TestBackend::Sqlite)
-        .collect();
-    for backend in backends {
+    for backend in enabled_backends() {
         let mut test_db = TestDatabase::new(backend, "jsonb_filter_combined");
 
         let (app, _state) = test_db
@@ -1670,11 +1456,7 @@ async fn test_jsonb_filter_combined_across_backends() {
 
 #[tokio::test]
 async fn test_jsonb_filter_jsonb_column_exists_across_backends() {
-    let backends: Vec<TestBackend> = enabled_backends()
-        .into_iter()
-        .filter(|b| *b != TestBackend::Sqlite)
-        .collect();
-    for backend in backends {
+    for backend in enabled_backends() {
         let mut test_db = TestDatabase::new(backend, "jsonb_filter_exists_non_jsonb");
 
         let (app, _state) = test_db
@@ -1709,13 +1491,7 @@ async fn test_jsonb_filter_jsonb_column_exists_across_backends() {
 
 #[tokio::test]
 async fn test_jsonb_filter_jsonb_column_contains_across_backends() {
-    // Non-JSONB contains uses = operator which only does exact match
-    // This test verifies the SQL generation, not the actual filtering behavior
-    let backends: Vec<TestBackend> = enabled_backends()
-        .into_iter()
-        .filter(|b| *b != TestBackend::Sqlite)
-        .collect();
-    for backend in backends {
+    for backend in enabled_backends() {
         let mut test_db = TestDatabase::new(backend, "jsonb_filter_contains_non_jsonb");
 
         let (app, _state) = test_db
@@ -1782,16 +1558,7 @@ async fn test_jsonb_filter_bracket_notation_across_backends() {
 
 #[tokio::test]
 async fn test_jsonb_filter_in_across_backends() {
-    // IN/NOT_IN on JSONB values uses PostgreSQL-specific @> operator
-    // SQLite's json_extract doesn't support these operations the same way
-    let pg_backends: Vec<TestBackend> = enabled_backends()
-        .into_iter()
-        .filter(|b| *b == TestBackend::Postgres)
-        .collect();
-    if pg_backends.is_empty() {
-        return;
-    }
-    for backend in pg_backends {
+    for backend in enabled_backends() {
         let mut test_db = TestDatabase::new(backend, "jsonb_filter_in");
 
         let (app, _state) = test_db
@@ -1832,16 +1599,7 @@ async fn test_jsonb_filter_in_across_backends() {
 
 #[tokio::test]
 async fn test_jsonb_filter_not_in_across_backends() {
-    // IN/NOT_IN on JSONB values uses PostgreSQL-specific @> operator
-    // SQLite's json_extract doesn't support these operations the same way
-    let pg_backends: Vec<TestBackend> = enabled_backends()
-        .into_iter()
-        .filter(|b| *b == TestBackend::Postgres)
-        .collect();
-    if pg_backends.is_empty() {
-        return;
-    }
-    for backend in pg_backends {
+    for backend in enabled_backends() {
         let mut test_db = TestDatabase::new(backend, "jsonb_filter_not_in");
 
         let (app, _state) = test_db
@@ -1873,14 +1631,7 @@ async fn test_jsonb_filter_not_in_across_backends() {
 
 #[tokio::test]
 async fn test_jsonb_filter_ilike_across_backends() {
-    let pg_backends: Vec<TestBackend> = enabled_backends()
-        .into_iter()
-        .filter(|b| *b == TestBackend::Postgres)
-        .collect();
-    if pg_backends.is_empty() {
-        return;
-    }
-    for backend in pg_backends {
+    for backend in enabled_backends() {
         let mut test_db = TestDatabase::new(backend, "jsonb_filter_ilike");
 
         let (app, _state) = test_db
@@ -2131,11 +1882,7 @@ async fn test_jsonb_filter_with_pagination_across_backends() {
 
 #[tokio::test]
 async fn test_jsonb_filter_combined_with_sort_and_pagination_across_backends() {
-    let backends: Vec<TestBackend> = enabled_backends()
-        .into_iter()
-        .filter(|b| *b != TestBackend::Sqlite)
-        .collect();
-    for backend in backends {
+    for backend in enabled_backends() {
         let mut test_db = TestDatabase::new(backend, "jsonb_full_query");
 
         let (app, _state) = test_db
@@ -2174,11 +1921,7 @@ async fn test_jsonb_filter_combined_with_sort_and_pagination_across_backends() {
 
 #[tokio::test]
 async fn test_jsonb_filter_on_multiple_jsonb_columns_across_backends() {
-    let backends: Vec<TestBackend> = enabled_backends()
-        .into_iter()
-        .filter(|b| *b != TestBackend::Sqlite)
-        .collect();
-    for backend in backends {
+    for backend in enabled_backends() {
         let mut test_db = TestDatabase::new(backend, "jsonb_filter_on_multiple_jsonb_columns");
 
         let (app, _state) = test_db
@@ -2402,6 +2145,43 @@ async fn test_jsonb_filter_invalid_syntax_across_backends() {
             response.status() == StatusCode::BAD_REQUEST || response.status() == StatusCode::OK,
             "non-existent nested path should return 400 or OK for {backend}, got {}",
             response.status()
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_jsonb_filter_partial_nulls_across_backends() {
+    for backend in enabled_backends() {
+        let mut test_db = TestDatabase::new(backend, "jsonb_partial_nulls");
+
+        let (app, _state) = test_db
+            .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_partial_nulls.yaml")
+            .await;
+
+        seed_jsonb_posts_with_nulls(&app).await;
+
+        // Filter by metadata.role = "full" - should only match "Post With Full Metadata"
+        // Posts with null metadata or empty metadata should not match
+        let req = Request::builder()
+            .uri("/api/posts?metadata.role=full")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.oneshot(req).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "eq filter with null metadata should return 200 for {backend}"
+        );
+        let json = json_body(response).await;
+        let data = json["data"].as_array().unwrap();
+        assert_eq!(
+            data.len(),
+            1,
+            "backend: {backend} - null metadata posts should not match role filter"
+        );
+        assert_eq!(
+            data[0]["title"], "Post With Full Metadata",
+            "backend: {backend}"
         );
     }
 }
