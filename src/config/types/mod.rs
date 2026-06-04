@@ -11,6 +11,7 @@
 /// - `database` - Database connections and table schemas
 /// - `auth` - Authentication providers (JWT, API key, Basic, `OAuth2`)
 /// - `endpoints` - Endpoint definitions and action configs (CRUD, proxy, static, custom)
+/// - `store` - Storage backend configurations (S3, Azure, GCS, native)
 mod auth;
 mod cors;
 mod database;
@@ -18,6 +19,7 @@ mod endpoints;
 mod logging;
 mod rate_limit;
 mod server;
+mod store;
 
 use std::collections::HashMap;
 
@@ -31,6 +33,7 @@ pub use endpoints::*;
 pub use logging::*;
 pub use rate_limit::*;
 pub use server::*;
+pub use store::*;
 
 // =============================================================================
 // Root config
@@ -60,4 +63,7 @@ pub struct AppConfig {
     /// Endpoint definitions.
     #[serde(default)]
     pub endpoints: Vec<EndpointConfig>,
+    /// Named storage backends. Endpoints reference these by key.
+    #[serde(default)]
+    pub stores: HashMap<String, StoreConfig>,
 }

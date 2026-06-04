@@ -26,6 +26,15 @@ pub struct EndpointConfig {
     /// Static file serving configuration.
     #[serde(default)]
     pub static_files: Option<StaticFilesConfig>,
+    /// SPA hosting configuration.
+    #[serde(default)]
+    pub spa_host: Option<SpaHostConfig>,
+    /// Media library configuration.
+    #[serde(default)]
+    pub media: Option<MediaConfig>,
+    /// File store (database-backed file catalog) configuration.
+    #[serde(default)]
+    pub file_store: Option<FileStoreConfig>,
     /// Custom/static response configuration.
     #[serde(default)]
     pub custom_response: Option<CustomResponseConfig>,
@@ -97,7 +106,10 @@ impl HttpMethod {
 pub enum EndpointAction {
     Crud,
     Proxy,
-    Static,
+    StaticFiles,
+    SpaHost,
+    Media,
+    FileStore,
     CustomResponse,
 }
 
@@ -325,27 +337,46 @@ impl Default for ProxyTimeouts {
 // Static files config
 // =============================================================================
 
+/// Per-extension Cache-Control rule.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CacheRuleConfig {
+    /// File extensions to match (e.g. [".html", ".js"]).
+    pub extensions: Vec<String>,
+    /// Cache-Control header value (e.g. "public, max-age=31536000, immutable").
+    pub cache_control: String,
+}
+
 /// Static file serving configuration for an endpoint.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct StaticFilesConfig {
-    /// Root directory to serve files from.
-    pub root: String,
-    /// Index file name (e.g. `"index.html"`).
+    /// Named store to use (must match a key in `stores`).
+    pub storage: String,
+    /// Index file name (e.g. "index.html").
+    #[serde(default = "default_index")]
     pub index: String,
     /// Whether to generate directory listings.
+    #[serde(default)]
     pub directory_listing: bool,
     /// Cache-Control max-age in seconds.
+    #[serde(default = "default_cache_max_age")]
     pub cache_max_age: u64,
-    /// Whether to serve the index file for unmatched routes (SPA mode).
-    pub spa_fallback: bool,
-
+    /// ETag generation for cache validation.
+    #[serde(default = "default_true")]
+    pub etag: bool,
+    /// Support for HTTP range requests (partial content / 206).
+    #[serde(default = "default_true")]
+    pub range_requests: bool,
+    /// Support for HTTP HEAD method.
+    #[serde(default = "default_true")]
+    pub head_support: bool,
+    /// Per-extension Cache-Control rules.
+    #[serde(default)]
+    pub cache_rules: Vec<CacheRuleConfig>,
     /// File upload configuration (optional).
     #[serde(default)]
     pub upload: Option<UploadConfig>,
-    /// User scoping configuration (optional).
-    #[serde(default)]
-    pub user_scope: Option<UserScopeConfig>,
     /// Image resize configuration (optional).
     #[serde(default)]
     pub image_resize: Option<ImageResizeConfig>,
@@ -354,16 +385,26 @@ pub struct StaticFilesConfig {
     pub streaming: Option<StreamingConfig>,
 }
 
+fn default_index() -> String {
+    "index.html".to_string()
+}
+
+fn default_cache_max_age() -> u64 {
+    3600
+}
+
 impl Default for StaticFilesConfig {
     fn default() -> Self {
         Self {
-            root: "./public".to_string(),
+            storage: String::new(),
             index: "index.html".to_string(),
             directory_listing: false,
             cache_max_age: 3600,
-            spa_fallback: false,
+            etag: true,
+            range_requests: true,
+            head_support: true,
+            cache_rules: Vec::new(),
             upload: None,
-            user_scope: None,
             image_resize: None,
             streaming: None,
         }
@@ -386,6 +427,15 @@ where
     Ok(raw.into_iter().map(|s| normalize_extension(&s)).collect())
 }
 
+/// MIME type detection method for uploads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum UploadMimeDetection {
+    Extension,
+    #[default]
+    Magic,
+}
+
 /// File upload configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -401,8 +451,9 @@ pub struct UploadConfig {
     /// Subdirectory pattern for organizing uploads.
     /// Available placeholders: {user_id}, {year}, {month}, {day}, {uuid}
     pub create_subdirectory: Option<String>,
-    /// Role required to upload files (optional).
-    pub required_role: Option<String>,
+    /// MIME type detection method.
+    #[serde(default)]
+    pub mime_detection: UploadMimeDetection,
 }
 
 impl Default for UploadConfig {
@@ -412,35 +463,19 @@ impl Default for UploadConfig {
             max_size: 10 * 1024 * 1024, // 10 MiB
             allowed_extensions: Vec::new(),
             create_subdirectory: None,
-            required_role: None,
+            mime_detection: UploadMimeDetection::Magic,
         }
     }
 }
 
-/// User scoping configuration.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct UserScopeConfig {
-    /// Enable user-scoped file browsing.
-    pub enabled: bool,
-    /// Role required to access user-scoped files.
-    pub required_role: Option<String>,
-    /// Pattern for user-specific directories.
-    /// Default: "{user_id}"
-    pub directory_pattern: String,
-    /// Whether the root directory is exposed when user_scope is enabled.
-    pub expose_root: bool,
-}
-
-impl Default for UserScopeConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            required_role: None,
-            directory_pattern: "{user_id}".to_string(),
-            expose_root: false,
-        }
-    }
+/// Image resize fit mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ImageResizeFit {
+    #[default]
+    ScaleDown,
+    Cover,
+    Contain,
 }
 
 /// Image resize configuration.
@@ -453,6 +488,9 @@ pub struct ImageResizeConfig {
     pub max_dimension: usize,
     /// Supported formats for conversion.
     pub supported_formats: Vec<String>,
+    /// Default resize fit mode.
+    #[serde(default)]
+    pub default_fit: ImageResizeFit,
     /// Cache directory for resized images (optional).
     /// Defaults to "cache/resized" under the root directory.
     #[serde(default)]
@@ -470,6 +508,7 @@ impl Default for ImageResizeConfig {
                 "png".to_string(),
                 "webp".to_string(),
             ],
+            default_fit: ImageResizeFit::ScaleDown,
             cache_dir: None,
         }
     }
@@ -485,6 +524,13 @@ pub struct StreamingConfig {
     pub buffer_size: usize,
     /// Threshold for enabling streaming (files > this size use streaming).
     pub threshold: u64,
+    /// Whether to include Content-Length header in streaming responses.
+    #[serde(default = "default_true")]
+    pub include_content_length: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for StreamingConfig {
@@ -493,8 +539,617 @@ impl Default for StreamingConfig {
             enabled: false,
             buffer_size: 65536,     // 64 KiB
             threshold: 1024 * 1024, // 1 MiB
+            include_content_length: true,
         }
     }
+}
+
+// =============================================================================
+// Media / File Store config
+// =============================================================================
+
+/// Default value for boolean fields that default to `true`.
+fn default_true_bool() -> bool {
+    true
+}
+
+/// Default retention days for trashed file_store entries.
+fn default_trash_retention() -> u32 {
+    30
+}
+
+/// A metadata column definition for media/file_store endpoints.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MediaMetadataColumn {
+    /// Column name.
+    pub name: String,
+    /// SQL data type (e.g. "text", "bigint", "jsonb").
+    #[serde(rename = "type")]
+    pub column_type: String,
+    /// Whether this column allows NULL values.
+    #[serde(default = "default_true_bool")]
+    pub nullable: bool,
+    /// Default value expression (raw SQL).
+    #[serde(default)]
+    pub default: Option<String>,
+}
+
+/// A metadata column definition for file_store endpoints.
+/// Same structure as MediaMetadataColumn.
+pub type FileStoreMetadataColumn = MediaMetadataColumn;
+
+/// Field-level permissions for file_store endpoints.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct FileStoreFieldPermissions {
+    /// Roles allowed to read this field. Use ["*"] for all roles.
+    pub read: Vec<String>,
+    /// Roles allowed to write this field.
+    pub write: Vec<String>,
+}
+
+/// Ownership configuration for file_store endpoints.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct FileStoreOwnershipConfig {
+    /// Column name that stores the owner ID.
+    pub owner_column: String,
+    /// Admin users can access any row.
+    #[serde(default = "default_true_bool")]
+    pub admin_override: bool,
+}
+
+/// Trash configuration for file_store endpoints.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct FileStoreTrashConfig {
+    /// Whether trash is enabled.
+    #[serde(default = "default_true_bool")]
+    pub enabled: bool,
+    /// Number of days to retain trashed entries.
+    #[serde(default = "default_trash_retention")]
+    pub retention_days: u32,
+}
+
+// =============================================================================
+// Media endpoint config types
+// =============================================================================
+
+/// MIME type detection for media uploads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MediaMimeDetection {
+    Extension,
+    #[default]
+    Magic,
+}
+
+/// User scoping mode for media endpoints.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MediaScopeMode {
+    User,
+    #[default]
+    Shared,
+    Open,
+}
+
+/// On-delete behavior for media content references.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MediaOnDeleteBehavior {
+    #[default]
+    Detach,
+    Cascade,
+    Error,
+}
+
+/// Facet type for media search.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MediaFacetType {
+    Term,
+    DateRange,
+    Numeric,
+}
+
+/// Per-facet configuration for media search.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MediaFacetConfig {
+    /// Facet display name.
+    pub name: String,
+    /// Database column to facet on.
+    pub field: String,
+    /// Facet type.
+    pub facet_type: MediaFacetType,
+}
+
+/// Named image resize style for media (e.g. thumbnail, gallery).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MediaImageResizeStyle {
+    /// Style name (e.g. "thumbnail", "gallery").
+    pub name: String,
+    /// Maximum width in pixels.
+    pub max_width: u32,
+    /// Maximum height in pixels.
+    pub max_height: u32,
+    /// Resize fit mode.
+    #[serde(default = "default_cover_fit")]
+    pub resize_fit: ImageResizeFit,
+    /// Output format (e.g. "webp", "jpg").
+    pub format: String,
+    /// JPEG/WebP quality (0-100).
+    #[serde(default = "default_quality")]
+    pub quality: u8,
+}
+
+fn default_cover_fit() -> ImageResizeFit {
+    ImageResizeFit::Cover
+}
+
+fn default_quality() -> u8 {
+    85
+}
+
+/// Preview configuration for non-image files.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MediaPreviewConfig {
+    /// Preview style name.
+    pub name: String,
+    /// Maximum preview width.
+    pub max_width: u32,
+    /// Maximum preview height.
+    pub max_height: u32,
+    /// Output format.
+    pub format: String,
+}
+
+/// File versioning configuration.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MediaVersioningConfig {
+    /// Whether versioning is enabled.
+    pub enabled: bool,
+    /// Maximum number of versions per file.
+    #[serde(default = "default_max_versions")]
+    pub max_versions: u32,
+}
+
+fn default_max_versions() -> u32 {
+    10
+}
+
+/// Preview generation configuration for non-image files.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MediaPreviewGenerationConfig {
+    /// Whether preview generation is enabled.
+    pub enabled: bool,
+    /// Preview styles to generate.
+    pub previews: Vec<MediaPreviewConfig>,
+}
+
+/// Media upload configuration.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MediaUploadConfig {
+    /// Maximum upload size in bytes.
+    #[serde(default = "default_media_max_size")]
+    pub max_size: u64,
+    /// Allowed file extensions.
+    #[serde(default)]
+    pub allowed_extensions: Vec<String>,
+    /// Allowed MIME types.
+    #[serde(default)]
+    pub allowed_mime_types: Vec<String>,
+    /// MIME type detection method.
+    #[serde(default)]
+    pub mime_detection: MediaMimeDetection,
+    /// Whether bulk upload is supported.
+    #[serde(default = "default_true_bool")]
+    pub bulk_supported: bool,
+    /// Subdirectory pattern.
+    #[serde(default)]
+    pub create_subdirectory: Option<String>,
+    /// File versioning settings.
+    #[serde(default)]
+    pub versioning: Option<MediaVersioningConfig>,
+    /// Preview generation settings.
+    #[serde(default)]
+    pub preview_generation: Option<MediaPreviewGenerationConfig>,
+}
+
+fn default_media_max_size() -> u64 {
+    100 * 1024 * 1024 // 100 MiB
+}
+
+/// Move configuration for media files.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MediaMoveConfig {
+    /// Whether move is enabled.
+    #[serde(default = "default_true_bool")]
+    pub enabled: bool,
+    /// Admin users can move files regardless of scope restrictions.
+    #[serde(default = "default_true_bool")]
+    pub admin_override: bool,
+    /// Automatically create the destination directory structure.
+    #[serde(default)]
+    pub auto_create_destination: bool,
+}
+
+/// Rename configuration for media files.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MediaRenameConfig {
+    /// Whether rename is enabled.
+    #[serde(default = "default_true_bool")]
+    pub enabled: bool,
+    /// Admin users can rename files regardless of scope restrictions.
+    #[serde(default = "default_true_bool")]
+    pub admin_override: bool,
+}
+
+/// Delete configuration for media files.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MediaDeleteConfig {
+    /// Whether delete is enabled.
+    #[serde(default = "default_true_bool")]
+    pub enabled: bool,
+    /// Admin users can delete files regardless of scope restrictions.
+    #[serde(default = "default_true_bool")]
+    pub admin_override: bool,
+}
+
+/// Attach to content configuration.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MediaAttachConfig {
+    /// Whether attaching media to content is enabled.
+    #[serde(default = "default_true_bool")]
+    pub enabled: bool,
+}
+
+/// Detach from content configuration.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MediaDetachConfig {
+    /// Whether detaching media from content is enabled.
+    #[serde(default = "default_true_bool")]
+    pub enabled: bool,
+}
+
+/// User scope configuration for media.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MediaUserScopeConfig {
+    /// Whether user scoping is enabled.
+    #[serde(default = "default_true_bool")]
+    pub enabled: bool,
+    /// User scope mode for media access.
+    #[serde(default)]
+    pub mode: MediaScopeMode,
+    /// Roles that can browse all media regardless of scope.
+    #[serde(default)]
+    pub admin_roles: Vec<String>,
+    /// Allow users to browse media from other users.
+    #[serde(default)]
+    pub allow_cross_user_browse: bool,
+}
+
+/// Content references configuration for media.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MediaContentReferencesConfig {
+    /// Whether content references are enabled.
+    #[serde(default = "default_true_bool")]
+    pub enabled: bool,
+    /// Database table storing media-to-entity references.
+    #[serde(default = "default_media_refs_table")]
+    pub table: String,
+    /// Column name for the media ID foreign key.
+    #[serde(default = "default_media_id_col")]
+    pub media_id_column: String,
+    /// Column name for the entity ID foreign key.
+    #[serde(default = "default_entity_id_col")]
+    pub entity_id_column: String,
+    /// Column name for the content type (e.g. "post", "product").
+    #[serde(default = "default_content_type_col")]
+    pub content_type_column: String,
+    /// Column name for the attachment order/sort value.
+    #[serde(default = "default_order_col")]
+    pub order_column: String,
+    /// Allowed content types (None = all).
+    #[serde(default)]
+    pub allowed_content_types: Option<Vec<String>>,
+    /// Behavior when the referenced entity is deleted.
+    #[serde(default)]
+    pub on_delete: MediaOnDeleteBehavior,
+}
+
+fn default_media_refs_table() -> String {
+    "media_entity_refs".to_string()
+}
+
+fn default_media_id_col() -> String {
+    "media_id".to_string()
+}
+
+fn default_entity_id_col() -> String {
+    "entity_id".to_string()
+}
+
+fn default_content_type_col() -> String {
+    "content_type".to_string()
+}
+
+fn default_order_col() -> String {
+    "attachment_order".to_string()
+}
+
+/// Trash configuration for media.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MediaTrashConfig {
+    /// Whether trash is enabled.
+    #[serde(default = "default_true_bool")]
+    pub enabled: bool,
+    /// Number of days to retain trashed media before permanent deletion.
+    #[serde(default = "default_media_trash_retention")]
+    pub retention_days: u32,
+    /// Storage prefix/path for trashed files.
+    #[serde(default = "default_trash_prefix")]
+    pub prefix: String,
+    /// Whether trash management endpoints are exposed.
+    #[serde(default = "default_true_bool")]
+    pub management_endpoints: bool,
+    /// Roles permitted to manage trash.
+    #[serde(default = "default_trash_admin_roles")]
+    pub admin_roles: Vec<String>,
+}
+
+fn default_media_trash_retention() -> u32 {
+    14
+}
+
+fn default_trash_prefix() -> String {
+    ".trash".to_string()
+}
+
+fn default_trash_admin_roles() -> Vec<String> {
+    vec!["admin".to_string()]
+}
+
+/// Sharing configuration for media.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MediaSharingConfig {
+    /// Whether sharing is enabled.
+    #[serde(default = "default_true_bool")]
+    pub enabled: bool,
+    /// Secret key for signing share links.
+    pub signing_secret: String,
+    /// Default time-to-live for share links in seconds.
+    #[serde(default = "default_share_ttl")]
+    pub default_ttl: u64,
+    /// Maximum time-to-live for share links in seconds.
+    #[serde(default = "default_share_max_ttl")]
+    pub max_ttl: u64,
+    /// Storage prefix/path for shared files.
+    #[serde(default = "default_shared_prefix")]
+    pub prefix: String,
+    /// Whether any authenticated user can share media.
+    #[serde(default = "default_true_bool")]
+    pub allow_any_user: bool,
+    /// Required role to create share links.
+    #[serde(default)]
+    pub required_link_role: Option<String>,
+}
+
+fn default_share_ttl() -> u64 {
+    86400
+}
+
+fn default_share_max_ttl() -> u64 {
+    604800
+}
+
+fn default_shared_prefix() -> String {
+    "shared".to_string()
+}
+
+/// Image resize configuration for media.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MediaImageResizeConfig {
+    /// Whether on-demand image resizing is enabled.
+    #[serde(default = "default_true_bool")]
+    pub enabled: bool,
+    /// Maximum dimension for auto-resize in pixels.
+    #[serde(default = "default_resize_dimension")]
+    pub max_dimension: usize,
+    /// Supported output formats for conversion.
+    #[serde(default = "default_resize_formats")]
+    pub supported_formats: Vec<String>,
+    /// Default resize fit mode.
+    #[serde(default)]
+    pub default_fit: ImageResizeFit,
+    /// Cache directory for resized images.
+    #[serde(default)]
+    pub cache_dir: Option<String>,
+    /// Named image resize styles.
+    #[serde(default)]
+    pub styles: Vec<MediaImageResizeStyle>,
+    /// Whether to generate resized images on upload.
+    #[serde(default)]
+    pub generate_on_upload: bool,
+}
+
+fn default_resize_dimension() -> usize {
+    4096
+}
+
+fn default_resize_formats() -> Vec<String> {
+    vec![
+        "jpg".to_string(),
+        "jpeg".to_string(),
+        "png".to_string(),
+        "webp".to_string(),
+    ]
+}
+
+/// Media library endpoint configuration.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MediaConfig {
+    /// Named store to use.
+    pub storage: String,
+    /// Database table for media metadata.
+    pub table: String,
+    /// Named database to use.
+    pub database: String,
+    /// Metadata presets: "auto", "tags", "description", "alt_text", "content_type".
+    #[serde(default = "default_media_columns")]
+    pub columns: Vec<String>,
+    /// Additional metadata columns not covered by presets.
+    #[serde(default)]
+    pub metadata_columns: Vec<MediaMetadataColumn>,
+    /// Upload configuration.
+    #[serde(default)]
+    pub upload: Option<MediaUploadConfig>,
+    /// Move configuration.
+    #[serde(default)]
+    #[serde(alias = "move")]
+    pub move_config: Option<MediaMoveConfig>,
+    /// Rename configuration.
+    #[serde(default)]
+    pub rename: Option<MediaRenameConfig>,
+    /// Delete configuration.
+    #[serde(default)]
+    pub delete: Option<MediaDeleteConfig>,
+    /// Attach to content configuration.
+    #[serde(default)]
+    pub attach_to_content: Option<MediaAttachConfig>,
+    /// Detach from content configuration.
+    #[serde(default)]
+    pub detach_from_content: Option<MediaDetachConfig>,
+    /// User scoping configuration.
+    #[serde(default)]
+    pub user_scope: Option<MediaUserScopeConfig>,
+    /// Content references configuration.
+    #[serde(default)]
+    pub content_references: Option<MediaContentReferencesConfig>,
+    /// Trash configuration.
+    #[serde(default)]
+    pub trash: Option<MediaTrashConfig>,
+    /// Sharing configuration.
+    #[serde(default)]
+    pub sharing: Option<MediaSharingConfig>,
+    /// Pagination for metadata listing.
+    #[serde(default)]
+    pub pagination: PaginationConfig,
+    /// Sorting for metadata listing.
+    #[serde(default)]
+    pub sorting: SortingConfig,
+    /// Filtering for metadata listing.
+    #[serde(default)]
+    pub filtering: FilteringConfig,
+    /// Faceted search configuration.
+    #[serde(default)]
+    pub facets: Vec<MediaFacetConfig>,
+    /// Image resize configuration.
+    #[serde(default)]
+    pub image_resize: Option<MediaImageResizeConfig>,
+}
+
+fn default_media_columns() -> Vec<String> {
+    vec!["auto".to_string()]
+}
+
+// =============================================================================
+// SPA host config
+// =============================================================================
+
+/// SPA hosting endpoint configuration.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SpaHostConfig {
+    /// Named store to use (must match a key in `stores`).
+    pub storage: String,
+    /// Index file for SPA fallback.
+    #[serde(default = "default_index")]
+    pub index: String,
+    /// Default Cache-Control max-age in seconds.
+    #[serde(default = "default_cache_max_age")]
+    pub cache_max_age: u64,
+    /// Per-extension Cache-Control rules.
+    #[serde(default)]
+    pub cache_rules: Vec<CacheRuleConfig>,
+    /// ETag generation for cache validation.
+    #[serde(default = "default_true")]
+    pub etag: bool,
+    /// HTTP status code for SPA fallback responses (non-existent paths).
+    #[serde(default = "default_fallback_status")]
+    pub fallback_status: u16,
+}
+
+impl Default for SpaHostConfig {
+    fn default() -> Self {
+        Self {
+            storage: String::new(),
+            index: "index.html".to_string(),
+            cache_max_age: 3600,
+            cache_rules: Vec::new(),
+            etag: true,
+            fallback_status: 200,
+        }
+    }
+}
+
+fn default_fallback_status() -> u16 {
+    200
+}
+
+// =============================================================================
+// File store config
+// =============================================================================
+
+/// File store (database-backed file catalog) endpoint configuration.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct FileStoreConfig {
+    /// Named store to use.
+    pub storage: String,
+    /// Database table that serves as the file registry.
+    pub table: String,
+    /// Named database to use.
+    pub database: String,
+    /// File metadata columns tracked by the registry.
+    #[serde(default)]
+    pub metadata_columns: Vec<FileStoreMetadataColumn>,
+    /// Field-level read/write permissions per role.
+    #[serde(default)]
+    pub field_permissions: Option<HashMap<String, FileStoreFieldPermissions>>,
+    /// Row-level authorization via owner column.
+    #[serde(default)]
+    pub ownership: Option<FileStoreOwnershipConfig>,
+    /// Trash support for deleted entries.
+    #[serde(default)]
+    pub trash: Option<FileStoreTrashConfig>,
+    /// Pagination for listing files.
+    #[serde(default)]
+    pub pagination: PaginationConfig,
+    /// Sorting for listing files.
+    #[serde(default)]
+    pub sorting: SortingConfig,
+    /// Filtering for listing files.
+    #[serde(default)]
+    pub filtering: FilteringConfig,
 }
 
 // =============================================================================
