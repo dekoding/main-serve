@@ -13,7 +13,7 @@
 #            password: "${DB_PASSWORD:-changeme}"
 #
 # REQUEST CONTEXT INTERPOLATION:
-#   Certain fields (like `where_clause`) support dynamic interpolation 
+#   Certain fields (like `where_clause`) support dynamic interpolation
 #   using the `${key}` syntax to inject request-specific data.
 #   Supported keys:
 #     - ${request.user.id}: The authenticated user's ID.
@@ -67,7 +67,7 @@ server:
   workers: 0
 
   # Maximum request body size in bytes. Requests exceeding this are rejected with 413.
-  # Not applied to file uploads - those are configured under static_files.upload.
+  # Not applied to file uploads - those are configured per-endpoint under their action config.
   # Not applied to proxied requests - those are configured under proxy.max_response_size.
   # Type: integer
   # Default: 10485760 (10 MiB)
@@ -102,12 +102,12 @@ server:
 # LOGGING
 # -----------------------------------------------------------------------------
 logging:
-  # Log level: trace, debug, info, warn, error
+  # Log level: trace, debug, info, warn, error.
   # Type: enum (string)
   # Default: "info"
   level: "info"
 
-  # Output format: "json" or "pretty"
+  # Output format: "json" or "pretty".
   # Type: enum (string)
   # Default: "pretty"
   format: "pretty"
@@ -183,7 +183,7 @@ rate_limit:
   # Default: 60
   window_seconds: 60
 
-  # Key extraction strategy: "ip", "header", "token"
+  # Key extraction strategy: "ip", "header", "token".
   #   - ip: rate limit by client IP
   #   - header: rate limit by value of a specific header (set key_header)
   #   - token: rate limit by auth token / API key
@@ -210,7 +210,7 @@ databases:
   # Each key is a unique name used to reference this database in endpoints.
   # Example:
   main:
-    # Database driver: postgres, mysql, sqlite
+    # Database driver: postgres, mysql, sqlite.
     # Type: enum (string)
     # Required.
     driver: "postgres"
@@ -257,19 +257,31 @@ databases:
 # TABLE SCHEMAS
 # Define array of database tables. Used for auto-migration and CRUD query
 # generation.
-# 
+#
 # Each table consists of the table name, the database it belongs to, and an
 # array of column definitions. Columns have a name, type, and optional
 # constraints.
 # -----------------------------------------------------------------------------
 tables:
-    # Name of the table as it appears in the database.
+  # Each entry defines a database table.
   - name: "users"
     # Which named database this table belongs to (must match a key in `databases`).
+    # Type: string
+    # Required.
     database: "main"
+
     # Column definitions. Every table must have at least one primary key column.
+    # Type: list of objects
+    # Required.
     columns:
       # Each column is defined as:
+      #   - name: column name in the database
+      #   - type: SQL data type
+      #   - primary_key: whether this is the primary key (boolean, default: false)
+      #   - nullable: whether NULL is allowed (boolean, default: true; always false for PKs)
+      #   - default: default SQL expression (string, optional)
+      #   - unique: whether to create a UNIQUE constraint (boolean, default: false)
+      #   - indexed: whether to create an index (boolean, default: false)
       - name: "id"
         # Column data type. Supported types:
         #   integer, bigint, smallint, serial, bigserial,
@@ -335,7 +347,8 @@ tables:
         default: "now()"
 
     # Foreign key constraints.
-    # Type: list (optional)
+    # Type: list of objects (optional)
+    # Each object has: column, references_table, references_column, on_delete, on_update
     foreign_keys: []
     #  - column: "org_id"
     #    references_table: "organizations"
@@ -355,7 +368,7 @@ auth:
     # Required if jwt is configured.
     secret: "${JWT_SECRET}"
 
-    # JWT algorithm: HS256, HS384, HS512, RS256, RS384, RS512, ES256, ES384
+    # JWT algorithm: HS256, HS384, HS512, RS256, RS384, RS512, ES256, ES384.
     # Type: enum (string)
     # Default: "HS256"
     algorithm: "HS256"
@@ -394,7 +407,8 @@ auth:
 
     # List of valid API keys (use ${ENV_VAR} for each).
     # Each key can optionally have a role attached.
-    # Type: list
+    # Type: list of objects
+    # Each object has: key (string), role (string, optional)
     keys:
       - key: "${API_KEY_1}"
         role: "admin"
@@ -409,7 +423,8 @@ auth:
     realm: "main-serve"
 
     # List of username/password pairs (passwords are argon2 hashes).
-    # Type: list
+    # Type: list of objects
+    # Each object has: username (string), password_hash (string), role (string, optional)
     users:
       - username: "admin"
         password_hash: "${ADMIN_PASSWORD_HASH}"
@@ -500,8 +515,107 @@ auth:
     max_pending_states: 1000
 
 # -----------------------------------------------------------------------------
+# STORAGE BACKENDS
+# Named storage backends. Endpoints that need file storage reference these by key.
+# -----------------------------------------------------------------------------
+stores:
+  # Each key is a unique name used to reference this store in endpoints.
+  # Duplicate store names are a configuration error (fail-fast at load time).
+  # Error: Duplicate store name "X" in stores section
+  #
+  # At most one backend-specific config section (root, s3, azure, gcs) may be
+   # present. The `backend` value must match the present config section
+   # (e.g., `backend: s3` requires an `s3:` block). Validation fails with an
+   # error if conflicting, mismatched, or empty config is detected.
+   #
+   # Required fields per backend:
+   #   native -> root (must not be empty)
+   #   memory -> none (no additional config needed)
+   #   s3     -> s3.region, s3.bucket, s3.access_key, s3.secret_key (all required);
+   #            s3.endpoint and s3.force_path_style are optional
+   #   azure  -> azure.account_name, azure.account_key, azure.container (all required)
+   #   gcs    -> gcs.project_id, gcs.credentials, gcs.bucket (all required)
+  #
+  # Example:
+  local_assets:
+    # Storage backend type: "native" (local disk), "s3" (Amazon S3),
+    # "azure" (Azure Blob Storage), "gcs" (Google Cloud Storage),
+    # "memory" (in-memory for testing, no config needed).
+    # Type: enum (string)
+    # Required.
+    backend: "native"
+
+    # Root directory for local storage. Required when backend is "native",
+    # must not be empty.
+    # Type: string (directory path)
+    root: "./public"
+
+    # S3 configuration. Required when backend is "s3".
+    # Type: object (optional)
+    # s3:
+    #   region: "us-east-1"
+    #   bucket: "myapp-assets"
+    #   access_key: "${S3_ACCESS_KEY}"
+    #   secret_key: "${S3_SECRET_KEY}"
+    #   endpoint: ""           # optional custom endpoint URL for S3-compatible services
+    #   force_path_style: false  # true for MinIO, LocalStack, Ceph; false (default) for AWS S3
+    #                            # path-style: s3.amazonaws.com/bucket-key; virtual-hosted: bucket.s3.amazonaws.com
+
+    # Azure Blob Storage configuration. Required when backend is "azure".
+    # Type: object (optional)
+    # azure:
+    #   account_name: "${AZURE_ACCOUNT}"
+    #   account_key: "${AZURE_KEY}"
+    #   container: "assets"
+
+    # Google Cloud Storage configuration. Required when backend is "gcs".
+    # Type: object (optional)
+    # gcs:
+    #   project_id: "my-project"
+    #   credentials: "${GCS_CREDENTIALS}"
+    #   bucket: "myapp-assets"
+
+  media_storage:
+    backend: "s3"
+    s3:
+      region: "us-west-2"
+      bucket: "myapp-media"
+      access_key: "${S3_ACCESS_KEY}"
+      secret_key: "${S3_SECRET_KEY}"
+      force_path_style: false
+
+  video_storage:
+    backend: "native"
+    root: "/var/media/video"
+
+  # In-memory store for testing - no additional config required.
+  # Useful for unit tests or development where persistence is not needed.
+  test_store:
+    backend: "memory"
+
+# -----------------------------------------------------------------------------
 # ENDPOINTS
-# The core of Main Serve: define API routes, static file serving, proxying, etc.
+# The core of Main Serve: define API routes, file serving, media management, etc.
+#
+# Each endpoint entry has these top-level fields:
+#   - path: URL path pattern. Supports :param (e.g. /users/:id) for single-segment
+#     path parameters, and /* (e.g. /assets/*) for trailing wildcard capture.
+#   - methods: list of HTTP methods this endpoint responds to.
+#   - action: the endpoint's behavior type (see action enum below).
+#   - <action-specific config>: object whose structure depends on the action type.
+#   - auth: auth provider name or "none". Inherited from global config if omitted.
+#   - roles: allowed roles. Inherited from global config if omitted.
+#   - cors: per-endpoint CORS override. Omit to inherit from global config.
+#   - rate_limit: per-endpoint rate limit override. Omit to inherit from global config.
+#
+# Action types:
+#   crud          - database CRUD operations (select, insert, update, delete)
+#   proxy         - forward requests to an upstream HTTP service
+#   static_files  - serve files directly from a storage backend
+#   media         - media library with management features (upload, trash, sharing, etc.)
+#   file_store    - database-backed file catalog with CRUD (no direct file serving)
+#   spa_host      - serve a single-page application with fallback routing
+#   custom_response - return a static response body
 # -----------------------------------------------------------------------------
 endpoints:
   # Each endpoint is an entry in this list.
@@ -509,13 +623,13 @@ endpoints:
   # ---- CRUD Endpoint Example ----
   - path: "/api/users"
     # HTTP methods this endpoint responds to.
-    # Type: list of enums (get, post, put, patch, delete)
+    # Type: list of strings (GET, POST, PUT, PATCH, DELETE)
     # Required.
     methods:
       - "get"
       - "post"
 
-    # Action type: crud, proxy, static, custom_response
+    # Action type (see enum above).
     # Type: enum (string)
     # Required.
     action: "crud"
@@ -623,70 +737,105 @@ endpoints:
       where_clause: null
 
       # Joins with other tables.
-      # Type: list (optional)
+      # Type: list of objects (optional)
+      # Each object has: table, on, join_type, fields
+      # Note that "on" is a YAML 1.2 implicit boolean
+      # type, so it must be in quotes.
       joins: []
       #  - table: "organizations"
-      #    on: "users.org_id = organizations.id"
+      #    "on": "users.org_id = organizations.id"
       #    join_type: "left"    # inner, left, right
       #    fields:
       #      - "organizations.name as org_name"
 
       # Computed / virtual fields (SQL expressions).
-      # Type: list (optional)
+      # Type: list of objects (optional)
+      # Each object has: name, expression
       computed_fields: []
       #  - name: "full_name"
       #    expression: "first_name || ' ' || last_name"
 
-    # Authentication required for this endpoint.
-    # Type: string - name of an auth provider defined in `auth` section,
-    #       or "none" for no auth.
+    # Authentication provider name or "none".
+    # Type: string
     # Default: "none"
     auth: "jwt"
-
-    # Authorization: which roles are allowed to access this endpoint.
-    # Type: list of strings (optional - if omitted, any authenticated user is allowed)
+    # Allowed roles. Inherited from global config if omitted.
     roles:
       - "admin"
       - "user"
 
     # Per-endpoint CORS override (same shape as global cors).
-    # Type: object (optional - inherits global if omitted)
+    # Omit to inherit from global config.
+    # Type: object (optional)
     cors: null
 
     # Per-endpoint rate limiting override (same shape as global rate_limit).
-    # Type: object (optional - inherits global if omitted)
+    # Omit to inherit from global config.
+    # Type: object (optional)
     rate_limit: null
 
 
   # ---- CRUD Endpoint with path parameter (single resource) ----
   - path: "/api/users/:id"
+    # HTTP methods this endpoint responds to.
+    # Type: list of strings (GET, POST, PUT, PATCH, DELETE)
+    # Required.
     methods:
       - "get"
       - "put"
       - "delete"
+
+    # Action type.
+    # Type: enum (string)
+    # Required.
     action: "crud"
     crud:
+      # Which table to operate on (must match a key in `tables`).
+      # Type: string
+      # Required.
       table: "users"
+
+      # Which named database to use (must match a key in `databases`).
+      # Type: string
+      # Required.
       database: "main"
+
+      # Fields to return in GET responses. Use ["*"] for all.
+      # Type: list of strings
+      # Default: ["*"]
       fields:
         - "id"
         - "email"
         - "role"
         - "created_at"
+
+      # Fields that are writable on POST/PUT/PATCH. Omit to allow all non-PK fields.
+      # Type: list of strings (optional)
       writable_fields:
         - "email"
         - "role"
+    # Authentication provider name or "none".
+    # Type: string
+    # Default: "none"
     auth: "jwt"
+    # Allowed roles.
     roles:
       - "admin"
 
   # ---- Proxy Endpoint Example ----
   - path: "/api/external/*"
+    # HTTP methods this endpoint responds to.
+    # Type: list of strings (GET, POST, PUT, PATCH, DELETE)
+    # Required.
     methods:
       - "get"
       - "post"
       - "put"
       - "delete"
+
+    # Action type.
+    # Type: enum (string)
+    # Required.
     action: "proxy"
 
     # Proxy-specific configuration (required when action is "proxy").
@@ -708,7 +857,7 @@ endpoints:
         add_prefix: "/v2"
 
       # Headers to add to the upstream request.
-      # Type: map of string -> string
+      # Type: map of string to string
       # Default: {}
       headers:
         X-Forwarded-For: "client"
@@ -739,20 +888,575 @@ endpoints:
       # Default: 268435456 (256 MiB)
       max_response_size: 268435456
 
+    # Authentication provider name or "none".
+    # Type: string
+    # Default: "none"
     auth: "api_key"
 
-  # ---- Static File Serving Example ----
-  - path: "/static"
+  # ---- Media Library Example ----
+  # Full media library with metadata tracking, uploads, trash, sharing,
+  # and image resizing. Serving files from the store is inherent to this
+  # action -- no `serve_files` flag is needed.
+  # Requires a database table for metadata and a storage backend for files.
+  - path: "/media"
+    # HTTP methods this endpoint responds to.
+    # Type: list of strings (GET, POST, PUT, PATCH, DELETE)
+    # Required.
     methods:
       - "get"
-    action: "static"
+      - "post"
+      - "patch"
+      - "delete"
 
-    # Static file serving configuration (required when action is "static").
-    static_files:
-      # Root directory for static files (relative to CWD or absolute).
-      # Type: string (directory path)
+    # Action type.
+    # Type: enum (string)
+    # Required.
+    action: "media"
+    media:
+      # Which named store to use (must match a key in `stores`).
+      # Type: string
       # Required.
-      root: "./public"
+      # Validation: referenced store must exist in `stores`; fails at config load time
+      storage: "media_storage"
+
+      # Database table for media metadata.
+      # Type: string
+      # Required.
+      # Validation: referenced table must exist in `tables`; fails at config load time
+      table: "media_items"
+
+      # Which named database to use (must match a key in `databases`).
+      # Type: string
+      # Required.
+      # Validation: referenced database must exist in `databases`; fails at config load time
+      database: "main"
+
+      # All cross-reference validation (stores, tables, databases, auth providers)
+      # occurs at config-load time (fail-fast). No lazy/validation-at-request
+      # validation for structural references.
+
+      # Tracked metadata presets. Each preset expands to specific SQL columns:
+      #   "auto" - original_name=text, mime_type=text, size=bigint,
+      #            uploader_id=uuid, created_at=timestamptz, updated_at=timestamptz
+      #   "tags" - jsonb column (default: null); API-level treated as string array
+      #   "description" - text column (default: null)
+      #   "alt_text" - text column (default: null)
+      #   "content_type" - varchar column with check constraint:
+      #      allowed values: image, video, audio, document, other
+      # Type: list of strings
+      # Default: ["auto"]
+      columns:
+        - "auto"
+        - "tags"
+
+      # Additional columns not covered by presets. Same structure as tables.columns
+      # but without primary_key, unique, or indexed constraints.
+      # NOT supported (ignored if present): primary_key, unique, indexed,
+      #   check, foreign_key
+      # Type: list of objects (optional)
+      # Each object has: name (string), type (string), nullable (boolean, default: true),
+      #   default (string, optional)
+      metadata_columns:
+        - name: "license"
+          type: "text"
+          nullable: true
+          default: "''"
+
+      # -----------------------------------------------------------------------
+      # Upload (inherent to media action)
+      # -----------------------------------------------------------------------
+
+      # Upload configuration.
+      # Type: object (optional)
+      upload:
+        # Maximum upload size in bytes.
+        # Type: integer
+        # Default: 104857600 (100 MiB)
+        max_size: 104857600
+
+        # Allowed file extensions (empty = all extensions allowed).
+        # Type: list of strings (beginning with dots)
+        # Default: [] (all extensions)
+        allowed_extensions:
+          - ".jpg"
+          - ".jpeg"
+          - ".png"
+          - ".gif"
+          - ".webp"
+          - ".pdf"
+          - ".mp4"
+          - ".mp3"
+
+        # MIME type filtering (empty = all MIME types allowed).
+        # Type: list of strings
+        # Default: [] (all MIME types)
+        allowed_mime_types: []
+
+        # MIME type detection method: "extension" or "magic".
+        # Type: enum (string)
+        # Default: "magic"
+        mime_detection: "magic"
+
+        # Whether bulk upload (multipart/mixed) is supported.
+        # Type: boolean
+        # Default: true
+        bulk_supported: true
+
+        # Subdirectory pattern for organizing uploads.
+        # Available placeholders: {user_id}, {year}, {month}, {day}, {uuid}
+        # Type: string
+        # Default: null (files stored at root of store)
+        create_subdirectory: "{user_id}/{year}/{month}"
+
+        # File versioning.
+        # Type: object (optional)
+        # Omit or set enabled: false to disable versioning.
+        versioning:
+          enabled: false
+          max_versions: 10
+
+        # Preview generation for non-image files.
+        # Type: object (optional)
+        # Omit or set enabled: false to disable preview generation.
+        preview_generation:
+          enabled: false
+          previews:
+            - name: "thumbnail"
+              max_width: 200
+              max_height: 200
+              format: "webp"
+
+      # -----------------------------------------------------------------------
+      # File Move
+      # -----------------------------------------------------------------------
+
+      # Move configuration. Omit to disable move operations.
+      # Type: object (optional)
+      move:
+        # Whether move operations are enabled. Defaults to true when section is present.
+        # Type: boolean
+        # Default: true (when section is present)
+        enabled: true
+
+        # Admin users can move files anywhere in the store.
+        # Non-admin users can only move within their own directory tree.
+        # Type: boolean
+        # Default: true
+        admin_override: true
+
+        # Auto-create destination directory if it doesn't exist.
+        # Type: boolean
+        # Default: false
+        auto_create_destination: false
+
+      # -----------------------------------------------------------------------
+      # File Rename
+      # -----------------------------------------------------------------------
+
+      # Rename configuration. Omit to disable rename operations.
+      # Type: object (optional)
+      rename:
+        # Whether rename operations are enabled. Defaults to true when section is present.
+        # Type: boolean
+        # Default: true (when section is present)
+        enabled: true
+
+        # Admin users can rename any file.
+        # Non-admin users can only rename their own files.
+        # Type: boolean
+        # Default: true
+        admin_override: true
+
+      # -----------------------------------------------------------------------
+      # File Delete
+      # -----------------------------------------------------------------------
+
+      # Delete configuration. Omit to disable delete operations.
+      # Type: object (optional)
+      delete:
+        # Whether delete operations are enabled. Defaults to true when section is present.
+        # Type: boolean
+        # Default: true (when section is present)
+        enabled: true
+
+        # Admin users can delete any file.
+        # Non-admin users can only delete their own files.
+        # Type: boolean
+        # Default: true
+        admin_override: true
+
+      # -----------------------------------------------------------------------
+      # Content Entity Attach / Detach
+      # -----------------------------------------------------------------------
+
+      # Whether users can attach media items to content entities. Omit to disable.
+      # Type: object (optional)
+      attach_to_content:
+        # Whether this feature is enabled. Defaults to true when section is present.
+        # Type: boolean
+        # Default: true (when section is present)
+        enabled: true
+
+      # Whether users can detach media items from content entities. Omit to disable.
+      # Type: object (optional)
+      detach_from_content:
+        # Whether this feature is enabled. Defaults to true when section is present.
+        # Type: boolean
+        # Default: true (when section is present)
+        enabled: true
+
+      # -----------------------------------------------------------------------
+      # User Scoping
+      # -----------------------------------------------------------------------
+
+      # User scoping configuration. Omit to disable user-level scoping.
+      # Type: object (optional)
+      user_scope:
+        # Whether user scoping is enabled. Defaults to true when section is present.
+        # Type: boolean
+        # Default: true (when section is present)
+        enabled: true
+
+        # Scoping mode:
+        #   "user"   - users see only their own uploads, manage only their own files
+        #   "shared" - all authenticated users see all files, but manage only their own
+        #   "open"   - no user restrictions, role-based access only
+        # Type: enum (string)
+        # Default: "shared"
+        mode: "shared"
+
+        # Roles that bypass user scoping entirely.
+        # Type: list of strings
+        # Default: []
+        admin_roles:
+          - "admin"
+          - "editor"
+
+        # Whether users can browse directories they don't own but are publicly
+        # accessible (e.g., /media/shared/).
+        # Type: boolean
+        # Default: false
+        allow_cross_user_browse: false
+
+      # -----------------------------------------------------------------------
+      # Content Entity Integration
+      # -----------------------------------------------------------------------
+
+      # Content references configuration. Omit to disable content entity integration.
+      # Type: object (optional)
+      content_references:
+        # Whether content references are enabled. Defaults to true when section is present.
+        # Type: boolean
+        # Default: true (when section is present)
+        enabled: true
+
+        # The association table name (auto-created at startup during migration).
+        # Type: string
+        # Default: "media_entity_refs"
+        table: "media_entity_refs"
+
+        # Column names in the association table.
+        # Type: strings
+        media_id_column: "media_id"
+        entity_id_column: "entity_id"
+        content_type_column: "content_type"
+        order_column: "attachment_order"
+
+        # Auto-created table schema:
+        #   id         - bigserial/bigint PRIMARY KEY
+        #   media_id   - bigint NOT NULL, FK to <media_table>.id
+        #   entity_id  - bigint NOT NULL (references any content entity)
+        #   content_type - varchar NOT NULL
+        #   attachment_order - integer NOT NULL DEFAULT 0
+        #   Constraints: UNIQUE (media_id, entity_id, content_type)
+
+        # Which content entity types can reference this media.
+        # When null, all content types can reference.
+        # Type: list of strings or null
+        # Default: null
+        allowed_content_types: null
+
+        # Behavior when media is deleted and is attached to entities.
+        #   "detach"   - removes only the association row matching the deleted
+        #                content entity; other associations for the same media
+        #                remain intact
+        #   "cascade"  - deletes the association row, the media DB row, and
+        #                the storage file
+        #   "error"    - refuses to delete if media is attached to any entity;
+        #                returns HTTP 409 Conflict with JSON body listing
+        #                attached entity references
+        # Type: enum (string)
+        # Default: "detach"
+        on_delete: "detach"
+
+      # -----------------------------------------------------------------------
+      # Trash / Recycle Bin
+      # -----------------------------------------------------------------------
+
+      # Trash configuration. Omit or set enabled: false to disable trash.
+      # Type: object (optional)
+      trash:
+        # Whether trash is enabled. Deleted files are moved to trash instead of
+        # being permanently removed.
+        # Type: boolean
+        # Default: false
+        enabled: true
+
+        # Number of days to retain trashed files.
+        # Type: integer
+        # Default: 14
+        retention_days: 14
+
+        # Store prefix for trashed files.
+        # Trashed files are MOVED to {store_root}/{prefix}/{user_scope_path}/{original_file_path}.
+        # The full user-scoped path is preserved in trash.
+        # Type: string
+        # Default: ".trash"
+        prefix: ".trash"
+
+        # Whether to expose trash management endpoints:
+        #   GET    /_main-serve/media/trash       - list trashed files
+        #   POST   /_main-serve/media/trash/:id/restore  - restore a file
+        #   DELETE /_main-serve/media/trash/:id   - permanently delete
+        #   DELETE /_main-serve/media/trash       - empty trash
+        # Type: boolean
+        # Default: true
+        management_endpoints: true
+
+        # Roles allowed to permanently delete and empty trash.
+        # Type: list of strings
+        # Default: ["admin"]
+        admin_roles:
+          - "admin"
+
+      # -----------------------------------------------------------------------
+      # Sharing / Public Links
+      # -----------------------------------------------------------------------
+
+      # Sharing configuration. Omit or set enabled: false to disable sharing.
+      # Type: object (optional)
+      sharing:
+        # Whether time-limited public download links are enabled.
+        # Type: boolean
+        # Default: false
+        enabled: true
+
+        # Secret for signing and verifying share links (use ${ENV_VAR}).
+        # Type: string
+        # Required when sharing.enabled is true.
+        signing_secret: "${FILE_SHARING_SECRET}"
+
+        # Default TTL for share links in seconds.
+        # Type: integer
+        # Default: 86400 (24 hours)
+        default_ttl: 86400
+
+        # Maximum TTL for share links in seconds.
+        # Type: integer
+        # Default: 604800 (7 days)
+        max_ttl: 604800
+
+        # Store prefix for publicly accessible files.
+        # Sharing creates a PHYSICAL COPY in {store_root}/{prefix}/{token}/{path}.
+        # If the original is trashed or moved, the shared copy remains intact
+        # (independent copy). Token is a unique identifier for the share link.
+        # Type: string
+        # Default: "shared"
+        prefix: "shared"
+
+        # Whether any authenticated user can create share links.
+        # If false, only users with the role in required_link_role can create links.
+        # Type: boolean
+        # Default: true
+        allow_any_user: true
+
+        # Role required to create share links (only used when allow_any_user is false).
+        # Type: string or null
+        # Default: null
+        required_link_role: null
+
+      # -----------------------------------------------------------------------
+      # Listing Configuration (pagination, sorting, filtering)
+      # -----------------------------------------------------------------------
+
+      # Pagination configuration for the metadata listing API.
+      # Type: object (optional)
+      pagination:
+        # Whether pagination is enabled.
+        # Type: boolean
+        # Default: true
+        enabled: true
+
+        # Default page size.
+        # Type: integer
+        # Default: 20
+        default_page_size: 20
+
+        # Maximum allowed page size.
+        # Type: integer
+        # Default: 100
+        max_page_size: 100
+
+      # Sorting configuration for the metadata listing API.
+      # Type: object (optional)
+      sorting:
+        # Whether sorting is enabled.
+        # Type: boolean
+        # Default: true
+        enabled: true
+
+        # Default sort field.
+        # Type: string
+        # Default: "created_at"
+        default_field: "created_at"
+
+        # Default sort order: "asc" or "desc".
+        # Type: enum (string)
+        # Default: "desc"
+        default_order: "desc"
+
+        # Fields that can be sorted on.
+        # Type: list of strings. Use ["*"] for all.
+        # Default: ["*"]
+        allowed_fields:
+          - "original_name"
+          - "mime_type"
+          - "created_at"
+          - "size"
+          - "content_type"
+
+      # Filtering configuration for the metadata listing API.
+      # Type: object (optional)
+      filtering:
+        # Whether filtering is enabled.
+        # Type: boolean
+        # Default: true
+        enabled: true
+
+        # Fields that can be filtered on.
+        # Type: list of strings.
+        allowed_fields:
+          - "mime_type"
+          - "original_name"
+          - "created_at"
+          - "size"
+          - "content_type"
+          - "tags"
+
+      # Faceted search configuration (for media library UI).
+      # Type: list of objects (optional)
+      # Each object has: name (string), field (string), facet_type (string: "term", "date_range", "numeric")
+      facets:
+        - name: "type"
+          field: "content_type"
+          facet_type: "term"
+        - name: "date"
+          field: "created_at"
+          facet_type: "date_range"
+        - name: "size"
+          field: "size"
+          facet_type: "numeric"
+
+      # -----------------------------------------------------------------------
+      # Image Resize
+      # -----------------------------------------------------------------------
+
+      # Image resize configuration. Omit or set enabled: false to disable.
+      # Type: object (optional)
+      image_resize:
+        # Whether on-demand image resizing is enabled.
+        # Type: boolean
+        # Default: false
+        enabled: true
+
+        # Maximum dimension (width or height) for auto-resize.
+        # Images larger than this will be scaled down.
+        # Type: integer (pixels)
+        # Default: 4096
+        max_dimension: 4096
+
+        # Supported formats for image conversion.
+        # Type: list of strings
+        # Default: ["jpg", "jpeg", "png", "webp"]
+        supported_formats:
+          - "jpg"
+          - "jpeg"
+          - "png"
+          - "webp"
+
+        # Default resize fit mode: "scale_down", "cover", "contain".
+        # Type: enum (string)
+        # Default: "scale_down"
+        default_fit: "scale_down"
+
+        # Cache directory/prefix for resized images within the store.
+        # Full path: {store_root}/{cache_dir}/{media_id}/{style_name}.{format}.
+        # For cloud stores (S3/Azure/GCS): resized images are stored in the
+        # cloud backend (same store), NOT local filesystem.
+        # If not set, resized images are computed on each request.
+        # Type: string
+        # Default: null
+        cache_dir: "_resized"
+
+        # Named image styles for pre-generated thumbnails.
+        # Type: list of objects (optional)
+        # Each object has: name (string), max_width (int), max_height (int),
+        #   resize_fit (string: "scale_down", "cover", "contain"),
+        #   format (string), quality (int 0-100)
+        styles:
+          - name: "thumbnail"
+            max_width: 200
+            max_height: 200
+            resize_fit: "cover"
+            format: "webp"
+            quality: 85
+          - name: "gallery"
+            max_width: 800
+            max_height: 600
+            resize_fit: "contain"
+            format: "jpg"
+            quality: 90
+
+        # Whether to generate image styles automatically on upload.
+        # Type: boolean
+        # Default: false
+        generate_on_upload: true
+
+    # Authentication and authorization for this endpoint.
+    auth: "jwt"
+    roles:
+      - "admin"
+      - "editor"
+      - "author"
+
+  # ---- Static File Serving Example ----
+  # Serves files directly from a storage backend with no database layer.
+  # Supports optional upload, streaming, and image resize capabilities.
+  - path: "/assets"
+    # HTTP methods this endpoint responds to.
+    # Type: list of strings (GET, POST, PUT, PATCH, DELETE)
+    # Required.
+    methods:
+      - "get"
+      - "head"
+
+    # Action type.
+    # Type: enum (string)
+    # Required.
+    action: "static_files"
+    static_files:
+      # Which named store to use (must match a key in `stores`).
+      # The store's `root` field becomes the effective serving root for native stores.
+      # For cloud stores, the "root" is conceptual (the bucket/container itself).
+      # Type: string
+      # Required.
+      # Validation: referenced store must exist in `stores`; fails at config load time
+      # with error: Store "X" referenced by endpoint "Y" does not exist
+      storage: "local_assets"
+
+      # -----------------------------------------------------------------------
+      # Serving Configuration
+      # -----------------------------------------------------------------------
 
       # Default index file for directory requests.
       # Type: string
@@ -764,22 +1468,45 @@ endpoints:
       # Default: false
       directory_listing: false
 
-      # Cache-Control header max-age in seconds. 0 disables caching.
+      # Default Cache-Control max-age in seconds. 0 disables caching.
       # Type: integer
       # Default: 3600
       cache_max_age: 3600
 
-      # SPA fallback: if true, 404s for non-file paths return the index file.
+      # ETag generation for cache validation.
       # Type: boolean
-      # Default: false
-      spa_fallback: false
+      # Default: true
+      etag: true
+
+      # Support for HTTP range requests (partial content / 206).
+      # Type: boolean
+      # Default: true
+      range_requests: true
+
+      # Support for HTTP HEAD method.
+      # Type: boolean
+      # Default: true
+      head_support: true
+
+      # Per-extension Cache-Control rules. Overrides cache_max_age for matching extensions.
+      # Type: list of objects (optional)
+      # Each object has: extensions (list of strings), cache_control (string)
+      cache_rules:
+        - extensions: [".html"]
+          cache_control: "no-cache"
+        - extensions: [".jpg", ".png", ".gif", ".webp", ".svg"]
+          cache_control: "public, max-age=31536000, immutable"
+        - extensions: [".mp4", ".mp3"]
+          cache_control: "public, max-age=86400"
 
       # -----------------------------------------------------------------------
-      # File Upload Configuration (optional)
+      # File Upload (optional capability)
       # -----------------------------------------------------------------------
+
+      # Upload configuration. Omit or set enabled: false to disable uploads.
+      # Type: object (optional)
       upload:
-        # Whether file uploads are enabled for this endpoint. Uploads will be checked for
-        # valid extensions and checked with mime sniffing to prevent malicious files from being uploaded.
+        # Whether file uploads are enabled for this endpoint.
         # Type: boolean
         # Default: false
         enabled: false
@@ -790,7 +1517,7 @@ endpoints:
         max_size: 10485760
 
         # Allowed file extensions (empty = all extensions allowed).
-        # Type: list of strings (beginning with dots)
+        # Type: list of strings (file extensions starting with a dot, e.g. ".jpg")
         # Default: [] (all extensions)
         allowed_extensions:
           - ".jpg"
@@ -798,62 +1525,52 @@ endpoints:
           - ".png"
           - ".gif"
           - ".pdf"
-          - ".docx"
-          - ".xlsx"
-          - ".tar.gz"
 
         # Subdirectory pattern for organizing uploads.
-        # Available placeholders:
-        # - {user_id}
-        # - {year} (4-digit)
-        # - {month} (2-digit)
-        # - {day} (2-digit)
-        # - {uuid}
-        # If not set, files are stored directly in the root directory.
+        # Available placeholders: {user_id}, {year}, {month}, {day}, {uuid}
         # Type: string
-        # Default: null
+        # Default: null (files stored at root of store)
         create_subdirectory: "{user_id}/{year}/{month}"
 
-        # Role required to upload files.
-        # If set, only users with this role can upload.
-        # If not set, any authenticated user can upload.
-        # Type: string
-        # Default: null
-        required_role: null
+        # MIME type detection method: "extension" or "magic".
+        # Type: enum (string)
+        # Default: "magic"
+        mime_detection: "magic"
 
       # -----------------------------------------------------------------------
-      # User Scoping Configuration (optional)
+      # Streaming (optional capability)
       # -----------------------------------------------------------------------
-      user_scope:
-        # Enable user-scoped file browsing.
-        # When enabled, each user can only access their own directory.
+
+      # Streaming configuration. Omit or set enabled: false to disable.
+      # Type: object (optional)
+      streaming:
+        # Whether chunked streaming for large files is enabled.
         # Type: boolean
         # Default: false
         enabled: false
 
-        # Role required to access user-scoped files.
-        # If not set, any authenticated user can access their own files.
-        # Type: string
-        # Default: null
-        required_role: null
+        # Chunk size in bytes for streaming.
+        # Type: integer (bytes)
+        # Default: 65536 (64 KiB)
+        buffer_size: 65536
 
-        # Pattern for user-specific directories.
-        # Available placeholders: {user_id}
-        # Default: "{user_id}"
-        # Example: "{user_id}" -> /uploads/user123/file.png
-        # Example: "users/{user_id}" -> /uploads/users/user123/file.png
-        directory_pattern: "{user_id}"
+        # Files larger than this threshold use streaming (smaller files are
+        # read entirely into memory).
+        # Type: integer (bytes)
+        # Default: 1048576 (1 MiB)
+        threshold: 1048576
 
-        # Whether the root directory is exposed when user_scope is enabled.
-        # When false, users can only access their own subdirectory.
-        # When true, users can also access the root directory.
+        # Include Content-Length header in the response.
         # Type: boolean
-        # Default: false
-        expose_root: false
+        # Default: true
+        include_content_length: true
 
       # -----------------------------------------------------------------------
-      # Image Scaling Configuration (optional)
+      # Image Resize (optional capability)
       # -----------------------------------------------------------------------
+
+      # Image resize configuration. Omit or set enabled: false to disable.
+      # Type: object (optional)
       image_resize:
         # Whether on-demand image resizing is enabled.
         # Type: boolean
@@ -875,36 +1592,229 @@ endpoints:
           - "png"
           - "webp"
 
-        # Cache directory for resized images.
-        # If not set, resized images are returned on each request.
-        # Type: string (relative to root)
+        # Default resize fit mode: "scale_down", "cover", "contain".
+        # Type: enum (string)
+        # Default: "scale_down"
+        default_fit: "scale_down"
+
+        # Cache directory/prefix for resized images within the store.
+        # If not set, resized images are computed on each request.
+        # Type: string
         # Default: null
         cache_dir: null
 
-      # -----------------------------------------------------------------------
-      # Streaming Configuration (optional)
-      # -----------------------------------------------------------------------
-      streaming:
-        # Enable chunked streaming for large files.
-        # Type: boolean
-        # Default: false
-        enabled: false
+  # ---- SPA Host Example ----
+  # Serves a single-page application with automatic fallback routing.
+  # Non-existent paths and directory listings fall through to the index file.
+  # No directory browsing is exposed -- all requests resolve to the SPA entry point.
+  - path: "/app/*"
+    # HTTP methods this endpoint responds to.
+    # Type: list of strings (GET, HEAD)
+    # Required.
+    methods:
+      - "get"
+      - "head"
 
-        # Chunk size in bytes for streaming. Must be lower than threshold.
-        # Type: integer (bytes)
-        # Default: 65536 (64 KiB)
-        buffer_size: 65536
+    # Action type.
+    # Type: enum (string)
+    # Required.
+    action: "spa_host"
+    spa_host:
+      # Which named store to use (must match a key in `stores`).
+      # The store's `root` field becomes the effective serving root for native stores.
+      # For cloud stores, the "root" is conceptual (the bucket/container itself).
+      # Type: string
+      # Required.
+      # Validation: referenced store must exist in `stores`; fails at config load time
+      # with error: Store "X" referenced by endpoint "Y" does not exist
+      storage: "local_assets"
 
-        # Threshold for enabling streaming (files larger than this use streaming).
-        # Files below this threshold are read entirely into memory.
-        # Type: integer (bytes)
-        # Default: 1048576 (1 MiB)
-        threshold: 1048576
+      # Index file for SPA fallback. Only needs to be specified if non-default.
+      # Type: string
+      # Default: "index.html"
+      index: "index.html"
+
+      # Default Cache-Control max-age in seconds for served files.
+      # Type: integer
+      # Default: 3600
+      cache_max_age: 3600
+
+      # Per-extension Cache-Control rules. Overrides cache_max_age for matching extensions.
+      # Type: list of objects (optional)
+      # Each object has: extensions (list of strings), cache_control (string)
+      cache_rules:
+        - extensions: [".html"]
+          cache_control: "no-cache, no-store"
+        - extensions: [".js", ".css", ".woff2", ".png", ".svg"]
+          cache_control: "public, max-age=31536000, immutable"
+
+      # ETag generation for cache validation.
+      # Type: boolean
+      # Default: true
+      etag: true
+
+      # HTTP status code for SPA fallback responses (non-existent paths).
+      # Type: integer
+      # Default: 200
+      fallback_status: 200
+
+    # Authentication provider name or "none".
+    # Type: string
+    # Default: "none"
+    auth: "jwt"
+
+  # ---- File Store Example ----
+  # Database-backed file catalog. Manages a table as a file registry
+  # with CRUD operations, ownership tracking, and metadata.
+  # File serving is not handled by this action. To serve files from the
+  # same store, configure a separate `static_files` endpoint pointing
+  # at the same store.
+  - path: "/api/files"
+    # HTTP methods this endpoint responds to.
+    # Type: list of strings (GET, POST, PUT, PATCH, DELETE)
+    # Required.
+    methods:
+      - "get"
+      - "post"
+      - "patch"
+      - "delete"
+
+    # Action type.
+    # Type: enum (string)
+    # Required.
+    action: "file_store"
+    file_store:
+      # Which named store to use (must match a key in `stores`).
+      # The store's `root` field becomes the effective root for native stores.
+      # For cloud stores, the "root" is conceptual (the bucket/container itself).
+      # Type: string
+      # Required.
+      # Validation: referenced store must exist in `stores`; fails at config load time
+      storage: "media_storage"
+
+      # Database table that serves as the file registry.
+      # Type: string
+      # Required.
+      # Validation: referenced table must exist in `tables`; fails at config load time
+      table: "files"
+
+      # Which named database to use (must match a key in `databases`).
+      # Type: string
+      # Required.
+      # Validation: referenced database must exist in `databases`; fails at config load time
+      database: "main"
+
+      # File metadata columns tracked by the registry.
+      # Same structure as media.metadata_columns.
+      # Type: list of objects (optional)
+      # Each object has: name (string), type (string), nullable (boolean, default: true),
+      #   default (string, optional)
+      metadata_columns:
+        - name: "original_name"
+          type: "text"
+        - name: "mime_type"
+          type: "text"
+        - name: "size"
+          type: "bigint"
+        - name: "uploader_id"
+          type: "uuid"
+        - name: "tags"
+          type: "jsonb"
+          nullable: true
+          default: "null"
+        - name: "description"
+          type: "text"
+          nullable: true
+          default: "null"
+        - name: "alt_text"
+          type: "text"
+          nullable: true
+          default: "null"
+
+      # Field-level permissions for reading and writing metadata.
+      # Type: object (optional) - HashMap<String, { read: Vec<RoleName>, write: Vec<RoleName> }>
+      # key = column name, both `read` and `write` are REQUIRED sub-keys
+      # For auto-generated columns NOT listed (id, created_at, updated_at, uploader_id):
+      #   implicitly read: ["*"] (all roles), write: [] (no roles)
+      field_permissions:
+        original_name:
+          read: ["admin", "editor"]
+          write: ["admin"]
+        mime_type:
+          read: ["admin", "editor", "author"]
+          write: ["admin"]
+        tags:
+          read: ["admin", "editor"]
+          write: ["admin", "editor"]
+        description:
+          read: ["admin", "editor"]
+          write: ["admin", "editor", "author"]
+        alt_text:
+          read: ["admin", "editor"]
+          write: ["admin", "editor", "author"]
+
+      # Row-level authorization via an owner column.
+      # Type: object (optional)
+      ownership:
+        # Column name that stores the owner ID.
+        owner_column: "uploader_id"
+        # Admin users can access any row.
+        admin_override: true
+
+      # Trash support for deleted file registry entries.
+      # Type: object (optional)
+      trash:
+        enabled: true
+        retention_days: 30
+
+      # Pagination for listing files.
+      # Type: object (optional)
+      pagination:
+        enabled: true
+        default_page_size: 20
+        max_page_size: 100
+
+      # Sorting for listing files.
+      # Type: object (optional)
+      sorting:
+        enabled: true
+        default_field: "created_at"
+        default_order: "desc"
+        allowed_fields:
+          - "original_name"
+          - "mime_type"
+          - "created_at"
+          - "size"
+
+      # Filtering for listing files.
+      # Type: object (optional)
+      filtering:
+        enabled: true
+        allowed_fields:
+          - "mime_type"
+          - "original_name"
+          - "created_at"
+          - "size"
+
+    # Authentication provider name or "none".
+    # Type: string
+    # Default: "none"
+    auth: "jwt"
+    # Allowed roles.
+    roles:
+      - "admin"
 
   # ---- Custom Response Example ----
   - path: "/api/info"
+    # HTTP methods this endpoint responds to.
+    # Type: list of strings (GET)
+    # Required.
     methods:
       - "get"
+
+    # Action type.
+    # Type: enum (string)
+    # Required.
     action: "custom_response"
 
     # Custom response configuration (required when action is "custom_response").
@@ -924,10 +1834,13 @@ endpoints:
       body: '{"name": "Main Serve", "version": "0.1.1"}'
 
       # Response headers to include.
-      # Type: map of string -> string
+      # Type: map of string to string
       # Default: {}
       headers:
         X-Custom-A: "hello"
         X-Custom-B: "world"
 
+    # Authentication provider name or "none".
+    # Type: string
+    # Default: "none"
     auth: "none"
