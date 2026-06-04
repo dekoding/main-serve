@@ -2,7 +2,7 @@
 ///
 /// These rules go beyond serde's structural validation - they check referential
 /// integrity, logical consistency, and completeness.
-use super::types::{AppConfig, EndpointAction};
+use super::types::{AppConfig, EndpointAction, StoreBackend, StoreConfig};
 use crate::error::AppError;
 
 /// Characters allowed in SQL expressions from config (join ON clauses,
@@ -28,6 +28,7 @@ pub fn validate_config(config: &AppConfig) -> Result<(), AppError> {
 
     validate_server(&config.server, &mut errors);
     validate_databases(config, &mut errors);
+    validate_stores(&config.stores, &mut errors);
     validate_tables(config, &mut errors);
     validate_endpoints(config, &mut errors);
     validate_auth(config, &mut errors);
@@ -234,14 +235,89 @@ fn validate_endpoints(config: &AppConfig, errors: &mut Vec<String>) {
                     ));
                 }
             }
-            EndpointAction::Static => {
+            EndpointAction::StaticFiles => {
                 if let Some(ref sf) = ep.static_files {
-                    if sf.root.is_empty() {
-                        errors.push(format!("{label}: static_files.root must not be empty"));
+                    if sf.storage.is_empty() {
+                        errors.push(format!("{label}: static_files.storage must not be empty"));
+                    } else if !config.stores.contains_key(&sf.storage) {
+                        errors.push(format!(
+                            "{label}: static_files.storage references store '{}' which is not defined in stores",
+                            sf.storage
+                        ));
                     }
                 } else {
                     errors.push(format!(
-                        "{label}: action is 'static' but no static_files config provided"
+                        "{label}: action is 'static_files' but no static_files config provided"
+                    ));
+                }
+            }
+            EndpointAction::SpaHost => {
+                if let Some(ref spa) = ep.spa_host {
+                    if spa.storage.is_empty() {
+                        errors.push(format!("{label}: spa_host.storage must not be empty"));
+                    } else if !config.stores.contains_key(&spa.storage) {
+                        errors.push(format!(
+                            "{label}: spa_host.storage references store '{}' which is not defined in stores",
+                            spa.storage
+                        ));
+                    }
+                } else {
+                    errors.push(format!(
+                        "{label}: action is 'spa_host' but no spa_host config provided"
+                    ));
+                }
+            }
+            EndpointAction::Media => {
+                if let Some(ref media) = ep.media {
+                    if media.storage.is_empty() {
+                        errors.push(format!("{label}: media.storage must not be empty"));
+                    } else if !config.stores.contains_key(&media.storage) {
+                        errors.push(format!(
+                            "{label}: media.storage references store '{}' which is not defined in stores",
+                            media.storage
+                        ));
+                    }
+                    if media.table.is_empty() {
+                        errors.push(format!("{label}: media.table must not be empty"));
+                    }
+                    if media.database.is_empty() {
+                        errors.push(format!("{label}: media.database must not be empty"));
+                    } else if !config.databases.contains_key(&media.database) {
+                        errors.push(format!(
+                            "{label}: media.database references database '{}' which is not defined in databases",
+                            media.database
+                        ));
+                    }
+                } else {
+                    errors.push(format!(
+                        "{label}: action is 'media' but no media config provided"
+                    ));
+                }
+            }
+            EndpointAction::FileStore => {
+                if let Some(ref fs) = ep.file_store {
+                    if fs.storage.is_empty() {
+                        errors.push(format!("{label}: file_store.storage must not be empty"));
+                    } else if !config.stores.contains_key(&fs.storage) {
+                        errors.push(format!(
+                            "{label}: file_store.storage references store '{}' which is not defined in stores",
+                            fs.storage
+                        ));
+                    }
+                    if fs.table.is_empty() {
+                        errors.push(format!("{label}: file_store.table must not be empty"));
+                    }
+                    if fs.database.is_empty() {
+                        errors.push(format!("{label}: file_store.database must not be empty"));
+                    } else if !config.databases.contains_key(&fs.database) {
+                        errors.push(format!(
+                            "{label}: file_store.database references database '{}' which is not defined in databases",
+                            fs.database
+                        ));
+                    }
+                } else {
+                    errors.push(format!(
+                        "{label}: action is 'file_store' but no file_store config provided"
                     ));
                 }
             }
@@ -330,6 +406,125 @@ fn validate_auth(config: &AppConfig, errors: &mut Vec<String>) {
                 "auth.oauth2.redirect_url must not be empty when authorization_url is set"
                     .to_string(),
             );
+        }
+    }
+}
+
+/// Validate store configurations have required fields per backend type.
+///
+/// Checks that each store has the correct backend-specific config present,
+/// all required fields within that config are non-empty, and no conflicting
+/// backend configs are set simultaneously.
+fn validate_stores(
+    stores: &std::collections::HashMap<String, StoreConfig>,
+    errors: &mut Vec<String>,
+) {
+    for (name, store) in stores {
+        let label = format!("stores.{name}");
+
+        // Count non-None backend-specific config sections.
+        let mut config_count: u32 = 0;
+        if store.root.is_some() {
+            config_count += 1;
+        }
+        if store.s3.is_some() {
+            config_count += 1;
+        }
+        if store.azure.is_some() {
+            config_count += 1;
+        }
+        if store.gcs.is_some() {
+            config_count += 1;
+        }
+
+        // Spec rule: at most one backend-specific config section.
+        if config_count > 1 {
+            let mut present = Vec::new();
+            if store.root.is_some() {
+                present.push("root");
+            }
+            if store.s3.is_some() {
+                present.push("s3");
+            }
+            if store.azure.is_some() {
+                present.push("azure");
+            }
+            if store.gcs.is_some() {
+                present.push("gcs");
+            }
+            errors.push(format!(
+                "{label}: conflicting backend config sections: {present:?} (at most one allowed)"
+            ));
+        }
+
+        match store.backend {
+            StoreBackend::Native => {
+                if store.root.as_deref().is_none_or(str::is_empty) {
+                    errors.push(format!(
+                        "{label}: root directory must not be empty for native backend"
+                    ));
+                }
+            }
+            StoreBackend::Memory => {
+                // Memory backend requires no additional configuration.
+                if store.root.as_deref().is_some_and(|s| !s.is_empty()) {
+                    errors.push(format!("{label}: root must not be set for memory backend"));
+                }
+            }
+            StoreBackend::S3 => {
+                let Some(s3) = store.s3.as_ref() else {
+                    errors.push(format!(
+                        "{label}: s3 config section must be present for s3 backend"
+                    ));
+                    continue;
+                };
+                if s3.region.is_empty() {
+                    errors.push(format!("{label}: s3.region must not be empty"));
+                }
+                if s3.bucket.is_empty() {
+                    errors.push(format!("{label}: s3.bucket must not be empty"));
+                }
+                if s3.access_key.is_empty() {
+                    errors.push(format!("{label}: s3.access_key must not be empty"));
+                }
+                if s3.secret_key.is_empty() {
+                    errors.push(format!("{label}: s3.secret_key must not be empty"));
+                }
+            }
+            StoreBackend::Azure => {
+                let Some(azure) = store.azure.as_ref() else {
+                    errors.push(format!(
+                        "{label}: azure config section must be present for azure backend"
+                    ));
+                    continue;
+                };
+                if azure.account_name.is_empty() {
+                    errors.push(format!("{label}: azure.account_name must not be empty"));
+                }
+                if azure.account_key.is_empty() {
+                    errors.push(format!("{label}: azure.account_key must not be empty"));
+                }
+                if azure.container.is_empty() {
+                    errors.push(format!("{label}: azure.container must not be empty"));
+                }
+            }
+            StoreBackend::Gcs => {
+                let Some(gcs) = store.gcs.as_ref() else {
+                    errors.push(format!(
+                        "{label}: gcs config section must be present for gcs backend"
+                    ));
+                    continue;
+                };
+                if gcs.project_id.is_empty() {
+                    errors.push(format!("{label}: gcs.project_id must not be empty"));
+                }
+                if gcs.credentials.is_empty() {
+                    errors.push(format!("{label}: gcs.credentials must not be empty"));
+                }
+                if gcs.bucket.is_empty() {
+                    errors.push(format!("{label}: gcs.bucket must not be empty"));
+                }
+            }
         }
     }
 }
