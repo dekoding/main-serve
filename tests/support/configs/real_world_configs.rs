@@ -12,38 +12,40 @@ pub const STATIC_FILES_CONFIG: &str = r#"
 server:
   port: 0
 
+stores:
+  local_assets:
+    backend: native
+    root: "{ROOT}"
+
 endpoints:
   - path: "/assets/*"
     methods: ["get"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{ROOT}"
+      storage: "local_assets"
       index: "index.html"
       directory_listing: false
       cache_max_age: 86400
-      spa_fallback: false
     auth: "none"
 
   - path: "/app/*"
     methods: ["get"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{ROOT}"
+      storage: "local_assets"
       index: "index.html"
       directory_listing: false
       cache_max_age: 0
-      spa_fallback: true
     auth: "none"
 
   - path: "/files/*"
     methods: ["get"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{ROOT}"
+      storage: "local_assets"
       index: "index.html"
       directory_listing: true
       cache_max_age: 0
-      spa_fallback: false
     auth: "none"
 "#;
 
@@ -52,6 +54,11 @@ endpoints:
 pub const CUSTOM_RESPONSES_CONFIG: &str = r#"
 server:
   port: 0
+
+stores:
+  local_assets:
+    backend: native
+    root: "{ROOT}"
 
 endpoints:
   - path: "/api/info"
@@ -203,6 +210,11 @@ tables:
         nullable: false
         default: "CURRENT_TIMESTAMP"
 
+stores:
+  local_assets:
+    backend: native
+    root: "{ROOT}"
+
 endpoints:
   - path: "/health"
     methods: ["get"]
@@ -345,25 +357,28 @@ tables:
         nullable: false
         default: "CURRENT_TIMESTAMP"
 
+stores:
+  local_assets:
+    backend: native
+    root: "{ROOT}"
+
 endpoints:
   - path: "/app/*"
     methods: ["get"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{ROOT}"
+      storage: "local_assets"
       index: "index.html"
-      spa_fallback: true
       cache_max_age: 0
     auth: "none"
 
   - path: "/assets/*"
     methods: ["get"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{ROOT}"
+      storage: "local_assets"
       index: "index.html"
       cache_max_age: 604800
-      spa_fallback: false
     auth: "none"
 
   - path: "/health"
@@ -461,6 +476,11 @@ auth:
     state_ttl: 300
     max_pending_states: 100
 
+stores:
+  local_assets:
+    backend: native
+    root: "{ROOT}"
+
 endpoints:
   - path: "/welcome"
     methods: ["get"]
@@ -518,6 +538,11 @@ endpoints:
 pub const PROXY_CONFIG: &str = r#"
 server:
   port: 0
+
+stores:
+  local_assets:
+    backend: native
+    root: "{ROOT}"
 
 endpoints:
   - path: "/api/v1/*"
@@ -676,6 +701,11 @@ tables:
       - name: "description"
         type: "text"
         nullable: true
+
+stores:
+  local_assets:
+    backend: native
+    root: "{ROOT}"
 
 endpoints:
   - path: "/api/authors"
