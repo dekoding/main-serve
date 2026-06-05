@@ -3,7 +3,6 @@
 /// Defines `StoreConfig` and backend-specific configs (S3, Azure, GCS)
 /// that endpoints reference by name via the `stores` section of the YAML config.
 use serde::Deserialize;
-use std::fmt;
 
 /// Top-level store definition - references a named storage backend.
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -42,7 +41,7 @@ pub enum StoreBackend {
 }
 
 /// S3 storage backend configuration.
-#[derive(Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct S3StoreConfig {
     /// AWS region (e.g. "us-east-1").
@@ -52,68 +51,38 @@ pub struct S3StoreConfig {
     /// AWS access key ID.
     pub access_key: String,
     /// AWS secret access key.
+    #[serde(skip_serializing, default)]
     pub secret_key: String,
     /// Optional custom endpoint URL for S3-compatible services.
     #[serde(default)]
     pub endpoint: Option<String>,
-    /// Use path-style URLs (true for MinIO, LocalStack, Ceph).
+    /// Use path-style URLs (true for `MinIO`, `LocalStack`, Ceph).
     #[serde(default)]
     pub force_path_style: bool,
 }
 
 /// Azure Blob Storage backend configuration.
-#[derive(Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AzureStoreConfig {
     /// Azure storage account name.
     pub account_name: String,
     /// Azure storage account key.
+    #[serde(skip_serializing, default)]
     pub account_key: String,
     /// Azure container name.
     pub container: String,
 }
 
 /// Google Cloud Storage backend configuration.
-#[derive(Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct GcsStoreConfig {
     /// GCP project ID.
     pub project_id: String,
     /// GCP credentials JSON string or path.
+    #[serde(skip_serializing, default)]
     pub credentials: String,
     /// GCS bucket name.
     pub bucket: String,
-}
-
-impl fmt::Debug for S3StoreConfig {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("S3StoreConfig")
-            .field("region", &self.region)
-            .field("bucket", &self.bucket)
-            .field("access_key", &self.access_key)
-            .field("secret_key", &"[REDACTED]")
-            .field("endpoint", &self.endpoint)
-            .field("force_path_style", &self.force_path_style)
-            .finish()
-    }
-}
-
-impl fmt::Debug for AzureStoreConfig {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("AzureStoreConfig")
-            .field("account_name", &self.account_name)
-            .field("account_key", &"[REDACTED]")
-            .field("container", &self.container)
-            .finish()
-    }
-}
-
-impl fmt::Debug for GcsStoreConfig {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("GcsStoreConfig")
-            .field("project_id", &self.project_id)
-            .field("credentials", &"[REDACTED]")
-            .field("bucket", &self.bucket)
-            .finish()
-    }
 }

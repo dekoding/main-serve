@@ -279,6 +279,11 @@ fn validate_endpoints(config: &AppConfig, errors: &mut Vec<String>) {
                     }
                     if media.table.is_empty() {
                         errors.push(format!("{label}: media.table must not be empty"));
+                    } else if !config.tables.iter().any(|t| t.name == media.table) {
+                        errors.push(format!(
+                            "{label}: media.table '{}' is not defined in tables",
+                            media.table
+                        ));
                     }
                     if media.database.is_empty() {
                         errors.push(format!("{label}: media.database must not be empty"));
@@ -306,6 +311,11 @@ fn validate_endpoints(config: &AppConfig, errors: &mut Vec<String>) {
                     }
                     if fs.table.is_empty() {
                         errors.push(format!("{label}: file_store.table must not be empty"));
+                    } else if !config.tables.iter().any(|t| t.name == fs.table) {
+                        errors.push(format!(
+                            "{label}: file_store.table '{}' is not defined in tables",
+                            fs.table
+                        ));
                     }
                     if fs.database.is_empty() {
                         errors.push(format!("{label}: file_store.database must not be empty"));
@@ -526,5 +536,489 @@ fn validate_stores(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::types;
+    use super::*;
+    use std::collections::HashMap;
+
+    fn make_native_store(root: Option<&str>) -> StoreConfig {
+        StoreConfig {
+            backend: StoreBackend::Native,
+            root: root.map(String::from),
+            s3: None,
+            azure: None,
+            gcs: None,
+        }
+    }
+
+    fn make_s3_store(
+        region: Option<&str>,
+        bucket: Option<&str>,
+        access_key: Option<&str>,
+        secret_key: Option<&str>,
+    ) -> StoreConfig {
+        StoreConfig {
+            backend: StoreBackend::S3,
+            root: None,
+            s3: Some(types::S3StoreConfig {
+                region: region.unwrap_or("").to_string(),
+                bucket: bucket.unwrap_or("").to_string(),
+                access_key: access_key.unwrap_or("").to_string(),
+                secret_key: secret_key.unwrap_or("").to_string(),
+                endpoint: None,
+                force_path_style: false,
+            }),
+            azure: None,
+            gcs: None,
+        }
+    }
+
+    fn make_azure_store(
+        account_name: Option<&str>,
+        account_key: Option<&str>,
+        container: Option<&str>,
+    ) -> StoreConfig {
+        StoreConfig {
+            backend: StoreBackend::Azure,
+            root: None,
+            s3: None,
+            azure: Some(types::AzureStoreConfig {
+                account_name: account_name.unwrap_or("").to_string(),
+                account_key: account_key.unwrap_or("").to_string(),
+                container: container.unwrap_or("").to_string(),
+            }),
+            gcs: None,
+        }
+    }
+
+    fn make_gcs_store(
+        project_id: Option<&str>,
+        credentials: Option<&str>,
+        bucket: Option<&str>,
+    ) -> StoreConfig {
+        StoreConfig {
+            backend: StoreBackend::Gcs,
+            root: None,
+            s3: None,
+            azure: None,
+            gcs: Some(types::GcsStoreConfig {
+                project_id: project_id.unwrap_or("").to_string(),
+                credentials: credentials.unwrap_or("").to_string(),
+                bucket: bucket.unwrap_or("").to_string(),
+            }),
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn make_endpoint(
+        path: &str,
+        method: types::HttpMethod,
+        action: types::EndpointAction,
+        crud: Option<types::CrudConfig>,
+        proxy: Option<types::ProxyConfig>,
+        static_files: Option<types::StaticFilesConfig>,
+        spa_host: Option<types::SpaHostConfig>,
+        media: Option<types::MediaConfig>,
+        file_store: Option<types::FileStoreConfig>,
+        custom_response: Option<types::CustomResponseConfig>,
+    ) -> types::EndpointConfig {
+        types::EndpointConfig {
+            path: path.to_string(),
+            methods: vec![method],
+            action,
+            crud,
+            proxy,
+            static_files,
+            spa_host,
+            media,
+            file_store,
+            custom_response,
+            auth: "none".to_string(),
+            roles: Vec::new(),
+            cors: None,
+            rate_limit: None,
+        }
+    }
+
+    #[test]
+    fn test_validate_stores_native_no_root() {
+        let mut stores = HashMap::new();
+        stores.insert("my_native".to_string(), make_native_store(None));
+        let mut errors = Vec::new();
+        validate_stores(&stores, &mut errors);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].contains("root directory must not be empty"));
+    }
+
+    #[test]
+    fn test_validate_stores_native_with_root() {
+        let mut stores = HashMap::new();
+        stores.insert(
+            "my_native".to_string(),
+            make_native_store(Some("/tmp/assets")),
+        );
+        let mut errors = Vec::new();
+        validate_stores(&stores, &mut errors);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_validate_stores_native_empty_root() {
+        let mut stores = HashMap::new();
+        stores.insert("my_native".to_string(), make_native_store(Some("")));
+        let mut errors = Vec::new();
+        validate_stores(&stores, &mut errors);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].contains("root directory must not be empty"));
+    }
+
+    #[test]
+    fn test_validate_stores_s3_missing_all_fields() {
+        let mut stores = HashMap::new();
+        stores.insert("my_s3".to_string(), make_s3_store(None, None, None, None));
+        let mut errors = Vec::new();
+        validate_stores(&stores, &mut errors);
+        assert_eq!(errors.len(), 4);
+        assert!(errors.iter().any(|e| e.contains("s3.region")));
+        assert!(errors.iter().any(|e| e.contains("s3.bucket")));
+        assert!(errors.iter().any(|e| e.contains("s3.access_key")));
+        assert!(errors.iter().any(|e| e.contains("s3.secret_key")));
+    }
+
+    #[test]
+    fn test_validate_stores_s3_partial_fields() {
+        let mut stores = HashMap::new();
+        stores.insert(
+            "my_s3".to_string(),
+            make_s3_store(Some("us-east-1"), None, None, None),
+        );
+        let mut errors = Vec::new();
+        validate_stores(&stores, &mut errors);
+        assert_eq!(errors.len(), 3);
+    }
+
+    #[test]
+    fn test_validate_stores_s3_complete() {
+        let mut stores = HashMap::new();
+        stores.insert(
+            "my_s3".to_string(),
+            make_s3_store(
+                Some("us-east-1"),
+                Some("my-bucket"),
+                Some("key"),
+                Some("secret"),
+            ),
+        );
+        let mut errors = Vec::new();
+        validate_stores(&stores, &mut errors);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_validate_stores_s3_with_optional_fields() {
+        let mut stores = HashMap::new();
+        stores.insert(
+            "my_s3".to_string(),
+            types::StoreConfig {
+                backend: StoreBackend::S3,
+                root: None,
+                s3: Some(types::S3StoreConfig {
+                    region: "us-east-1".to_string(),
+                    bucket: "my-bucket".to_string(),
+                    access_key: "key".to_string(),
+                    secret_key: "secret".to_string(),
+                    endpoint: Some("http://localhost:9000".to_string()),
+                    force_path_style: true,
+                }),
+                azure: None,
+                gcs: None,
+            },
+        );
+        let mut errors = Vec::new();
+        validate_stores(&stores, &mut errors);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_validate_stores_azure_missing_all_fields() {
+        let mut stores = HashMap::new();
+        stores.insert("my_azure".to_string(), make_azure_store(None, None, None));
+        let mut errors = Vec::new();
+        validate_stores(&stores, &mut errors);
+        assert_eq!(errors.len(), 3);
+        assert!(errors.iter().any(|e| e.contains("azure.account_name")));
+        assert!(errors.iter().any(|e| e.contains("azure.account_key")));
+        assert!(errors.iter().any(|e| e.contains("azure.container")));
+    }
+
+    #[test]
+    fn test_validate_stores_azure_complete() {
+        let mut stores = HashMap::new();
+        stores.insert(
+            "my_azure".to_string(),
+            make_azure_store(Some("myaccount"), Some("mykey"), Some("mycontainer")),
+        );
+        let mut errors = Vec::new();
+        validate_stores(&stores, &mut errors);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_validate_stores_gcs_missing_all_fields() {
+        let mut stores = HashMap::new();
+        stores.insert("my_gcs".to_string(), make_gcs_store(None, None, None));
+        let mut errors = Vec::new();
+        validate_stores(&stores, &mut errors);
+        assert_eq!(errors.len(), 3);
+        assert!(errors.iter().any(|e| e.contains("gcs.project_id")));
+        assert!(errors.iter().any(|e| e.contains("gcs.credentials")));
+        assert!(errors.iter().any(|e| e.contains("gcs.bucket")));
+    }
+
+    #[test]
+    fn test_validate_stores_gcs_complete() {
+        let mut stores = HashMap::new();
+        stores.insert(
+            "my_gcs".to_string(),
+            make_gcs_store(
+                Some("my-project"),
+                Some("credentials.json"),
+                Some("my-bucket"),
+            ),
+        );
+        let mut errors = Vec::new();
+        validate_stores(&stores, &mut errors);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_validate_stores_conflicting_backend_configs() {
+        let mut stores = HashMap::new();
+        stores.insert(
+            "conflict".to_string(),
+            types::StoreConfig {
+                backend: StoreBackend::Native,
+                root: Some("/tmp".to_string()),
+                s3: Some(types::S3StoreConfig {
+                    region: "us-east-1".to_string(),
+                    bucket: "bucket".to_string(),
+                    access_key: "key".to_string(),
+                    secret_key: "secret".to_string(),
+                    endpoint: None,
+                    force_path_style: false,
+                }),
+                azure: None,
+                gcs: None,
+            },
+        );
+        let mut errors = Vec::new();
+        validate_stores(&stores, &mut errors);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].contains("conflicting backend config sections"));
+    }
+
+    #[test]
+    fn test_validate_stores_memory_with_root_errors() {
+        let mut stores = HashMap::new();
+        stores.insert(
+            "mem".to_string(),
+            types::StoreConfig {
+                backend: StoreBackend::Memory,
+                root: Some("/tmp".to_string()),
+                s3: None,
+                azure: None,
+                gcs: None,
+            },
+        );
+        let mut errors = Vec::new();
+        validate_stores(&stores, &mut errors);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].contains("root must not be set for memory backend"));
+    }
+
+    #[test]
+    fn test_validate_stores_memory_without_root_ok() {
+        let mut stores = HashMap::new();
+        stores.insert(
+            "mem".to_string(),
+            types::StoreConfig {
+                backend: StoreBackend::Memory,
+                root: None,
+                s3: None,
+                azure: None,
+                gcs: None,
+            },
+        );
+        let mut errors = Vec::new();
+        validate_stores(&stores, &mut errors);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_validate_stores_multiple_stores() {
+        let mut stores = HashMap::new();
+        stores.insert(
+            "native1".to_string(),
+            make_native_store(Some("/tmp/assets1")),
+        );
+        stores.insert(
+            "native2".to_string(),
+            make_native_store(Some("/tmp/assets2")),
+        );
+        stores.insert(
+            "s3".to_string(),
+            make_s3_store(
+                Some("us-west-2"),
+                Some("cdn-bucket"),
+                Some("ak"),
+                Some("sk"),
+            ),
+        );
+        let mut errors = Vec::new();
+        validate_stores(&stores, &mut errors);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_validate_stores_mixed_errors() {
+        let mut stores = HashMap::new();
+        stores.insert("native_bad".to_string(), make_native_store(None));
+        stores.insert("s3_bad".to_string(), make_s3_store(None, None, None, None));
+        stores.insert(
+            "native_good".to_string(),
+            make_native_store(Some("/tmp/good")),
+        );
+        let mut errors = Vec::new();
+        validate_stores(&stores, &mut errors);
+        assert_eq!(errors.len(), 5); // 1 native + 4 s3
+    }
+
+    #[test]
+    fn test_validate_config_staticfiles_missing_store_ref() {
+        let mut config = types::AppConfig::default();
+        config.endpoints.push(make_endpoint(
+            "/static",
+            types::HttpMethod::Get,
+            types::EndpointAction::StaticFiles,
+            None,
+            None,
+            Some(types::StaticFilesConfig {
+                storage: "nonexistent_store".to_string(),
+                ..Default::default()
+            }),
+            None,
+            None,
+            None,
+            None,
+        ));
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("nonexistent_store"));
+    }
+
+    #[test]
+    fn test_validate_config_staticfiles_valid_store_ref() {
+        let mut config = types::AppConfig::default();
+        config
+            .stores
+            .insert("assets".to_string(), make_native_store(Some("/tmp/assets")));
+        config.endpoints.push(make_endpoint(
+            "/static",
+            types::HttpMethod::Get,
+            types::EndpointAction::StaticFiles,
+            None,
+            None,
+            Some(types::StaticFilesConfig {
+                storage: "assets".to_string(),
+                ..Default::default()
+            }),
+            None,
+            None,
+            None,
+            None,
+        ));
+        let result = validate_config(&config);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_config_spa_host_missing_store_ref() {
+        let mut config = types::AppConfig::default();
+        config.endpoints.push(make_endpoint(
+            "/app",
+            types::HttpMethod::Get,
+            types::EndpointAction::SpaHost,
+            None,
+            None,
+            None,
+            Some(types::SpaHostConfig {
+                storage: "missing".to_string(),
+                ..Default::default()
+            }),
+            None,
+            None,
+            None,
+        ));
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("missing"));
+    }
+
+    #[test]
+    fn test_validate_config_media_missing_refs() {
+        let mut config = types::AppConfig::default();
+        config.endpoints.push(make_endpoint(
+            "/media",
+            types::HttpMethod::Get,
+            types::EndpointAction::Media,
+            None,
+            None,
+            None,
+            None,
+            Some(types::MediaConfig {
+                storage: "nonexistent".to_string(),
+                table: "nonexistent_table".to_string(),
+                database: "nonexistent_db".to_string(),
+                ..Default::default()
+            }),
+            None,
+            None,
+        ));
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("nonexistent"));
+    }
+
+    #[test]
+    fn test_validate_config_filestore_missing_refs() {
+        let mut config = types::AppConfig::default();
+        config.endpoints.push(make_endpoint(
+            "/files",
+            types::HttpMethod::Get,
+            types::EndpointAction::FileStore,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(types::FileStoreConfig {
+                storage: "nonexistent".to_string(),
+                table: "nonexistent_table".to_string(),
+                database: "nonexistent_db".to_string(),
+                ..Default::default()
+            }),
+            None,
+        ));
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("nonexistent"));
     }
 }

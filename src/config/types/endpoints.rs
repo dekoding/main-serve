@@ -362,7 +362,7 @@ pub struct StaticFilesConfig {
     /// Cache-Control max-age in seconds.
     #[serde(default = "default_cache_max_age")]
     pub cache_max_age: u64,
-    /// ETag generation for cache validation.
+    /// `ETag` generation for cache validation.
     #[serde(default = "default_true")]
     pub etag: bool,
     /// Support for HTTP range requests (partial content / 206).
@@ -449,7 +449,7 @@ pub struct UploadConfig {
     #[serde(deserialize_with = "deserialize_allowed_extensions")]
     pub allowed_extensions: Vec<String>,
     /// Subdirectory pattern for organizing uploads.
-    /// Available placeholders: {user_id}, {year}, {month}, {day}, {uuid}
+    /// Available placeholders: {`user_id`}, {year}, {month}, {day}, {uuid}
     pub create_subdirectory: Option<String>,
     /// MIME type detection method.
     #[serde(default)]
@@ -553,12 +553,12 @@ fn default_true_bool() -> bool {
     true
 }
 
-/// Default retention days for trashed file_store entries.
+/// Default retention days for trashed `file_store` entries.
 fn default_trash_retention() -> u32 {
     30
 }
 
-/// A metadata column definition for media/file_store endpoints.
+/// A metadata column definition for `media/file_store` endpoints.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MediaMetadataColumn {
@@ -575,11 +575,11 @@ pub struct MediaMetadataColumn {
     pub default: Option<String>,
 }
 
-/// A metadata column definition for file_store endpoints.
-/// Same structure as MediaMetadataColumn.
+/// A metadata column definition for `file_store` endpoints.
+/// Same structure as `MediaMetadataColumn`.
 pub type FileStoreMetadataColumn = MediaMetadataColumn;
 
-/// Field-level permissions for file_store endpoints.
+/// Field-level permissions for `file_store` endpoints.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct FileStoreFieldPermissions {
@@ -589,7 +589,7 @@ pub struct FileStoreFieldPermissions {
     pub write: Vec<String>,
 }
 
-/// Ownership configuration for file_store endpoints.
+/// Ownership configuration for `file_store` endpoints.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct FileStoreOwnershipConfig {
@@ -600,7 +600,7 @@ pub struct FileStoreOwnershipConfig {
     pub admin_override: bool,
 }
 
-/// Trash configuration for file_store endpoints.
+/// Trash configuration for `file_store` endpoints.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct FileStoreTrashConfig {
@@ -956,7 +956,7 @@ fn default_share_ttl() -> u64 {
 }
 
 fn default_share_max_ttl() -> u64 {
-    604800
+    604_800
 }
 
 fn default_shared_prefix() -> String {
@@ -1013,7 +1013,7 @@ pub struct MediaConfig {
     pub table: String,
     /// Named database to use.
     pub database: String,
-    /// Metadata presets: "auto", "tags", "description", "alt_text", "content_type".
+    /// Metadata presets: "auto", "tags", "description", "`alt_text`", "`content_type`".
     #[serde(default = "default_media_columns")]
     pub columns: Vec<String>,
     /// Additional metadata columns not covered by presets.
@@ -1090,9 +1090,12 @@ pub struct SpaHostConfig {
     /// Per-extension Cache-Control rules.
     #[serde(default)]
     pub cache_rules: Vec<CacheRuleConfig>,
-    /// ETag generation for cache validation.
+    /// `ETag` generation for cache validation.
     #[serde(default = "default_true")]
     pub etag: bool,
+    /// Support for HEAD requests.
+    #[serde(default = "default_true")]
+    pub head_support: bool,
     /// HTTP status code for SPA fallback responses (non-existent paths).
     #[serde(default = "default_fallback_status")]
     pub fallback_status: u16,
@@ -1106,6 +1109,7 @@ impl Default for SpaHostConfig {
             cache_max_age: 3600,
             cache_rules: Vec::new(),
             etag: true,
+            head_support: true,
             fallback_status: 200,
         }
     }
