@@ -22,7 +22,7 @@ const SKIP_ROUTES: &[&str] = &[
 /// Auth middleware that checks authentication for each request.
 ///
 /// This middleware runs before handlers and:
-/// 1. Skips auth for routes in SKIP_ROUTES
+/// 1. Skips auth for routes in `SKIP_ROUTES`
 /// 2. Extracts endpoint config from router state
 /// 3. Validates credentials based on endpoint auth config
 /// 4. Checks role authorization
@@ -47,8 +47,7 @@ pub async fn auth_middleware(
 
     let auth_type = endpoint_config
         .as_ref()
-        .map(|e| e.auth.clone())
-        .unwrap_or_else(|| "none".to_string());
+        .map_or_else(|| "none".to_string(), |e| e.auth.clone());
 
     let auth_config = if auth_type == "none" {
         None

@@ -20,7 +20,10 @@ use crate::config::types::{EndpointAction, EndpointConfig, HttpMethod as ConfigH
 use crate::error::AppError;
 use crate::handlers::crud::handle_crud;
 use crate::handlers::custom_response::handle_custom_response;
+use crate::handlers::file_store::handle_file_store_route;
+use crate::handlers::media::{handle_media_route, handle_media_upload_route};
 use crate::handlers::proxy::handle_proxy;
+use crate::handlers::spa_host::{handle_spa_host_method_not_allowed, handle_spa_host_route};
 use crate::handlers::static_files::routing::{handle_file_upload_route, handle_static_files};
 use crate::middleware::auth::extractor::{AuthInfo, RequestContext};
 use crate::middleware::auth::{
@@ -37,7 +40,7 @@ pub async fn build_router(config: &AppConfig, state: AppState) -> Router {
     for endpoint in &config.endpoints {
         let mut path = endpoint.path.replace(":id", "{id}").replace('*', "{*rest}");
         let static_catch_all_added =
-            endpoint.action == EndpointAction::Static && !path.contains("{*rest}");
+            endpoint.action == EndpointAction::StaticFiles && !path.contains("{*rest}");
         if static_catch_all_added {
             let trimmed = path.trim_end_matches('/');
             path = format!("{trimmed}/{{*rest}}");
@@ -47,17 +50,17 @@ pub async fn build_router(config: &AppConfig, state: AppState) -> Router {
         // This allows different auth settings per method for the same path
         for method in &endpoint.methods {
             let method_str = method.as_str();
-            let method_path = format!("{}#{}", path, method_str);
+            let method_path = format!("{path}#{method_str}");
             endpoint_configs.insert(method_path, endpoint.clone());
         }
 
-        if endpoint.action == EndpointAction::Static {
+        if endpoint.action == EndpointAction::StaticFiles {
             let bare = path.trim_end_matches("{*rest}").trim_end_matches('/');
-            if !bare.is_empty() {
+            if bare.is_empty() {
+                endpoint_configs.insert("/".to_string(), endpoint.clone());
+            } else {
                 endpoint_configs.insert(bare.to_string(), endpoint.clone());
                 endpoint_configs.insert(format!("{bare}/"), endpoint.clone());
-            } else {
-                endpoint_configs.insert("/".to_string(), endpoint.clone());
             }
         }
     }
@@ -90,7 +93,7 @@ pub async fn build_router(config: &AppConfig, state: AppState) -> Router {
     for endpoint in &config.endpoints {
         let path_for_routes = endpoint.path.replace(":id", "{id}").replace('*', "{*rest}");
         let static_catch_all_added =
-            endpoint.action == EndpointAction::Static && !path_for_routes.contains("{*rest}");
+            endpoint.action == EndpointAction::StaticFiles && !path_for_routes.contains("{*rest}");
         let path = if static_catch_all_added {
             let trimmed = path_for_routes.trim_end_matches('/');
             format!("{trimmed}/{{*rest}}")
@@ -121,7 +124,7 @@ pub async fn build_router(config: &AppConfig, state: AppState) -> Router {
 
         router = router.merge(combined_router);
 
-        if endpoint.action == EndpointAction::Static && path.ends_with("{*rest}") {
+        if endpoint.action == EndpointAction::StaticFiles && path.ends_with("{*rest}") {
             let bare = path.trim_end_matches("{*rest}").trim_end_matches('/');
             if bare.is_empty() {
                 let mut combined_router = Router::new();
@@ -338,7 +341,7 @@ fn add_endpoint_route(
             }
         }
 
-        EndpointAction::Static => {
+        EndpointAction::StaticFiles => {
             let has_upload = endpoint
                 .static_files
                 .as_ref()
@@ -385,6 +388,111 @@ fn add_endpoint_route(
                 }
             }
         }
+
+        EndpointAction::SpaHost => {
+            let handler = handle_spa_host_route;
+            let method_router = match method {
+                ConfigHttpMethod::Get => axum::routing::get(handler),
+                ConfigHttpMethod::Head => axum::routing::head(handler),
+                ConfigHttpMethod::Options => axum::routing::options(handler),
+                // SPA host only supports GET, HEAD, OPTIONS
+                ConfigHttpMethod::Post
+                | ConfigHttpMethod::Put
+                | ConfigHttpMethod::Patch
+                | ConfigHttpMethod::Delete => {
+                    // For unsupported methods, return 405 Method Not Allowed
+                    let handler = handle_spa_host_method_not_allowed;
+                    match method {
+                        ConfigHttpMethod::Post => axum::routing::post(handler),
+                        ConfigHttpMethod::Put => axum::routing::put(handler),
+                        ConfigHttpMethod::Patch => axum::routing::patch(handler),
+                        ConfigHttpMethod::Delete => axum::routing::delete(handler),
+                        _ => unreachable!(),
+                    }
+                }
+            };
+
+            if let Some(cors_config) = cors {
+                app = app
+                    .route(path, method_router)
+                    .route_layer(build_cors_layer(cors_config));
+            } else {
+                app = app.route(path, method_router);
+            }
+        }
+        EndpointAction::Media => {
+            let media_handler = handle_media_route;
+            let media_upload_handler = handle_media_upload_route;
+
+            // Check if upload is enabled for this endpoint
+            let has_upload = endpoint
+                .media
+                .as_ref()
+                .and_then(|m| m.upload.as_ref())
+                .is_some_and(|u| u.max_size > 0);
+
+            match method {
+                ConfigHttpMethod::Post | ConfigHttpMethod::Put | ConfigHttpMethod::Patch
+                    if has_upload =>
+                {
+                    // Register upload route for POST/PUT/PATCH
+                    let upload_method_router = match method {
+                        ConfigHttpMethod::Post => axum::routing::post(media_upload_handler),
+                        ConfigHttpMethod::Put => axum::routing::put(media_upload_handler),
+                        ConfigHttpMethod::Patch => axum::routing::patch(media_upload_handler),
+                        _ => unreachable!(),
+                    };
+                    if let Some(cors_config) = cors {
+                        app = app
+                            .route(path, upload_method_router)
+                            .route_layer(build_cors_layer(cors_config));
+                    } else {
+                        app = app.route(path, upload_method_router);
+                    }
+                }
+                _ => {}
+            }
+
+            // Register regular media routes for all methods
+            let method_router = match method {
+                ConfigHttpMethod::Get => axum::routing::get(media_handler),
+                ConfigHttpMethod::Post => axum::routing::post(media_handler),
+                ConfigHttpMethod::Put => axum::routing::put(media_handler),
+                ConfigHttpMethod::Patch => axum::routing::patch(media_handler),
+                ConfigHttpMethod::Delete => axum::routing::delete(media_handler),
+                ConfigHttpMethod::Head => axum::routing::head(media_handler),
+                ConfigHttpMethod::Options => axum::routing::options(media_handler),
+            };
+
+            if let Some(cors_config) = cors {
+                app = app
+                    .route(path, method_router)
+                    .route_layer(build_cors_layer(cors_config));
+            } else {
+                app = app.route(path, method_router);
+            }
+        }
+
+        EndpointAction::FileStore => {
+            let handler = handle_file_store_route;
+            let method_router = match method {
+                ConfigHttpMethod::Get => axum::routing::get(handler),
+                ConfigHttpMethod::Post => axum::routing::post(handler),
+                ConfigHttpMethod::Put => axum::routing::put(handler),
+                ConfigHttpMethod::Patch => axum::routing::patch(handler),
+                ConfigHttpMethod::Delete => axum::routing::delete(handler),
+                ConfigHttpMethod::Head => axum::routing::head(handler),
+                ConfigHttpMethod::Options => axum::routing::options(handler),
+            };
+
+            if let Some(cors_config) = cors {
+                app = app
+                    .route(path, method_router)
+                    .route_layer(build_cors_layer(cors_config));
+            } else {
+                app = app.route(path, method_router);
+            }
+        }
     }
     app
 }
@@ -413,7 +521,7 @@ async fn handle_custom_response_route(
 }
 
 #[debug_handler]
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)] // CRUD handler with many axum extractors (state, path, extensions, method, headers, path_params, query, body)
 async fn handle_crud_route(
     state: State<AppState>,
     matched_path: MatchedPath,
@@ -440,8 +548,7 @@ async fn handle_crud_route(
     let json_body: Option<axum::Json<serde_json::Value>> = if headers
         .get("content-type")
         .and_then(|v| v.to_str().ok())
-        .map(|t| t.contains("application/json"))
-        .unwrap_or(false)
+        .is_some_and(|t| t.contains("application/json"))
     {
         let bytes = axum::body::to_bytes(body, usize::MAX)
             .await

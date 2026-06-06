@@ -47,6 +47,9 @@ pub enum AppError {
     #[error("Unsupported media type: {0}")]
     UnsupportedMediaType(String),
 
+    #[error("Service unavailable: {0}")]
+    ServiceUnavailable(String),
+
     #[error("File operation error: {0}")]
     FileOperation(String),
 
@@ -83,8 +86,9 @@ impl IntoResponse for AppError {
                 tracing::error!("Database error: {e}");
                 (StatusCode::INTERNAL_SERVER_ERROR, "database_error")
             }
-            AppError::Auth(_) => (StatusCode::UNAUTHORIZED, "auth_error"),
-            AppError::AuthChallenge(_, _) => (StatusCode::UNAUTHORIZED, "auth_error"),
+            AppError::Auth(_) | AppError::AuthChallenge(_, _) => {
+                (StatusCode::UNAUTHORIZED, "auth_error")
+            }
             AppError::Forbidden(_) => (StatusCode::FORBIDDEN, "forbidden"),
             AppError::NotFound(_) => (StatusCode::NOT_FOUND, "not_found"),
             AppError::RateLimited => (StatusCode::TOO_MANY_REQUESTS, "rate_limited"),
@@ -95,6 +99,9 @@ impl IntoResponse for AppError {
             AppError::PayloadTooLarge(_) => (StatusCode::PAYLOAD_TOO_LARGE, "payload_too_large"),
             AppError::UnsupportedMediaType(_) => {
                 (StatusCode::UNSUPPORTED_MEDIA_TYPE, "unsupported_media_type")
+            }
+            AppError::ServiceUnavailable(_) => {
+                (StatusCode::SERVICE_UNAVAILABLE, "service_unavailable")
             }
             AppError::FileOperation(_) => (StatusCode::INTERNAL_SERVER_ERROR, "file_operation"),
             AppError::Body(_) => (StatusCode::PAYLOAD_TOO_LARGE, "request_body_error"),

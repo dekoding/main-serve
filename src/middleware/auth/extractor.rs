@@ -16,6 +16,17 @@ pub struct AuthInfo {
     pub role: Option<String>,
 }
 
+impl AuthInfo {
+    /// Create an anonymous `AuthInfo` with an empty subject.
+    #[must_use]
+    pub fn anonymous() -> Self {
+        Self {
+            subject: String::new(),
+            role: None,
+        }
+    }
+}
+
 /// Extractor for required authentication.
 ///
 /// Returns `AuthInfo` if the user is authenticated, or returns a 401 Unauthorized

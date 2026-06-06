@@ -126,11 +126,11 @@ fn extract_key(
     }
 }
 
-/// Axum middleware wrapper for rate limiting that reads config from AppState.
+/// Axum middleware wrapper for rate limiting that reads config from `AppState`.
 ///
 /// Runs after auth middleware so it can use auth info (token) for rate limiting.
 ///
-/// This version reads the endpoint config from the router's endpoint_configs
+/// This version reads the endpoint config from the router's `endpoint_configs`
 /// to determine rate limit settings per-endpoint.
 pub async fn rate_limit_middleware(
     state: axum::extract::State<crate::server::state::AppState>,

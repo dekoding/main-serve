@@ -15,7 +15,7 @@ use crate::middleware::auth::validators::basic::{extract_basic_auth, validate_ba
 use crate::middleware::auth::validators::jwt::{extract_bearer_token, validate_token};
 use crate::middleware::auth::validators::oauth2::{extract_cookie, validate_oauth2_token};
 
-/// Re-export AuthInfo for convenience
+/// Re-export `AuthInfo` for convenience
 pub use crate::middleware::auth::extractor::AuthInfo;
 
 /// Authenticate a request based on the endpoint's auth type.
@@ -33,7 +33,7 @@ pub use crate::middleware::auth::extractor::AuthInfo;
 /// `query_params` to `validate_api_key` which calls `HashMap::get()`,
 /// invoking the default `DefaultHasher`. An explicit `RandomState` type
 /// parameter would be verbose without practical benefit for string keys.
-#[allow(clippy::implicit_hasher)]
+#[allow(clippy::implicit_hasher)] // passes &HashMap to validate_api_key which uses .get()
 pub async fn authenticate<'a>(
     auth_type: &'a str,
     auth_config: &'a AuthConfig,

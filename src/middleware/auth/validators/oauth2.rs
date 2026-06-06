@@ -237,7 +237,9 @@ mod tests {
         let mut pending = HashMap::new();
         let old = PendingOAuth2 {
             code_verifier: "old".to_string(),
-            created_at: Instant::now() - std::time::Duration::from_secs(600),
+            created_at: Instant::now()
+                .checked_sub(std::time::Duration::from_secs(600))
+                .unwrap(),
         };
         let recent = PendingOAuth2 {
             code_verifier: "recent".to_string(),
