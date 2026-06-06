@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::io::SeekFrom;
 use std::path::Path;
 
 use axum::body::Body;
@@ -10,12 +9,11 @@ use axum::response::IntoResponse;
 use axum::response::Response;
 use http::header;
 use image::ImageFormat;
-use tokio::io::{AsyncReadExt, AsyncSeekExt};
+use tokio::io::AsyncReadExt;
 use tokio_util::io::ReaderStream;
 
 use crate::config::types::ImageResizeConfig;
 use crate::config::types::StaticFilesConfig;
-use crate::config::types::StreamingConfig;
 use crate::error::AppError;
 use crate::handlers::static_files::routing::StaticGetContext;
 use crate::handlers::static_files::utils::{apply_static_headers, mime_from_path};
@@ -29,10 +27,10 @@ use crate::storage::Storage;
 /// Returns `AppError::Forbidden` if path traversal is detected.
 /// Returns `AppError::NotFound` if the file is not found.
 pub async fn handle_static_get(
-    state: State<AppState>,
+    _state: State<AppState>,
     ctx: StaticGetContext<'_>,
 ) -> Result<Response, AppError> {
-    let storage = &*state.storage;
+    let storage = &*ctx.storage;
     let resolved = if ctx.relative.is_empty() {
         ctx.root.to_path_buf()
     } else {
@@ -66,97 +64,12 @@ pub async fn handle_static_get(
         }
     }
 
-    // If path doesn't point to a file, check for spa_fallback
-    // This handles both non-existent files and directories without index
     let file_exists = resolved_meta.as_ref().is_some_and(|m| m.is_file);
-    if !file_exists && ctx.config.spa_fallback {
-        return serve_spa_fallback(storage, ctx.root, &ctx.config.index, ctx.config).await;
-    }
-
     if !file_exists {
         return Err(AppError::NotFound(format!(
             "File not found: {0}",
             ctx.request_path
         )));
-    }
-
-    // Check if user_scope is enabled.
-    if let Some(user_scope) = &ctx.config.user_scope
-        && user_scope.enabled
-    {
-        let query_params = ctx.query.map(|q| q.0.clone()).unwrap_or_default();
-        let auth_info = crate::handlers::static_files::routing::extract_auth_info(
-            &state,
-            ctx.endpoint,
-            ctx.headers,
-            &query_params,
-        )
-        .await?;
-
-        if let Some(required_role) = &user_scope.required_role {
-            match &auth_info.role {
-                Some(role) if role == required_role => {}
-                _ => {
-                    return Err(AppError::Forbidden(
-                        "Authentication required to access user-scoped files".to_string(),
-                    ));
-                }
-            }
-        }
-
-        // Construct user-specific path.
-        // Construct user-specific path.
-        let user_id = auth_info.subject.as_str();
-        let pattern = &user_scope.directory_pattern;
-
-        // Handle root directory exposure when expose_root is enabled.
-        let user_resolved = if user_scope.expose_root {
-            // When expose_root is true, allow access to both root files and user files.
-            // Check if the relative path contains the user_id (user's file) or is at root level.
-            let is_user_file = ctx.relative.split('/').any(|seg| seg == user_id);
-
-            if is_user_file {
-                // User is accessing their own file (path contains user_id)
-                format!("{}/{user_id}/{1}", pattern, ctx.relative).replace("//", "/")
-            } else {
-                // Accessing root directory or subdirectory at root level
-                ctx.relative.to_string()
-            }
-        } else {
-            // Root not exposed - always use user-specific path
-            format!("{}/{user_id}/{1}", pattern, ctx.relative).replace("//", "/")
-        };
-
-        let final_resolved = ctx.root.join(&user_resolved);
-
-        // Canonicalize and check for path traversal.
-        if let (Ok(canonical), Ok(root_canonical)) = (
-            storage.canonicalize(&final_resolved).await,
-            storage.canonicalize(ctx.root).await,
-        ) && !canonical.starts_with(&root_canonical)
-        {
-            return Err(AppError::Forbidden("Path traversal denied".to_string()));
-        }
-
-        let meta = storage
-            .metadata(&final_resolved)
-            .await
-            .map_err(|_| AppError::NotFound(format!("File not found: {0}", ctx.request_path)))?;
-        if !meta.is_file {
-            return Err(AppError::NotFound(format!(
-                "File not found: {0}",
-                ctx.request_path
-            )));
-        }
-
-        return serve_file(
-            storage,
-            &final_resolved,
-            ctx.config,
-            Some(ctx.query.map(|q| q.0.clone()).unwrap_or_default()),
-            ctx.headers,
-        )
-        .await;
     }
 
     serve_file(
@@ -185,25 +98,6 @@ pub async fn serve_file(
     let file_size = meta.size;
     let content_type = mime_from_path(path);
 
-    // Check if Range header is present for partial content.
-    if let Some(range_header) = headers.get(header::RANGE)
-        && let Ok(range_str) = range_header.to_str()
-        && let Some(streaming_config) = &config.streaming
-        && streaming_config.enabled
-        && file_size > streaming_config.threshold
-        && let Some(partial_response) = handle_range_request(
-            storage,
-            path,
-            range_str,
-            &content_type,
-            config.cache_max_age,
-            streaming_config,
-        )
-        .await?
-    {
-        return Ok(partial_response);
-    }
-
     // Check if image resize is requested.
     if let Some(image_config) = &config.image_resize
         && image_config.enabled
@@ -214,88 +108,80 @@ pub async fn serve_file(
         return Ok(resized);
     }
 
+    // Handle range requests with streaming.
+    if config.range_requests
+        && let Some(range_header) = headers.get(header::RANGE)
+        && let Ok(range_str) = range_header.to_str()
+        && let Some(streaming_config) = &config.streaming
+        && streaming_config.enabled
+        && file_size > streaming_config.threshold
+    {
+        return handle_range_streaming(
+            storage,
+            path,
+            range_str,
+            file_size,
+            &content_type,
+            streaming_config,
+            config.cache_max_age,
+        )
+        .await;
+    }
+
     // Check if streaming is enabled.
     if let Some(streaming_config) = &config.streaming
         && streaming_config.enabled
         && file_size > streaming_config.threshold
     {
-        return serve_file_streaming(
+        return handle_streaming(
             storage,
             path,
             &content_type,
-            config.cache_max_age,
             streaming_config,
+            config.cache_max_age,
+            file_size,
         )
         .await;
     }
 
-    // Default: read entire file into memory.
-    let contents = storage
+    // Default: read the full file into memory for small files.
+    let content = storage
         .read(path)
         .await
         .map_err(|_| AppError::NotFound(format!("File not found: {}", path.display())))?;
 
-    let mut response = (StatusCode::OK, contents).into_response();
+    let mut response = (StatusCode::OK, content.to_vec()).into_response();
     apply_static_headers(&mut response, &content_type, config.cache_max_age);
-    Ok(response)
-}
 
-/// Serve a file using streaming response.
-pub async fn serve_file_streaming(
-    storage: &dyn Storage,
-    path: &Path,
-    content_type: &str,
-    cache_max_age: u64,
-    config: &StreamingConfig,
-) -> Result<Response, AppError> {
-    let file = storage
-        .open(path)
-        .await
-        .map_err(|_| AppError::NotFound(format!("File not found: {}", path.display())))?;
-
-    let reader_stream = ReaderStream::with_capacity(file, config.buffer_size);
-    let body = Body::from_stream(reader_stream);
-
-    let mut response = Response::new(body);
-    *response.status_mut() = StatusCode::OK;
     response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_str(content_type)
-            .unwrap_or(HeaderValue::from_static("application/octet-stream")),
-    );
-    response.headers_mut().insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_str(&format!("public, max-age={cache_max_age}"))
-            .unwrap_or(HeaderValue::from_static("public, max-age=3600")),
+        header::CONTENT_LENGTH,
+        HeaderValue::from_str(&content.len().to_string()).unwrap_or(HeaderValue::from_static("0")),
     );
 
     Ok(response)
 }
 
-/// Handle Range header for partial content (206).
+/// Handle a range request by streaming the requested byte range from storage.
 ///
-/// Returns None if no Range header is present, or if the range cannot be satisfied.
-async fn handle_range_request(
+/// Opens the file at the start offset using `seek_read` and streams only the
+/// requested number of bytes, avoiding loading the full file into memory.
+async fn handle_range_streaming(
     storage: &dyn Storage,
     path: &Path,
-    range_header: &str,
+    range_str: &str,
+    file_size: u64,
     content_type: &str,
+    streaming_config: &crate::config::types::StreamingConfig,
     cache_max_age: u64,
-    streaming_config: &StreamingConfig,
-) -> Result<Option<Response>, AppError> {
+) -> Result<Response, AppError> {
     // Parse Range: bytes=START-END
-    let range_value = range_header
+    let range_value = range_str
         .strip_prefix("bytes=")
         .ok_or_else(|| AppError::BadRequest("Invalid Range header".to_string()))?;
 
     let (start_str, end_str) = range_value
         .split_once('-')
         .ok_or_else(|| AppError::BadRequest("Invalid Range format".to_string()))?;
-
-    let file_size = storage
-        .size(path)
-        .await
-        .map_err(|_| AppError::NotFound("File not found".to_string()))?;
 
     // Parse start position
     let start: u64 = start_str
@@ -304,41 +190,39 @@ async fn handle_range_request(
 
     // Parse end position (optional - if empty, use file_size - 1)
     let end: Option<u64> = if end_str.is_empty() {
-        Some(file_size - 1)
+        Some(file_size.saturating_sub(1))
     } else {
         end_str.parse().ok()
     };
 
-    let end = end.unwrap_or(file_size - 1).min(file_size - 1);
-    let content_length = end.saturating_add(1).saturating_sub(start);
+    let end = end
+        .unwrap_or(file_size.saturating_sub(1))
+        .min(file_size.saturating_sub(1));
 
     // Validate range
     if start >= file_size || start > end {
-        return Ok(Some(build_range_not_satisfiable_response(
+        return Ok(build_range_not_satisfiable_response(
             file_size,
             cache_max_age,
-        )));
+        ));
     }
 
-    // Open file and seek to start position
-    let mut file = storage
-        .open(path)
-        .await
-        .map_err(|_| AppError::NotFound("File not found".to_string()))?;
+    let content_length = end.saturating_add(1).saturating_sub(start);
 
-    file.seek(SeekFrom::Start(start))
+    // Open file at start offset and stream only the requested range.
+    let reader = storage
+        .seek_read(path, start)
         .await
-        .map_err(|_| AppError::Internal("Failed to seek file".to_string()))?;
+        .map_err(|_| AppError::NotFound(format!("File not found: {}", path.display())))?;
 
-    // Create streaming reader with limited content length
-    let reader_stream =
-        ReaderStream::with_capacity(file.take(content_length), streaming_config.buffer_size);
+    let taken = reader.take(content_length);
+
+    let reader_stream = ReaderStream::with_capacity(taken, streaming_config.buffer_size);
     let body = Body::from_stream(reader_stream);
 
     let mut response = Response::new(body);
     *response.status_mut() = StatusCode::PARTIAL_CONTENT;
 
-    // Set required headers for partial content
     response.headers_mut().insert(
         header::CONTENT_TYPE,
         HeaderValue::from_str(content_type)
@@ -362,14 +246,59 @@ async fn handle_range_request(
 
     response.headers_mut().insert(
         header::CACHE_CONTROL,
-        HeaderValue::from_str(&format!("public, max-age={cache_max_age}"))
+        HeaderValue::from_str(&format!("public, max-age={}", cache_max_age))
             .unwrap_or(HeaderValue::from_static("public, max-age=3600")),
     );
 
-    Ok(Some(response))
+    Ok(response)
+}
+
+/// Handle full file streaming from storage without loading the entire file
+/// into memory.
+///
+/// Opens the file at offset 0 using `seek_read` and streams the entire
+/// file content.
+async fn handle_streaming(
+    storage: &dyn Storage,
+    path: &Path,
+    content_type: &str,
+    streaming_config: &crate::config::types::StreamingConfig,
+    cache_max_age: u64,
+    file_size: u64,
+) -> Result<Response, AppError> {
+    let reader = storage
+        .seek_read(path, 0)
+        .await
+        .map_err(|_| AppError::NotFound(format!("File not found: {}", path.display())))?;
+
+    let reader_stream = ReaderStream::with_capacity(reader, streaming_config.buffer_size);
+    let body = Body::from_stream(reader_stream);
+
+    let mut response = Response::new(body);
+    *response.status_mut() = StatusCode::OK;
+
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(content_type)
+            .unwrap_or(HeaderValue::from_static("application/octet-stream")),
+    );
+
+    response.headers_mut().insert(
+        header::CONTENT_LENGTH,
+        HeaderValue::from_str(&format!("{file_size}")).unwrap_or(HeaderValue::from_static("0")),
+    );
+
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_str(&format!("public, max-age={}", cache_max_age))
+            .unwrap_or(HeaderValue::from_static("public, max-age=3600")),
+    );
+
+    Ok(response)
 }
 
 /// Build response for range not satisfiable (416).
+#[must_use]
 fn build_range_not_satisfiable_response(file_size: u64, cache_max_age: u64) -> Response {
     let mut response = Response::new(Body::empty());
     *response.status_mut() = StatusCode::RANGE_NOT_SATISFIABLE;
@@ -406,8 +335,8 @@ pub async fn handle_image_resize(
 
     let width = query.get("w").and_then(|w| w.parse().ok());
     let height = query.get("h").and_then(|h| h.parse().ok());
-    let fit = query.get("fit").map(|f| f.as_str());
-    let output_format = query.get("format").map(|f| f.as_str());
+    let fit = query.get("fit").map(std::string::String::as_str);
+    let output_format = query.get("format").map(std::string::String::as_str);
 
     if width.is_none() && height.is_none() && output_format.is_none() {
         return Ok(None);
@@ -431,22 +360,21 @@ pub async fn handle_image_resize(
         (None, Some(h), _) => (None, Some(h)),
         (Some(w), Some(h), Some("cover")) => {
             // Fill while maintaining aspect ratio (cover mode)
-            let ratio = img.width() as f32 / img.height() as f32;
-            let h_ratio = h as f32 / w as f32;
+            let ratio = img.width() as f64 / img.height() as f64;
+            let h_ratio = h as f64 / w as f64;
             if ratio > h_ratio {
-                let new_h = (w as f32 / ratio) as u32;
+                let new_h = (w as f64 / ratio) as u32;
                 (Some(w), Some(new_h))
             } else {
-                let new_w = (h as f32 * ratio) as u32;
+                let new_w = (h as f64 * ratio) as u32;
                 (Some(new_w), Some(h))
             }
         }
         (Some(w), Some(h), _) => {
-            let max_dim = config.max_dimension as u32;
+            let max_dim = u32::try_from(config.max_dimension).unwrap_or(u32::MAX);
             (Some(w.clamp(1, max_dim)), Some(h.clamp(1, max_dim)))
         }
-        (None, None, None) => (None, None),
-        (None, None, Some(_)) => (None, None),
+        (None, None, None | Some(_)) => (None, None),
     };
 
     let resized = if let (Some(w), Some(h)) = (target_width, target_height) {
@@ -483,7 +411,8 @@ pub async fn handle_image_resize(
     Ok(Some(response))
 }
 
-// Check if a path is likely an image.
+/// Check if a file path likely refers to an image based on its extension.
+#[must_use]
 pub fn is_image_path(path: &Path) -> bool {
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
         let ext_lower = ext.to_lowercase();
@@ -494,25 +423,4 @@ pub fn is_image_path(path: &Path) -> bool {
     } else {
         false
     }
-}
-
-/// Serve the index file as a SPA fallback.
-pub async fn serve_spa_fallback(
-    storage: &dyn Storage,
-    root: &Path,
-    index: &str,
-    config: &StaticFilesConfig,
-) -> Result<Response, AppError> {
-    let index_path = root.join(index);
-    let contents = storage
-        .read(&index_path)
-        .await
-        .map_err(|_| AppError::NotFound(format!("Index file not found: {index}")))?;
-    let mut response = (StatusCode::OK, contents).into_response();
-    apply_static_headers(
-        &mut response,
-        &mime_from_path(&index_path),
-        config.cache_max_age,
-    );
-    Ok(response)
 }

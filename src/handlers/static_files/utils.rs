@@ -19,6 +19,7 @@ pub fn apply_static_headers(response: &mut Response, content_type: &str, cache_m
 }
 
 /// Determine MIME type from file extension.
+#[must_use]
 pub fn mime_from_path(path: &Path) -> String {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     match ext {
@@ -50,6 +51,7 @@ pub fn mime_from_path(path: &Path) -> String {
 }
 
 /// Minimal HTML escaping for safe inclusion in generated HTML.
+#[must_use]
 pub fn html_escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -58,6 +60,7 @@ pub fn html_escape(s: &str) -> String {
 }
 
 /// Format a byte count as a human-readable size string.
+#[must_use]
 pub fn format_size(bytes: u64) -> String {
     const UNITS: &[&str] = &["B", "KiB", "MiB", "GiB", "TiB"];
     let mut size = bytes as f64;
@@ -74,7 +77,8 @@ pub fn format_size(bytes: u64) -> String {
     format!("{size:.1} PiB")
 }
 
-/// Format a SystemTime as YYYY-MM-DD HH:MM.
+/// Format a `SystemTime` as YYYY-MM-DD HH:MM.
+#[must_use]
 pub fn format_modified(time: std::time::SystemTime) -> String {
     let dt: chrono::DateTime<chrono::Local> = time.into();
     dt.format("%Y-%m-%d %H:%M").to_string()
