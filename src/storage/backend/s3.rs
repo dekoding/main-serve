@@ -220,6 +220,29 @@ impl Storage for S3Storage {
         Ok(Box::new(Cursor::new(bytes)))
     }
 
+    async fn seek_read(
+        &self,
+        path: &Path,
+        offset: u64,
+    ) -> Result<Box<dyn tokio::io::AsyncRead + Send + Unpin>> {
+        let key = self.path_to_key(path);
+        let range = format!("bytes={offset}-");
+
+        let response = self
+            .client
+            .get_object()
+            .bucket(&self.bucket)
+            .key(&key)
+            .range(&range)
+            .send()
+            .await
+            .map_err(|e| Self::map_error(e, &key))?;
+
+        let bytes = Self::collect_body(response.body).await?;
+
+        Ok(Box::new(Cursor::new(bytes)))
+    }
+
     async fn write(&self, path: &Path, contents: &[u8]) -> Result<()> {
         let key = self.path_to_key(path);
         let body: ByteStream = Bytes::from(contents.to_vec()).into();

@@ -214,23 +214,11 @@ struct GcsObjectMetadata {
     #[serde(rename = "size")]
     size: String,
 
-    #[serde(rename = "contentType", default)]
-    content_type: Option<String>,
-
     #[serde(rename = "timeCreated", default)]
     time_created: Option<String>,
 
     #[serde(rename = "updated", default)]
     updated: Option<String>,
-
-    #[serde(rename = "generation", default)]
-    generation: Option<String>,
-
-    #[serde(rename = "metageneration", default)]
-    metageneration: Option<String>,
-
-    #[serde(rename = "customTime", default)]
-    custom_time: Option<String>,
 }
 
 impl GcsObjectMetadata {
@@ -380,6 +368,42 @@ impl GcsStorage {
 
         Ok(Box::new(reader))
     }
+
+    /// Download a GCS object starting from the given byte offset.
+    async fn download_to_file_with_range(
+        &self,
+        object_name: &str,
+        offset: u64,
+    ) -> Result<Box<dyn tokio::io::AsyncRead + Send + Unpin>> {
+        let token = self.auth.get_token().await?;
+
+        let resp = self
+            .gcs_request(
+                reqwest::Method::GET,
+                &format!("/b/{}/o/{object_name}?alt=media", self.bucket),
+            )
+            .header(AUTHORIZATION, format!("Bearer {token}"))
+            .header("Range", format!("bytes={offset}-"))
+            .send()
+            .await
+            .map_err(|e| StorageError::Internal(format!("GCS request failed: {e}")))?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.map_err(|e| {
+                StorageError::Internal(format!("Failed to read error response: {e}"))
+            })?;
+            return Err(Self::map_http_error(status, object_name, &body));
+        }
+
+        let stream = resp
+            .bytes_stream()
+            .map(|result| result.map_err(std::io::Error::other));
+
+        let reader = StreamReader::new(stream);
+
+        Ok(Box::new(reader))
+    }
 }
 
 #[async_trait::async_trait]
@@ -470,6 +494,15 @@ impl Storage for GcsStorage {
     async fn open(&self, path: &Path) -> Result<Box<dyn tokio::io::AsyncRead + Send + Unpin>> {
         let object_name = Self::path_to_object_name(path);
         self.download_to_file(&object_name).await
+    }
+
+    async fn seek_read(
+        &self,
+        path: &Path,
+        offset: u64,
+    ) -> Result<Box<dyn tokio::io::AsyncRead + Send + Unpin>> {
+        let object_name = Self::path_to_object_name(path);
+        self.download_to_file_with_range(&object_name, offset).await
     }
 
     /// Write bytes to a file, creating it if it doesn't exist.

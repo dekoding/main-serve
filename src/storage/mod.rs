@@ -38,6 +38,24 @@ pub trait Storage: Send + Sync {
     /// Open a file and return a streaming reader.
     async fn open(&self, path: &Path) -> Result<Box<dyn tokio::io::AsyncRead + Send + Unpin>>;
 
+    /// Open a file and seek to the given offset, returning a streaming reader.
+    ///
+    /// This allows efficient range requests and streaming without reading the
+    /// entire file into memory first. For native filesystem backends, this
+    /// opens the file and seeks to the offset. For cloud backends (S3, Azure,
+    /// GCS), this uses native HTTP range request support.
+    ///
+    /// # Errors
+    ///
+    /// Returns `StorageError::NotFound` if the file does not exist.
+    /// Returns `StorageError::Internal` if the file cannot be opened or the
+    /// offset cannot be applied.
+    async fn seek_read(
+        &self,
+        path: &Path,
+        offset: u64,
+    ) -> Result<Box<dyn tokio::io::AsyncRead + Send + Unpin>>;
+
     /// Write bytes to a file, creating it if it doesn't exist.
     async fn write(&self, path: &Path, contents: &[u8]) -> Result<()>;
 

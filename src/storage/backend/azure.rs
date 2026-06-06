@@ -458,6 +458,43 @@ impl Storage for AzureStorage {
         Ok(Box::new(Cursor::new(bytes)))
     }
 
+    async fn seek_read(
+        &self,
+        path: &Path,
+        offset: u64,
+    ) -> Result<Box<dyn tokio::io::AsyncRead + Send + Unpin>> {
+        let blob_name = self.path_to_blob_name(path);
+
+        let url = self.blob_url(&blob_name, "comp=properties");
+        let canonicalized_headers = self.build_canonicalized_headers();
+        let auth = self.sign_request(
+            "GET",
+            0,
+            &canonicalized_headers,
+            &self.build_canonicalized_resource(&blob_name, "comp=properties"),
+        )?;
+
+        let mut request = self.client.request(Method::GET, &url);
+        request = request.header("Authorization", auth);
+        request = request.header("x-ms-blob-type", "BlockBlob");
+        request = request.header("Range", format!("bytes={offset}-"));
+        for (k, v) in Self::parse_canonicalized_headers(&canonicalized_headers) {
+            request = request.header(k, v);
+        }
+
+        let response = request
+            .send()
+            .await
+            .map_err(|e| StorageError::ServiceUnavailable(format!("Azure request failed: {e}")))?;
+
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|e| StorageError::Internal(format!("Failed to read response body: {e}")))?;
+
+        Ok(Box::new(Cursor::new(bytes)))
+    }
+
     async fn write(&self, path: &Path, contents: &[u8]) -> Result<()> {
         let blob_name = self.path_to_blob_name(path);
         let response = self

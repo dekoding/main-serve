@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
@@ -58,7 +59,20 @@ impl Storage for MemoryStorage {
 
     async fn open(&self, path: &Path) -> Result<Box<dyn tokio::io::AsyncRead + Send + Unpin>> {
         let data = self.read(path).await?;
-        Ok(Box::new(std::io::Cursor::new(data)))
+        Ok(Box::new(Cursor::new(data)))
+    }
+
+    async fn seek_read(
+        &self,
+        path: &Path,
+        offset: u64,
+    ) -> Result<Box<dyn tokio::io::AsyncRead + Send + Unpin>> {
+        let data = self.read(path).await?;
+        if offset >= data.len() as u64 {
+            return Ok(Box::new(Cursor::new(Vec::new())));
+        }
+        let sliced = data[offset as usize..].to_vec();
+        Ok(Box::new(Cursor::new(sliced)))
     }
 
     async fn write(&self, path: &Path, contents: &[u8]) -> Result<()> {

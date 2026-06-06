@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use tokio::fs;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 
 use crate::storage::{DirEntry, FileMetadata, Result, Storage, StorageError};
 
@@ -74,6 +74,23 @@ impl Storage for NativeStorage {
                 .await
                 .map_err(|e| StorageError::Io(resolved, e))?,
         ))
+    }
+
+    async fn seek_read(
+        &self,
+        path: &Path,
+        offset: u64,
+    ) -> Result<Box<dyn tokio::io::AsyncRead + Send + Unpin>> {
+        let resolved = self.resolve(path);
+        let mut file = fs::File::open(&resolved)
+            .await
+            .map_err(|e| StorageError::Io(resolved.clone(), e))?;
+
+        file.seek(tokio::io::SeekFrom::Start(offset))
+            .await
+            .map_err(|e| StorageError::Io(resolved, e))?;
+
+        Ok(Box::new(file))
     }
 
     async fn write(&self, path: &Path, contents: &[u8]) -> Result<()> {
