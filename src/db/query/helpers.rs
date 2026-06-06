@@ -1,7 +1,25 @@
 use crate::config::types::{ColumnConfig, DatabaseDriver};
 use crate::error::AppError;
 use crate::middleware::auth::extractor::RequestContext;
+use std::sync::LazyLock;
 
+/// Regex to detect dangerous SQL Server extended procedure calls (xp_*) and
+/// sleep-based time injection (`pg_sleep`, SLEEP, etc.).
+static DANGEROUS_FN_RE: LazyLock<Option<regex::Regex>> =
+    LazyLock::new(|| regex::Regex::new(r"(?i)(\bxp_\w+|\bsleep\s*\(|_sleep\b)").ok());
+
+/// Regex to detect common SQL keywords and injection patterns.
+static SQL_KEYWORDS_RE: LazyLock<Option<regex::Regex>> = LazyLock::new(|| {
+    regex::Regex::new(
+        r"(?i)\b(or|and|union|select|insert|update|delete|drop|alter|create|truncate|exec)\b",
+    )
+    .ok()
+});
+
+/// Comparison operators supported in filter expressions.
+///
+/// Maps query parameter operators (eq, ne, gt, gte, lt, lte, in, `not_in`,
+/// contains, exists, startswith, endswith, like, ilike) to typed variants.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FilterOperator {
     Eq,
@@ -20,6 +38,7 @@ pub enum FilterOperator {
     ILike,
 }
 
+/// A parsed filter expression with a field path and comparison operator.
 #[derive(Debug)]
 pub struct FilterExpression {
     pub path: Vec<String>,
@@ -33,7 +52,9 @@ pub fn parse_filter_key(key: &str) -> Result<FilterExpression, AppError> {
         .map_err(|e| AppError::Internal(format!("Invalid regex: {e}")))?;
 
     let (path_str, operator_str) = if let Some(caps) = re.captures(key) {
-        (caps.get(1).unwrap().as_str(), caps.get(2).unwrap().as_str())
+        let path_str = caps.get(1).map_or(key, |m| m.as_str());
+        let operator_str = caps.get(2).map_or("eq", |m| m.as_str());
+        (path_str, operator_str)
     } else {
         // Check if the key contains an unclosed bracket or invalid bracket notation
         if key.contains('[') {
@@ -71,7 +92,10 @@ pub fn parse_filter_key(key: &str) -> Result<FilterExpression, AppError> {
         }
     };
 
-    let path: Vec<String> = path_str.split('.').map(|s| s.to_string()).collect();
+    let path: Vec<String> = path_str
+        .split('.')
+        .map(std::string::ToString::to_string)
+        .collect();
 
     Ok(FilterExpression { path, operator })
 }
@@ -140,6 +164,7 @@ pub fn interpolate_value(
 }
 
 /// Helper to resolve a single context key.
+#[must_use]
 pub fn resolve_single_key(key: &str, context: &RequestContext) -> Option<String> {
     if key == "request.user.id" {
         context.user_id.clone()
@@ -159,6 +184,7 @@ pub fn resolve_single_key(key: &str, context: &RequestContext) -> Option<String>
 }
 
 /// Generate a driver-appropriate parameter placeholder.
+#[must_use]
 pub fn placeholder(driver: DatabaseDriver, index: usize) -> String {
     match driver {
         DatabaseDriver::Postgres => format!("${index}"),
@@ -167,6 +193,7 @@ pub fn placeholder(driver: DatabaseDriver, index: usize) -> String {
 }
 
 /// Resolve writable fields: ["*"] -> all column names, otherwise as-is.
+#[must_use]
 pub fn resolve_writable_fields(
     writable: &[String],
     table: &crate::config::types::TableConfig,
@@ -179,6 +206,7 @@ pub fn resolve_writable_fields(
 }
 
 /// Resolve field list: ["*"] -> all column names, otherwise as-is.
+#[must_use]
 pub fn resolve_fields(fields: &[String], table: &crate::config::types::TableConfig) -> Vec<String> {
     if fields.len() == 1 && fields[0] == "*" {
         table.columns.iter().map(|c| c.name.clone()).collect()
@@ -202,6 +230,7 @@ pub fn find_pk_column(table: &crate::config::types::TableConfig) -> Result<Strin
 ///
 /// `PostgreSQL` requires bind parameters to match the column type exactly;
 /// binding a string `"1"` against an integer column causes a type error.
+#[must_use]
 pub fn coerce_pk_value(table: &crate::config::types::TableConfig, raw: &str) -> serde_json::Value {
     let col_type = table
         .columns
@@ -237,7 +266,7 @@ pub fn coerce_pk_value(table: &crate::config::types::TableConfig, raw: &str) -> 
 /// This function attempts to parse string filter values into their appropriate JSON types
 /// (number, boolean, null, or string) to avoid type mismatch errors in databases that
 /// expect specific types. For example, comparing a JSONB number column to a string value
-/// will fail in PostgreSQL without proper type coercion.
+/// will fail in `PostgreSQL` without proper type coercion.
 ///
 /// The coercion follows this priority order:
 /// 1. `null` literal -> `serde_json::Value::Null`
@@ -288,9 +317,9 @@ pub fn coerce_filter_value(value: &str) -> serde_json::Value {
 /// like a number (e.g., filtering a text column for the value "123").
 ///
 /// For JSON/JSONB columns, the coercion strategy depends on the database driver:
-/// - SQLite: `json_extract` preserves native JSON types, so try parsing as JSON.
-/// - PostgreSQL: `#>>` always returns text, so always coerce to string.
-/// - MySQL: `JSON_UNQUOTE(JSON_EXTRACT(...))` always returns text, so always coerce to string.
+/// - `SQLite`: `json_extract` preserves native JSON types, so try parsing as JSON.
+/// - `PostgreSQL`: `#>>` always returns text, so always coerce to string.
+/// - `MySQL`: `JSON_UNQUOTE(JSON_EXTRACT(...))` always returns text, so always coerce to string.
 ///
 /// # Arguments
 ///
@@ -390,6 +419,7 @@ pub fn coerce_filter_value_by_type(
 /// # Returns
 ///
 /// The value coerced to the appropriate `serde_json::Value` type.
+#[must_use]
 pub fn build_filter_param(
     value: &str,
     column_type: Option<&crate::config::types::ColumnType>,
@@ -403,6 +433,7 @@ pub fn build_filter_param(
 
 /// Validate that a string is a safe SQL identifier (prevents injection).
 /// Allows alphanumeric, underscores, dots (for table.column), and hyphens.
+#[must_use]
 pub fn is_valid_identifier(s: &str) -> bool {
     !s.is_empty()
         && s.chars()
@@ -410,6 +441,7 @@ pub fn is_valid_identifier(s: &str) -> bool {
 }
 
 /// Check if a field path is a JSONB nested path (contains dots).
+#[must_use]
 pub fn is_jsonb_path(field: &str) -> bool {
     field.contains('.')
 }
@@ -421,7 +453,8 @@ pub fn is_jsonb_path(field: &str) -> bool {
 /// - LHS brackets: `metadata[role]` -> base="metadata", path=["role"]
 /// - Nested: `metadata.user[profile].email` -> base="metadata", path=["user","profile","email"]
 ///
-/// Returns (base_column, path_segments) where path_segments are the nested field names.
+/// Returns (`base_column`, `path_segments`) where `path_segments` are the nested field names.
+#[must_use]
 pub fn parse_sort_field(field: &str) -> (String, Vec<String>) {
     let mut parts = Vec::new();
     let mut current = String::new();
@@ -479,17 +512,20 @@ pub fn parse_sort_field(field: &str) -> (String, Vec<String>) {
 }
 
 /// Check if a sort field uses bracket notation (e.g., `field[key]`).
+#[must_use]
 pub fn is_bracket_notation(field: &str) -> bool {
     field.contains('[')
 }
 
 /// Check if a filter column exists in the table schema.
+#[must_use]
 pub fn column_exists(column_name: &str, columns: &[ColumnConfig]) -> bool {
     columns.iter().any(|c| c.name == column_name)
 }
 
 /// Validate that a sort field exists in the table schema.
 /// Returns true if the field is valid (either a regular column or a JSONB nested path).
+#[must_use]
 pub fn is_valid_sort_field(field: &str, columns: &[ColumnConfig]) -> bool {
     let (base, _) = parse_sort_field(field);
     // Allow bracket notation (e.g., metadata[role])
@@ -504,23 +540,23 @@ pub fn is_valid_sort_field(field: &str, columns: &[ColumnConfig]) -> bool {
     }
 }
 
-/// Extract the base column name from a field string that may contain JSONPath or operators.
+/// Extract the base column name from a field string that may contain `JSONPath` or operators.
 /// Handles cases like:
 /// - `$.metadata.role` -> `metadata`
 /// - `metadata->>'role'` -> `metadata`
 /// - `metadata#>'{user,role}'` -> `metadata`
 /// - `metadata.role` -> `metadata`
+#[must_use]
 pub fn extract_base_column(field: &str) -> String {
     // Handle JSONPath syntax starting with $
-    if field.starts_with("$") {
+    if field.starts_with('$') {
         // Extract column name from $.metadata.role or $.metadata.tags[0]
         let parts: Vec<&str> = field.split('.').collect();
         if parts.len() > 1 {
             // $.metadata -> metadata
             parts[1..2]
                 .first()
-                .map(|s| s.trim_start_matches('$'))
-                .unwrap_or(field)
+                .map_or(field, |s| s.trim_start_matches('$'))
                 .to_string()
         } else {
             field.trim_start_matches('$').to_string()
@@ -550,6 +586,7 @@ pub fn extract_base_column(field: &str) -> String {
 
 /// Validate that a filter column exists in the table schema.
 /// Returns true if the column is valid (either a regular column or a JSONB column).
+#[must_use]
 pub fn is_valid_filter_column(field: &str, columns: &[ColumnConfig]) -> bool {
     let base = extract_base_column(field);
     is_jsonb_column(&base, columns) || column_exists(&base, columns)
@@ -558,6 +595,7 @@ pub fn is_valid_filter_column(field: &str, columns: &[ColumnConfig]) -> bool {
 /// Extract the JSONB path string from a dotted field name or bracket notation.
 /// Converts `metadata.role` to `$.role` and `metadata[role]` to `$.role`.
 /// Converts `metadata.user.profile` to `$.user.profile` and `metadata[user][profile]` to `$.user.profile`.
+#[must_use]
 pub fn extract_jsonb_path(field: &str) -> String {
     let (_, path) = parse_sort_field(field);
     if path.is_empty() {
@@ -567,6 +605,7 @@ pub fn extract_jsonb_path(field: &str) -> String {
 }
 
 /// Check if a column in the table config is a JSON or JSONB type.
+#[must_use]
 pub fn is_jsonb_column(column_name: &str, columns: &[ColumnConfig]) -> bool {
     columns.iter().any(|c| {
         c.name == column_name
@@ -580,9 +619,10 @@ pub fn is_jsonb_column(column_name: &str, columns: &[ColumnConfig]) -> bool {
 /// Validate that a string is a safe SQL expression (for JSONB computed fields).
 ///
 /// This function supports:
-/// 1. Formal JSONPath syntax (via the `jsonb` crate).
+/// 1. Formal `JSONPath` syntax (via the `jsonb` crate).
 /// 2. Standard SQL/PostgreSQL JSONB operators (e.g., `->`, `->>`, `#>`, `#>>`).
 /// 3. Bracket notation for sorting (e.g., `metadata[role]`).
+#[must_use]
 pub fn is_valid_expression(s: &str) -> bool {
     if s.is_empty() {
         return false;
@@ -655,19 +695,18 @@ pub fn is_valid_expression(s: &str) -> bool {
     // Use word boundaries to match whole words only (e.g., "OR" matches
     // but "ORANGE" does not). This blocks SQL injection attempts that
     // slip past the character whitelist.
-    let sql_keywords = regex::Regex::new(
-        r"(?i)\b(or|and|union|select|insert|update|delete|drop|alter|create|truncate|exec)\b",
-    )
-    .unwrap();
-    if sql_keywords.is_match(s) {
+    if let Some(ref sql_keywords) = *SQL_KEYWORDS_RE
+        && sql_keywords.is_match(s)
+    {
         return false;
     }
 
     // Block dangerous function call patterns: xp_ (SQL Server extended
     // procedures) and sleep (time-based injection, including pg_sleep).
     // Note: _ is a regex word character so \bsleep\b doesn't match pg_sleep.
-    let dangerous_fn = regex::Regex::new(r"(?i)(\bxp_\w+|\bsleep\s*\(|_sleep\b)").unwrap();
-    if dangerous_fn.is_match(s) {
+    if let Some(ref dangerous_fn) = *DANGEROUS_FN_RE
+        && dangerous_fn.is_match(s)
+    {
         return false;
     }
 
@@ -865,7 +904,7 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::approx_constant)]
+    #[allow(clippy::approx_constant)] // comparing against known approximate float value in test
     fn test_coerce_filter_value_float() {
         let val = coerce_filter_value("3.14");
         assert!(matches!(val, serde_json::Value::Number(_)));

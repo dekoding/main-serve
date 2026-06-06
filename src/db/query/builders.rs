@@ -192,10 +192,7 @@ pub fn build_delete(
         .is_some_and(|n| n.as_i64() == Some(i64::MIN));
 
     let (sql, params) = if is_coercion_sentinel {
-        (
-            format!("DELETE FROM {} WHERE 1 = 0", table_name),
-            Vec::new(),
-        )
+        (format!("DELETE FROM {table_name} WHERE 1 = 0"), Vec::new())
     } else {
         let sql = format!(
             "DELETE FROM {} WHERE {} = {}",
@@ -434,7 +431,7 @@ mod tests {
         // Current implementation uses PostgreSQL JSONB operators
         assert!(q.sql.contains("SELECT"));
         assert!(q.sql.contains("posts"));
-        assert!(q.sql.contains("$")); // PostgreSQL placeholders
+        assert!(q.sql.contains('$')); // PostgreSQL placeholders
         assert!(!q.params.is_empty());
     }
 
@@ -594,7 +591,7 @@ mod tests {
             q.sql
                 .contains("json_extract(metadata, '$.user.profile.email')")
         );
-        assert!(q.sql.contains("="));
+        assert!(q.sql.contains('='));
         assert!(!q.params.is_empty());
     }
 
@@ -623,7 +620,7 @@ mod tests {
         assert!(q.sql.contains("SELECT"));
         assert!(q.sql.contains("posts"));
         assert!(q.sql.contains("json_extract(metadata, '$.role')"));
-        assert!(q.sql.contains("="));
+        assert!(q.sql.contains('='));
         assert!(!q.params.is_empty());
     }
 
@@ -652,7 +649,7 @@ mod tests {
         assert!(q.sql.contains("SELECT"));
         assert!(q.sql.contains("posts"));
         assert!(q.sql.contains("json_extract(metadata, '$.user.age')"));
-        assert!(q.sql.contains(">"));
+        assert!(q.sql.contains('>'));
         assert!(!q.params.is_empty());
     }
 
@@ -1064,7 +1061,7 @@ mod tests {
         assert!(q.sql.contains("posts"));
         assert!(q.sql.contains("json_extract(metadata"));
         assert!(q.sql.contains("$.tags"));
-        assert!(q.sql.contains("="));
+        assert!(q.sql.contains('='));
     }
 
     #[test]
@@ -1155,7 +1152,7 @@ mod tests {
         let table = test_table_with_jsonb();
         let crud = test_crud_with_jsonb_filtering();
         let params = QueryParams {
-            filters: [("metadata.role[exists]".to_string(), "".to_string())]
+            filters: [("metadata.role[exists]".to_string(), String::new())]
                 .into_iter()
                 .collect(),
             ..Default::default()
@@ -1181,7 +1178,7 @@ mod tests {
         let table = test_table_with_jsonb();
         let crud = test_crud_with_jsonb_filtering();
         let params = QueryParams {
-            filters: [("metadata.status[exists]".to_string(), "".to_string())]
+            filters: [("metadata.status[exists]".to_string(), String::new())]
                 .into_iter()
                 .collect(),
             ..Default::default()
@@ -1205,7 +1202,7 @@ mod tests {
         let table = test_table();
         let crud = test_crud();
         let params = QueryParams {
-            filters: [("author[exists]".to_string(), "".to_string())]
+            filters: [("author[exists]".to_string(), String::new())]
                 .into_iter()
                 .collect(),
             ..Default::default()
@@ -1233,7 +1230,7 @@ mod tests {
         let table = test_table();
         let crud = test_crud();
         let params = QueryParams {
-            filters: [("title[exists]".to_string(), "".to_string())]
+            filters: [("title[exists]".to_string(), String::new())]
                 .into_iter()
                 .collect(),
             ..Default::default()
@@ -1256,7 +1253,7 @@ mod tests {
         let table = test_table();
         let crud = test_crud();
         let params = QueryParams {
-            filters: [("author[exists]".to_string(), "".to_string())]
+            filters: [("author[exists]".to_string(), String::new())]
                 .into_iter()
                 .collect(),
             ..Default::default()

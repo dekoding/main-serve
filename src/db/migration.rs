@@ -31,7 +31,7 @@ use crate::error::AppError;
 ///   when `allow_destructive` is enabled, `ALTER TABLE ... DROP COLUMN` statements.
 ///
 /// Tables are sorted topologically so that tables referenced by foreign keys
-/// are created first, which is required by Postgres and MySQL.
+/// are created first, which is required by Postgres and `MySQL`.
 ///
 /// # Errors
 ///
@@ -42,14 +42,14 @@ use crate::error::AppError;
 /// on both `pools` and `databases` to look up entries by string key, which invokes
 /// the default `DefaultHasher`. Using an explicit `RandomState` in the parameter
 /// types would be verbose without adding safety (the keys are strings, not secrets).
-#[allow(clippy::implicit_hasher)]
+#[allow(clippy::implicit_hasher)] // uses HashMap::get() on pools and databases
 pub async fn run_migrations(
     tables: &[TableConfig],
     pools: &HashMap<String, DatabasePool>,
     databases: &HashMap<String, DatabaseConfig>,
 ) -> Result<(), AppError> {
     // Sort tables topologically: tables referenced by foreign keys must come first.
-    let sorted = sort_tables_topologically(tables);
+    let sorted = sort_tables_topologically(tables)?;
 
     for table_config in &sorted {
         let table_name = &table_config.name;
@@ -550,8 +550,13 @@ fn fk_action_to_sql(action: &ForeignKeyAction) -> &'static str {
 /// Sort tables topologically so that referenced tables come before referencing tables.
 ///
 /// This ensures foreign key constraints are valid when CREATE TABLE is executed,
-/// which is required by Postgres and MySQL (SQLite ignores FK constraints by default).
-fn sort_tables_topologically(tables: &[TableConfig]) -> Vec<TableConfig> {
+/// which is required by Postgres and `MySQL` (`SQLite` ignores FK constraints by default).
+///
+/// # Errors
+///
+/// Returns `AppError::Internal` if the input contains inconsistent state
+/// (e.g., a foreign key references a table not in the input list).
+fn sort_tables_topologically(tables: &[TableConfig]) -> Result<Vec<TableConfig>, AppError> {
     // Build a map of table_name -> index
     let table_map: std::collections::HashMap<&str, usize> = tables
         .iter()
@@ -562,9 +567,9 @@ fn sort_tables_topologically(tables: &[TableConfig]) -> Vec<TableConfig> {
     // Build adjacency list: table_idx -> set of table indices it depends on
     let mut deps: std::collections::HashMap<usize, Vec<usize>> = std::collections::HashMap::new();
     for table in tables {
-        let idx = *table_map.get(table.name.as_str()).unwrap_or_else(|| {
-            panic!("Table '{}' not found in table_map", table.name);
-        });
+        let idx = *table_map.get(table.name.as_str()).ok_or_else(|| {
+            AppError::Internal(format!("Table '{}' not found in table_map", table.name))
+        })?;
         deps.entry(idx).or_default();
         for fk in &table.foreign_keys {
             if let Some(dep_idx) = table_map.get(fk.references_table.as_str()) {
@@ -582,7 +587,10 @@ fn sort_tables_topologically(tables: &[TableConfig]) -> Vec<TableConfig> {
         in_degree.entry(*idx).or_insert(0);
         for &dep in table_deps {
             reverse.entry(dep).or_default();
-            reverse.get_mut(&dep).unwrap().push(*idx);
+            let reverse_entry = reverse.get_mut(&dep).ok_or_else(|| {
+                AppError::Internal("Missing reverse mapping during topological sort".to_string())
+            })?;
+            reverse_entry.push(*idx);
             *in_degree.entry(*idx).or_insert(0) += 1;
         }
     }
@@ -592,7 +600,7 @@ fn sort_tables_topologically(tables: &[TableConfig]) -> Vec<TableConfig> {
         .filter(|&(_, &deg)| deg == 0)
         .map(|(&idx, _)| idx)
         .collect();
-    queue.sort();
+    queue.sort_unstable();
 
     let mut result = Vec::new();
     while let Some(idx) = queue.first().copied() {
@@ -600,10 +608,13 @@ fn sort_tables_topologically(tables: &[TableConfig]) -> Vec<TableConfig> {
         result.push(idx);
         if let Some(dependents) = reverse.get(&idx) {
             for &dependent in dependents {
-                *in_degree.get_mut(&dependent).unwrap() -= 1;
-                if *in_degree.get(&dependent).unwrap() == 0 {
+                let degree = in_degree.get_mut(&dependent).ok_or_else(|| {
+                    AppError::Internal("Missing in_degree during topological sort".to_string())
+                })?;
+                *degree -= 1;
+                if *degree == 0 {
                     queue.push(dependent);
-                    queue.sort();
+                    queue.sort_unstable();
                 }
             }
         }
@@ -611,11 +622,11 @@ fn sort_tables_topologically(tables: &[TableConfig]) -> Vec<TableConfig> {
 
     // If there's a cycle, return the original order
     if result.len() != tables.len() {
-        return tables.to_vec();
+        return Ok(tables.to_vec());
     }
 
     // Build result in sorted order
-    result.iter().map(|&idx| tables[idx].clone()).collect()
+    Ok(result.iter().map(|&idx| tables[idx].clone()).collect())
 }
 
 #[cfg(test)]

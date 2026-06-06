@@ -4,6 +4,7 @@
 /// single-get queries share the same logic for fields, joins, computed
 /// fields, and WHERE conditions.
 use std::collections::HashMap;
+use std::fmt::Write;
 
 use crate::config::types::{ColumnType, CrudConfig, DatabaseDriver, SortOrder, TableConfig};
 use crate::db::query::helpers::{
@@ -28,6 +29,10 @@ impl SelectBuilder {
     }
 }
 
+/// Accumulator for building SELECT query clauses.
+///
+/// Collects fields, joins, computed fields, WHERE conditions, ordering,
+/// and pagination parameters before emitting a `BuiltQuery`.
 pub struct SelectBuilder {
     table: String,
     select_fields: Vec<String>,
@@ -43,6 +48,7 @@ pub struct SelectBuilder {
 
 impl SelectBuilder {
     /// Start a new SELECT against `table` with the given main-table fields.
+    #[must_use]
     pub fn new(table: &str, fields: Vec<String>, driver: DatabaseDriver) -> Self {
         Self {
             table: table.to_string(),
@@ -210,8 +216,8 @@ impl SelectBuilder {
             }
 
             // Get the column type for proper value coercion
-            let column_type = self.get_column_type_for_filter(key, &table_config.columns);
-            self.apply_filter_expression(expr, value, column_type)?;
+            let column_type = Self::get_column_type_for_filter(key, &table_config.columns);
+            self.apply_filter_expression(&expr, value, column_type)?;
         }
         Ok(())
     }
@@ -222,7 +228,6 @@ impl SelectBuilder {
     /// this returns the base column's type (Jsonb or Json).
     /// For regular columns, it returns the column's declared type.
     fn get_column_type_for_filter<'a>(
-        &self,
         filter_key: &str,
         columns: &'a [crate::config::types::ColumnConfig],
     ) -> Option<&'a crate::config::types::ColumnType> {
@@ -236,7 +241,7 @@ impl SelectBuilder {
     /// Applies a single filter expression to the query.
     fn apply_filter_expression(
         &mut self,
-        expr: FilterExpression,
+        expr: &FilterExpression,
         value: &str,
         column_type: Option<&crate::config::types::ColumnType>,
     ) -> Result<(), AppError> {
@@ -244,10 +249,10 @@ impl SelectBuilder {
         self.apply_filter_common(expr, value, column_type, &*behavior)
     }
 
-    /// Unified filter logic using the FilterBehavior trait.
+    /// Unified filter logic using the `FilterBehavior` trait.
     fn apply_filter_common(
         &mut self,
-        expr: FilterExpression,
+        expr: &FilterExpression,
         value: &str,
         column_type: Option<&crate::config::types::ColumnType>,
         behavior: &dyn FilterBehavior,
@@ -480,44 +485,38 @@ impl SelectBuilder {
             if behavior.uses_jsonb_ops() {
                 // PostgreSQL @> operator for JSONB containment
                 if nested_path.is_empty() {
-                    Ok(format!("{} @> '{}'::jsonb", column_name, json_str))
+                    Ok(format!("{column_name} @> '{json_str}'::jsonb"))
                 } else {
                     let pg_path_expr = if nested_path.contains('.') {
                         let path_parts: Vec<&str> = nested_path.split('.').collect();
                         format!("({} #> '{{{}}}')", column_name, path_parts.join(","))
                     } else {
-                        format!("({}->'{}')", column_name, nested_path)
+                        format!("({column_name}->'{nested_path}')")
                     };
-                    Ok(format!("{} @> '{}'::jsonb", pg_path_expr, json_str))
+                    Ok(format!("{pg_path_expr} @> '{json_str}'::jsonb"))
                 }
             } else if self.driver == DatabaseDriver::Mysql {
                 // MySQL uses JSON_CONTAINS for containment checks
                 // JSON_QUOTE wraps the parameter in valid JSON quotes
                 if nested_path.is_empty() {
-                    Ok(format!(
-                        "JSON_CONTAINS({}, JSON_QUOTE({}))",
-                        column_name, param
-                    ))
+                    Ok(format!("JSON_CONTAINS({column_name}, JSON_QUOTE({param}))"))
                 } else {
-                    let nested_json_path = format!("$.{}", nested_path);
+                    let nested_json_path = format!("$.{nested_path}");
                     Ok(format!(
-                        "JSON_CONTAINS(JSON_EXTRACT({}, '{}'), JSON_QUOTE({}))",
-                        column_name, nested_json_path, param
+                        "JSON_CONTAINS(JSON_EXTRACT({column_name}, '{nested_json_path}'), JSON_QUOTE({param}))"
                     ))
                 }
             } else {
                 // SQLite: for nested JSONB paths (scalar fields) use json_extract equality
                 // for array fields (no nested path) use json_each traversal
-                if !nested_path.is_empty() {
-                    let nested_json_path = format!("$.{}", nested_path);
+                if nested_path.is_empty() {
                     Ok(format!(
-                        "json_extract({}, '{}') = {}",
-                        column_name, nested_json_path, param
+                        "EXISTS (SELECT 1 FROM json_each({column_name}, '$') WHERE value = {param})"
                     ))
                 } else {
+                    let nested_json_path = format!("$.{nested_path}");
                     Ok(format!(
-                        "EXISTS (SELECT 1 FROM json_each({}, '$') WHERE value = {})",
-                        column_name, param
+                        "json_extract({column_name}, '{nested_json_path}') = {param}"
                     ))
                 }
             }
@@ -625,9 +624,9 @@ impl SelectBuilder {
 
     /// Add a single PK equality condition.
     ///
-    /// If the pk_value is the sentinel `i64::MIN` (indicating coercion failed
+    /// If the `pk_value` is the sentinel `i64::MIN` (indicating coercion failed
     /// for an integer PK), uses `1 = 0` to ensure no rows match, avoiding
-    /// type mismatch errors on PostgreSQL when binding a non-numeric string
+    /// type mismatch errors on `PostgreSQL` when binding a non-numeric string
     /// to an integer column.
     pub fn apply_pk_condition(&mut self, pk_col: &str, pk_value: serde_json::Value) {
         let is_coercion_sentinel = pk_value
@@ -706,13 +705,13 @@ impl SelectBuilder {
                         let pg_path = path_str.strip_prefix("$.").unwrap_or(&path_str);
                         let array_syntax: String =
                             pg_path.split('.').collect::<Vec<&str>>().join(",");
-                        format!("({} #>> '{{{}}}')", base_col, array_syntax)
+                        format!("({base_col} #>> '{{{array_syntax}}}')")
                     }
                     DatabaseDriver::Mysql => {
-                        format!("JSON_EXTRACT({}, '{}')", base_col, path_str)
+                        format!("JSON_EXTRACT({base_col}, '{path_str}')")
                     }
                     DatabaseDriver::Sqlite => {
-                        format!("json_extract({}, '{}')", base_col, path_str)
+                        format!("json_extract({base_col}, '{path_str}')")
                     }
                 };
                 format!("{jsonb_expr} {order_str}")
@@ -767,6 +766,7 @@ impl SelectBuilder {
     }
 
     /// Render the final SQL string and return params.
+    #[must_use]
     pub fn build(self) -> BuiltQuery {
         let mut select = self.select_fields;
         for c in &self.computed {
@@ -776,23 +776,23 @@ impl SelectBuilder {
         let mut sql = format!("SELECT {} FROM {}", select.join(", "), self.table);
 
         for j in &self.joins {
-            sql.push_str(&format!(" {j}"));
+            write!(sql, " {j}").unwrap();
         }
 
         if !self.conditions.is_empty() {
-            sql.push_str(&format!(" WHERE {}", self.conditions.join(" AND ")));
+            write!(sql, " WHERE {}", self.conditions.join(" AND ")).unwrap();
         }
 
         if let Some(ref ob) = self.order_by {
-            sql.push_str(&format!(" ORDER BY {ob}"));
+            write!(sql, " ORDER BY {ob}").unwrap();
         }
 
         if let Some((ref limit, ref offset)) = self.limit_offset {
             if offset == "0" && !limit.starts_with('$') && !limit.starts_with('?') {
                 // Literal LIMIT (e.g. "LIMIT 1") - skip OFFSET.
-                sql.push_str(&format!(" LIMIT {limit}"));
+                write!(sql, " LIMIT {limit}").unwrap();
             } else {
-                sql.push_str(&format!(" LIMIT {limit} OFFSET {offset}"));
+                write!(sql, " LIMIT {limit} OFFSET {offset}").unwrap();
             }
         }
 

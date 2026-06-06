@@ -27,7 +27,7 @@ pub trait FilterBehavior {
     /// Get the ILIKE operator (case-insensitive LIKE).
     fn ilike_op(&self) -> &'static str;
 
-    /// Check if driver uses JSONB-specific operators (PostgreSQL).
+    /// Check if driver uses JSONB-specific operators (`PostgreSQL`).
     fn uses_jsonb_ops(&self) -> bool;
 
     /// Build a LIKE pattern with wildcards using SQL concatenation.
@@ -95,7 +95,7 @@ impl FilterBehavior for MysqlFilter {
     fn json_extract_path(&self, column: &str, path: &str) -> String {
         // JSON_EXTRACT returns JSON-encoded values (e.g., quoted strings).
         // JSON_UNQUOTE strips the quotes so comparisons work correctly.
-        format!("JSON_UNQUOTE(JSON_EXTRACT({}, '$.{}'))", column, path)
+        format!("JSON_UNQUOTE(JSON_EXTRACT({column}, '$.{path}'))")
     }
 
     fn eq_op(&self) -> &'static str {
@@ -141,7 +141,7 @@ pub struct SqliteFilter;
 
 impl FilterBehavior for SqliteFilter {
     fn json_extract_path(&self, column: &str, path: &str) -> String {
-        format!("json_extract({}, '$.{}')", column, path)
+        format!("json_extract({column}, '$.{path}')")
     }
 
     fn eq_op(&self) -> &'static str {
