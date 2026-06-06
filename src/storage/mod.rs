@@ -1,13 +1,16 @@
 /// Storage abstraction for file operations.
 ///
 /// Provides a unified, async interface for all file I/O operations,
-/// supporting multiple backends (native filesystem, in-memory for testing, etc.)
+/// supporting multiple backends (native filesystem, in-memory for testing,
+/// S3, Azure Blob Storage, Google Cloud Storage).
 pub mod backend;
 pub mod error;
 pub mod metadata;
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
+use crate::config::types::StoreConfig;
 pub use error::StorageError;
 pub use metadata::{DirEntry, FileMetadata};
 
@@ -32,8 +35,8 @@ pub trait Storage: Send + Sync {
     /// Read the entire contents of a file into bytes.
     async fn read(&self, path: &Path) -> Result<Vec<u8>>;
 
-    /// Read a file as a streaming reader.
-    async fn open(&self, path: &Path) -> Result<tokio::fs::File>;
+    /// Open a file and return a streaming reader.
+    async fn open(&self, path: &Path) -> Result<Box<dyn tokio::io::AsyncRead + Send + Unpin>>;
 
     /// Write bytes to a file, creating it if it doesn't exist.
     async fn write(&self, path: &Path, contents: &[u8]) -> Result<()>;
@@ -73,52 +76,162 @@ pub trait Storage: Send + Sync {
 
     /// Get the size of a file in bytes.
     async fn size(&self, path: &Path) -> Result<u64>;
+
+    /// Return the root path for this storage backend.
+    ///
+    /// For native filesystem stores, returns `Some(root_path)` pointing
+    /// to the directory that serves as the store root. For cloud stores
+    /// (S3, Azure, GCS), returns `None` since the root is conceptual
+    /// (the bucket/container itself).
+    fn root_path(&self) -> Option<PathBuf> {
+        None
+    }
 }
 
-/// Get a storage backend instance based on the backend type.
+/// Create a storage backend instance from a store configuration.
 ///
-/// Currently supports:
-/// - `native`: Real filesystem (default)
-/// - `memory`: In-memory backend for testing
-pub fn get_backend(backend_type: &str) -> Result<Box<dyn Storage>> {
-    match backend_type {
-        "native" | "" => Ok(Box::new(backend::native::NativeStorage::new())),
-        "memory" => Ok(Box::new(backend::memory::MemoryStorage::new())),
-        other => Err(StorageError::InvalidBackend(other.to_string())),
+/// Supports:
+/// - `native`: Real filesystem (requires `root` path in config)
+/// - `memory`: In-memory backend for testing (no additional config needed)
+/// - `s3`: AWS S3
+/// - `azure`: Azure Blob Storage
+/// - `gcs`: Google Cloud Storage
+pub async fn create_store(config: &StoreConfig) -> Result<Arc<dyn Storage>> {
+    match config.backend {
+        crate::config::types::StoreBackend::Memory => {
+            Ok(Arc::new(backend::memory::MemoryStorage::new()) as Arc<dyn Storage>)
+        }
+        crate::config::types::StoreBackend::Native => {
+            let root = config
+                .root
+                .as_ref()
+                .ok_or_else(|| {
+                    StorageError::InvalidBackend("native backend requires 'root' field".to_string())
+                })?
+                .clone();
+            let path = PathBuf::from(root);
+            Ok(Arc::new(backend::native::NativeStorage::new(path)))
+        }
+        crate::config::types::StoreBackend::S3 => {
+            #[cfg(feature = "s3")]
+            {
+                let storage = backend::s3::S3Storage::new(config).await?;
+                Ok(Arc::new(storage) as Arc<dyn Storage>)
+            }
+            #[cfg(not(feature = "s3"))]
+            {
+                Err(StorageError::Internal(
+                    "S3 support is not compiled in - enable the 's3' feature flag".to_string(),
+                ))
+            }
+        }
+        crate::config::types::StoreBackend::Azure => {
+            #[cfg(feature = "azure")]
+            {
+                let storage = backend::azure::AzureStorage::new(config)?;
+                Ok(Arc::new(storage) as Arc<dyn Storage>)
+            }
+            #[cfg(not(feature = "azure"))]
+            {
+                Err(StorageError::Internal(
+                    "Azure support is not compiled in - enable the 'azure' feature flag"
+                        .to_string(),
+                ))
+            }
+        }
+        crate::config::types::StoreBackend::Gcs => {
+            #[cfg(feature = "gcs")]
+            {
+                let storage = backend::gcs::GcsStorage::new(config)?;
+                Ok(Arc::new(storage) as Arc<dyn Storage>)
+            }
+            #[cfg(not(feature = "gcs"))]
+            {
+                Err(StorageError::Internal(
+                    "GCS support is not compiled in - enable the 'gcs' feature flag".to_string(),
+                ))
+            }
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::types::{StoreBackend, StoreConfig};
+
+    fn block_on_future<F: std::future::Future>(f: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("Failed to build tokio runtime")
+            .block_on(f)
+    }
 
     #[test]
-    fn test_get_backend_native() {
-        let result = get_backend("native");
+    fn test_create_store_native() {
+        let config = StoreConfig {
+            backend: StoreBackend::Native,
+            root: Some("/tmp/test_store".to_string()),
+            ..Default::default()
+        };
+        let result = block_on_future(create_store(&config));
         assert!(result.is_ok());
     }
 
     #[test]
-    fn test_get_backend_default_empty_string() {
-        let result = get_backend("");
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_get_backend_memory() {
-        let result = get_backend("memory");
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_get_backend_invalid() {
-        let result = get_backend("invalid_backend");
-        assert!(matches!(result, Err(StorageError::InvalidBackend(_))));
-    }
-
-    #[test]
-    fn test_get_backend_unknown() {
-        let result = get_backend("s3");
+    fn test_create_store_native_missing_root() {
+        let config = StoreConfig {
+            backend: StoreBackend::Native,
+            root: None,
+            ..Default::default()
+        };
+        let result = block_on_future(create_store(&config));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_create_store_memory() {
+        let config = StoreConfig {
+            backend: StoreBackend::Memory,
+            ..Default::default()
+        };
+        let result = block_on_future(create_store(&config));
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    #[cfg(not(feature = "s3"))]
+    fn test_create_store_s3_disabled() {
+        let config = StoreConfig {
+            backend: StoreBackend::S3,
+            s3: Some(Default::default()),
+            ..Default::default()
+        };
+        let result = block_on_future(create_store(&config));
+        assert!(matches!(result, Err(StorageError::Internal(_))));
+    }
+
+    #[test]
+    #[cfg(not(feature = "azure"))]
+    fn test_create_store_azure_disabled() {
+        let config = StoreConfig {
+            backend: StoreBackend::Azure,
+            azure: Some(Default::default()),
+            ..Default::default()
+        };
+        let result = block_on_future(create_store(&config));
+        assert!(matches!(result, Err(StorageError::Internal(_))));
+    }
+
+    #[test]
+    #[cfg(not(feature = "gcs"))]
+    fn test_create_store_gcs_disabled() {
+        let config = StoreConfig {
+            backend: StoreBackend::Gcs,
+            gcs: Some(Default::default()),
+            ..Default::default()
+        };
+        let result = block_on_future(create_store(&config));
+        assert!(matches!(result, Err(StorageError::Internal(_))));
     }
 }
