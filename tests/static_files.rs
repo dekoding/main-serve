@@ -1882,12 +1882,7 @@ endpoints:
 
     let response1: axum::http::Response<Body> = app.clone().oneshot(req1).await.unwrap();
     let status1 = response1.status();
-    eprintln!("First upload response status: {status1:?}");
     let body_bytes = response1.into_body().collect().await.unwrap().to_bytes();
-    eprintln!(
-        "First upload response body: {}",
-        String::from_utf8_lossy(&body_bytes)
-    );
     assert_eq!(status1, StatusCode::CREATED);
 
     let response1_json: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
@@ -2015,17 +2010,6 @@ endpoints:
 
     let delete_response: axum::http::Response<Body> = app.oneshot(delete_req).await.unwrap();
     let status = delete_response.status();
-    let body_bytes = delete_response
-        .into_body()
-        .collect()
-        .await
-        .unwrap()
-        .to_bytes();
-    eprintln!("Delete response status: {status:?}");
-    eprintln!(
-        "Delete response body: {}",
-        String::from_utf8_lossy(&body_bytes)
-    );
 
     assert_eq!(
         status,
