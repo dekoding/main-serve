@@ -5,7 +5,7 @@
 # cloned the Main Serve repository, there is a local copy of the schema that
 # you can use by removing one # from the line below:
 #
-## yaml-language-server: $schema=../main-serve.schema.json
+# yaml-language-server: $schema=../main-serve.schema.json
 #
 # If you prefer to use the schema from the online repository, you can remove
 # one # from this line instead:
@@ -50,6 +50,23 @@ cors:
   max_age: 3600
 
 # =============================================================================
+# Storage backends
+# =============================================================================
+stores:
+  uploads:
+    backend: "native"
+    root: "./uploads"
+  user_uploads:
+    backend: "native"
+    root: "./user-uploads"
+  team_files:
+    backend: "native"
+    root: "./team-files"
+  cdn_assets:
+    backend: "native"
+    root: "./cdn-assets"
+
+# =============================================================================
 # Endpoints
 # =============================================================================
 endpoints:
@@ -58,20 +75,19 @@ endpoints:
       - "get"
       - "post"
       - "delete"
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "./uploads"
+      storage: "uploads"
       upload:
         enabled: true
         max_size: 10485760  # 10 MiB
         allowed_extensions:
-          - "jpg"
-          - "jpeg"
-          - "png"
-          - "gif"
-          - "pdf"
+          - ".jpg"
+          - ".jpeg"
+          - ".png"
+          - ".gif"
+          - ".pdf"
         create_subdirectory: "{user_id}/{year}/{month}"
-        required_role: "admin"
       streaming:
         enabled: true
         buffer_size: 65536
@@ -87,23 +103,18 @@ endpoints:
       - "get"
       - "post"
       - "delete"
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "./user-uploads"
+      storage: "user_uploads"
       upload:
         enabled: true
         max_size: 5242880  # 5 MiB
         allowed_extensions:
-          - "jpg"
-          - "jpeg"
-          - "png"
-          - "gif"
+          - ".jpg"
+          - ".jpeg"
+          - ".png"
+          - ".gif"
         create_subdirectory: "{user_id}"
-      user_scope:
-        enabled: true
-        required_role: null
-        directory_pattern: "{user_id}"
-        expose_root: false
     auth: "jwt"
 
   # Team Files with Image Scaling
@@ -111,19 +122,13 @@ endpoints:
     methods:
       - "get"
       - "post"
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "./team-files"
+      storage: "team_files"
       upload:
         enabled: true
         max_size: 20971520  # 20 MiB
         create_subdirectory: "{user_id}/{team_id}"
-        required_role: "editor"
-      user_scope:
-        enabled: true
-        required_role: "viewer"
-        directory_pattern: "{team_id}/{user_id}"
-        expose_root: true
       image_resize:
         enabled: true
         max_dimension: 4096
@@ -145,9 +150,9 @@ endpoints:
   - path: "/assets/*"
     methods:
       - "get"
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "./cdn-assets"
+      storage: "cdn_assets"
       streaming:
         enabled: true
         buffer_size: 131072  # 128 KiB

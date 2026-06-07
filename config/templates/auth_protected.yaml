@@ -5,7 +5,7 @@
 # cloned the Main Serve repository, there is a local copy of the schema that
 # you can use by removing one # from the line below:
 #
-## yaml-language-server: $schema=../main-serve.schema.json
+# yaml-language-server: $schema=../main-serve.schema.json
 #
 # If you prefer to use the schema from the online repository, you can remove
 # one # from this line instead:
@@ -42,11 +42,7 @@
 # The CRUD endpoints are backed by a real database with auto-migration, so
 # this config is a working starting point for a content-management API.
 #
-# Placeholders (swap for real values in production):
-#   __DB_DRIVER__       -> sqlite | postgres | mysql
-#   __DB_URL__          -> connection string, e.g. sqlite://data.db
-#   __TABLE_NAME__      -> table name (unique per test run)
-#   __BASIC_AUTH_HASH__ -> argon2id hash of the admin password
+# Use $ prefix to interpolate environment variables.
 
 server:
   host: "127.0.0.1"
@@ -103,7 +99,7 @@ auth:
     realm: "My Service Admin"
     users:
       - username: "admin"
-        password_hash: "__BASIC_AUTH_HASH__"
+        password_hash: "$2b$12$dummyhashchangeme"
         role: "admin"
 
 # =============================================================================
@@ -111,14 +107,14 @@ auth:
 # =============================================================================
 databases:
   main:
-    driver: "__DB_DRIVER__"
-    url: "__DB_URL__"
+    driver: "sqlite"
+    url: "sqlite://data.db"
     auto_migrate: true             # create / alter tables on startup
     max_connections: 5
     min_connections: 1
 
 tables:
-  - name: "__TABLE_NAME__"
+  - name: "articles"
     database: "main"
     columns:
       - name: "id"
@@ -161,7 +157,7 @@ endpoints:
     action: "crud"
     crud:
       database: "main"
-      table: "__TABLE_NAME__"
+      table: "articles"
       fields: ["id", "title", "content", "status", "created_at"]
       writable_fields: ["title", "content", "status"]
       pagination:
@@ -178,12 +174,12 @@ endpoints:
     auth: "jwt"
 
   # Single-article operations - admin role only.
-  - path: "/api/articles/{id}"
+  - path: "/api/articles/:id"
     methods: ["get", "put", "delete"]
     action: "crud"
     crud:
       database: "main"
-      table: "__TABLE_NAME__"
+      table: "articles"
       fields: ["id", "title", "content", "status", "created_at"]
       writable_fields: ["title", "content", "status"]
     auth: "jwt"

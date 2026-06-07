@@ -5,7 +5,7 @@
 # cloned the Main Serve repository, there is a local copy of the schema that
 # you can use by removing one # from the line below:
 #
-## yaml-language-server: $schema=../main-serve.schema.json
+# yaml-language-server: $schema=../main-serve.schema.json
 #
 # If you prefer to use the schema from the online repository, you can remove
 # one # from this line instead:
@@ -41,12 +41,7 @@
 #   Service        /api/service/ping  API key for machine-to-machine calls
 #   Admin          /admin/status      HTTP Basic, realm "Admin Panel"
 #
-# Placeholders (swap for real values in production):
-#   {ROOT}              -> path to your web root (e.g. ./dist)
-#   __DB_DRIVER__       -> sqlite | postgres | mysql
-#   __DB_URL__          -> connection string
-#   __TABLE_NAME__      -> table name
-#   __BASIC_AUTH_HASH__ -> argon2id hash of admin password
+# Use $ prefix to interpolate environment variables (e.g. $ROOT).
 
 server:
   host: "127.0.0.1"
@@ -95,7 +90,7 @@ auth:
     realm: "Admin Panel"
     users:
       - username: "admin"
-        password_hash: "__BASIC_AUTH_HASH__"
+        password_hash: "$2b$12$dummyhashchangeme"
         role: "admin"
 
 # =============================================================================
@@ -103,16 +98,24 @@ auth:
 # =============================================================================
 databases:
   main:
-    driver: "__DB_DRIVER__"
-    url: "__DB_URL__"
+    driver: "sqlite"
+    url: "sqlite://data.db"
     auto_migrate: true
     max_connections: 10
+
+# =============================================================================
+# Storage backends
+# =============================================================================
+stores:
+  web_assets:
+    backend: "native"
+    root: "./dist"
 
 # ---------------------------------------------------------------------------
 # Table Schemas
 # ---------------------------------------------------------------------------
 tables:
-  - name: "__TABLE_NAME__"
+  - name: "users"
     database: "main"
     columns:
       - name: "id"
@@ -145,26 +148,24 @@ endpoints:
 
   # Public / frontend
 
-  ## SPA frontend - client-side routing via spa_fallback.
+  ## SPA frontend - client-side routing via spa_host.
   - path: "/app/*"
     methods: ["get"]
-    action: "static"
-    static_files:
-      root: "{ROOT}" # Add $ to beginning to use as interpolated variable
+    action: "spa_host"
+    spa_host:
+      storage: "web_assets"
       index: "index.html"
-      spa_fallback: true
       cache_max_age: 0
     auth: "none"
 
   ## Hashed static assets - cache aggressively.
   - path: "/assets/*"
     methods: ["get"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{ROOT}" # Add $ to beginning to use as interpolated variable
+      storage: "web_assets"
       index: "index.html"
       cache_max_age: 604800        # 1 week
-      spa_fallback: false
     auth: "none"
 
   ## Health probe for load balancers.
@@ -186,7 +187,7 @@ endpoints:
     action: "crud"
     crud:
       database: "main"
-      table: "__TABLE_NAME__"
+      table: "users"
       fields: ["id", "name", "email", "role", "active", "created_at"]
       writable_fields: ["name", "email", "role", "active"]
       pagination:
@@ -204,12 +205,12 @@ endpoints:
     auth: "jwt"
 
   ## Single-user operations - admin only.
-  - path: "/api/users/{id}"
+  - path: "/api/users/:id"
     methods: ["get", "put", "delete"]
     action: "crud"
     crud:
       database: "main"
-      table: "__TABLE_NAME__"
+      table: "users"
       fields: ["id", "name", "email", "role", "active", "created_at"]
       writable_fields: ["name", "email", "role", "active"]
     auth: "jwt"
