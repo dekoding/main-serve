@@ -7,9 +7,7 @@ use axum::response::{IntoResponse, Response};
 use crate::config::types::EndpointConfig;
 
 /// Handle a `custom_response` endpoint - returns the fixed response defined in config.
-pub async fn handle_custom_response(
-    endpoint: EndpointConfig,
-) -> Response {
+pub async fn handle_custom_response(endpoint: EndpointConfig) -> Response {
     let Some(cr) = &endpoint.custom_response else {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,

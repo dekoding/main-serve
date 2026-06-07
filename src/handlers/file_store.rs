@@ -96,8 +96,7 @@ pub async fn handle_file_store(
             } else {
                 match extract_file_id(&path) {
                     Some(id) => {
-                        handle_file_store_get(&pool, config, &table_config, driver, &id)
-                            .await
+                        handle_file_store_get(&pool, config, &table_config, driver, &id).await
                     }
                     None => Err(AppError::BadRequest("File ID required".to_string())),
                 }

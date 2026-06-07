@@ -900,14 +900,7 @@ async fn handle_media_trash(
         axum::http::Method::DELETE
             if path == "/_main-serve/media/trash" || path == "/_main-serve/media/trash/" =>
         {
-            handle_media_trash_empty(
-                config,
-                pool,
-                table_config,
-                driver,
-                
-            )
-            .await
+            handle_media_trash_empty(config, pool, table_config, driver).await
         }
         axum::http::Method::POST => {
             if let Some(id) = path
@@ -1069,7 +1062,6 @@ async fn handle_media_trash_empty(
     pool: &crate::db::pool::DatabasePool,
     table_config: &crate::config::types::TableConfig,
     driver: DatabaseDriver,
-    
 ) -> Result<Response, AppError> {
     let sql = format!(
         "SELECT id FROM {} WHERE trashed_at IS NOT NULL",
