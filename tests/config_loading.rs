@@ -196,10 +196,10 @@ databases:
 fn test_env_var_with_default() {
     // SAFETY: test-only, single-threaded test runner
     unsafe { std::env::remove_var("TEST_NONEXIST_PORT") };
-    let yaml = r#"
+    let yaml = r"
 server:
   port: ${TEST_NONEXIST_PORT:-9090}
-"#;
+";
     let config = load_yaml(yaml).unwrap();
     assert_eq!(config.server.port, 9090);
 }
@@ -378,11 +378,11 @@ logging:
 
 #[test]
 fn test_server_workers_parses() {
-    let yaml = r#"
+    let yaml = r"
 server:
   workers: 4
   keep_alive: 120
-"#;
+";
     let config = load_yaml(yaml).unwrap();
     assert_eq!(config.server.workers, 4);
     assert_eq!(config.server.keep_alive, 120);
@@ -706,4 +706,764 @@ endpoints:
     let config = main_serve::config::load_config(&dir.path().join("config.yaml")).unwrap();
     assert_eq!(config.endpoints.len(), 1);
     assert_eq!(config.endpoints[0].path, "/ping");
+}
+
+// =========================================================================
+// Store validation tests
+// =========================================================================
+
+#[test]
+fn test_store_native_with_root_parses() {
+    let yaml = r#"
+stores:
+  assets:
+    backend: native
+    root: "./public"
+"#;
+    let config = load_yaml(yaml).unwrap();
+    let store = config.stores.get("assets").unwrap();
+    assert_eq!(
+        store.backend,
+        main_serve::config::types::StoreBackend::Native
+    );
+    assert_eq!(store.root.as_deref(), Some("./public"));
+}
+
+#[test]
+fn test_store_s3_parses() {
+    let yaml = r#"
+stores:
+  s3_assets:
+    backend: s3
+    s3:
+      region: "us-east-1"
+      bucket: "my-bucket"
+      access_key: "AKIAIOSFODNN7EXAMPLE"
+      secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+      endpoint: "https://minio.example.com"
+      force_path_style: true
+"#;
+    let config = load_yaml(yaml).unwrap();
+    let store = config.stores.get("s3_assets").unwrap();
+    assert_eq!(store.backend, main_serve::config::types::StoreBackend::S3);
+    let s3 = store.s3.as_ref().unwrap();
+    assert_eq!(s3.region, "us-east-1");
+    assert_eq!(s3.bucket, "my-bucket");
+}
+
+#[test]
+fn test_store_azure_parses() {
+    let yaml = r#"
+stores:
+  azure_assets:
+    backend: azure
+    azure:
+      account_name: "myaccount"
+      account_key: "mykey123"
+      container: "assets"
+"#;
+    let config = load_yaml(yaml).unwrap();
+    let store = config.stores.get("azure_assets").unwrap();
+    assert_eq!(
+        store.backend,
+        main_serve::config::types::StoreBackend::Azure
+    );
+    let azure = store.azure.as_ref().unwrap();
+    assert_eq!(azure.account_name, "myaccount");
+    assert_eq!(azure.container, "assets");
+}
+
+#[test]
+fn test_store_gcs_parses() {
+    let yaml = r#"
+stores:
+  gcs_assets:
+    backend: gcs
+    gcs:
+      project_id: "my-project"
+      credentials: '{"type":"service_account"}'
+      bucket: "my-gcs-bucket"
+"#;
+    let config = load_yaml(yaml).unwrap();
+    let store = config.stores.get("gcs_assets").unwrap();
+    assert_eq!(store.backend, main_serve::config::types::StoreBackend::Gcs);
+    let gcs = store.gcs.as_ref().unwrap();
+    assert_eq!(gcs.project_id, "my-project");
+    assert_eq!(gcs.bucket, "my-gcs-bucket");
+}
+
+#[test]
+fn test_validation_native_store_missing_root() {
+    let yaml = r"
+stores:
+  empty_native:
+    backend: native
+";
+    let result = load_yaml(yaml);
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("root directory"),
+        "Error should mention missing root for native: {err}"
+    );
+}
+
+#[test]
+fn test_validation_s3_store_missing_config() {
+    let yaml = r"
+stores:
+  broken_s3:
+    backend: s3
+";
+    let result = load_yaml(yaml);
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("s3 config section"),
+        "Error should mention missing s3 config: {err}"
+    );
+}
+
+#[test]
+fn test_validation_s3_store_missing_region() {
+    let yaml = r#"
+stores:
+  broken_s3:
+    backend: s3
+    s3:
+      bucket: "my-bucket"
+      access_key: "key"
+      secret_key: "secret"
+"#;
+    let result = load_yaml(yaml);
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("s3.region"),
+        "Error should mention missing region: {err}"
+    );
+}
+
+#[test]
+fn test_validation_azure_store_missing_fields() {
+    let yaml = r#"
+stores:
+  broken_azure:
+    backend: azure
+    azure:
+      account_name: "myaccount"
+"#;
+    let result = load_yaml(yaml);
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("azure.container"),
+        "Error should mention missing container: {err}"
+    );
+}
+
+#[test]
+fn test_validation_gcs_store_missing_fields() {
+    let yaml = r#"
+stores:
+  broken_gcs:
+    backend: gcs
+    gcs:
+      project_id: "my-project"
+"#;
+    let result = load_yaml(yaml);
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("gcs.bucket"),
+        "Error should mention missing bucket: {err}"
+    );
+}
+
+#[test]
+fn test_validation_store_conflicting_backend_configs() {
+    let yaml = r#"
+stores:
+  conflicting:
+    backend: native
+    root: "./data"
+    s3:
+      region: "us-east-1"
+      bucket: "bucket"
+      access_key: "key"
+      secret_key: "secret"
+"#;
+    let result = load_yaml(yaml);
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("conflicting"),
+        "Error should mention conflicting configs: {err}"
+    );
+}
+
+// =========================================================================
+// Endpoint store reference validation tests
+// =========================================================================
+
+#[test]
+fn test_validation_staticfiles_missing_store_ref() {
+    let yaml = r#"
+stores:
+  assets:
+    backend: native
+    root: "./public"
+endpoints:
+  - path: "/assets"
+    methods: ["get"]
+    action: "static_files"
+    static_files:
+      storage: "nonexistent"
+    auth: "none"
+"#;
+    let result = load_yaml(yaml);
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("nonexistent"),
+        "Error should mention missing store: {err}"
+    );
+}
+
+#[test]
+fn test_validation_staticfiles_empty_storage() {
+    let yaml = r#"
+stores:
+  assets:
+    backend: native
+    root: "./public"
+endpoints:
+  - path: "/assets"
+    methods: ["get"]
+    action: "static_files"
+    static_files:
+      storage: ""
+    auth: "none"
+"#;
+    let result = load_yaml(yaml);
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("storage must not be empty"),
+        "Error should mention empty storage: {err}"
+    );
+}
+
+#[test]
+fn test_validation_spa_host_missing_store_ref() {
+    let yaml = r#"
+endpoints:
+  - path: "/app"
+    methods: ["get"]
+    action: "spa_host"
+    spa_host:
+      storage: "nonexistent"
+    auth: "none"
+"#;
+    let result = load_yaml(yaml);
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("nonexistent"),
+        "Error should mention missing store: {err}"
+    );
+}
+
+#[test]
+fn test_validation_media_missing_refs() {
+    let yaml = r#"
+endpoints:
+  - path: "/media"
+    methods: ["get"]
+    action: "media"
+    media:
+      storage: "nonexistent"
+      table: "media_items"
+      database: "nonexistent_db"
+    auth: "none"
+"#;
+    let result = load_yaml(yaml);
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("nonexistent"),
+        "Error should mention missing references: {err}"
+    );
+}
+
+#[test]
+fn test_validation_filestore_missing_refs() {
+    let yaml = r#"
+endpoints:
+  - path: "/files"
+    methods: ["get"]
+    action: "file_store"
+    file_store:
+      storage: "nonexistent"
+      table: "file_registry"
+      database: "nonexistent_db"
+    auth: "none"
+"#;
+    let result = load_yaml(yaml);
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("nonexistent"),
+        "Error should mention missing references: {err}"
+    );
+}
+
+#[test]
+fn test_store_with_env_var_interpolation() {
+    // SAFETY: test-only, single-threaded test runner
+    unsafe { std::env::set_var("TEST_STORE_ROOT", "/var/data/assets") };
+    let yaml = r#"
+stores:
+  assets:
+    backend: native
+    root: "${TEST_STORE_ROOT}"
+"#;
+    let config = load_yaml(yaml).unwrap();
+    let store = config.stores.get("assets").unwrap();
+    assert_eq!(store.root.as_deref(), Some("/var/data/assets"));
+    // SAFETY: test-only, single-threaded test runner
+    unsafe { std::env::remove_var("TEST_STORE_ROOT") };
+}
+
+// =========================================================================
+// 5.3 Config validation edge cases
+// =========================================================================
+
+#[test]
+fn test_validation_duplicate_store_names_rejected() {
+    // Per spec: "Duplicate store names are a configuration error (fail-fast at load time)"
+    // serde_yaml rejects duplicate keys at parse time.
+    let yaml = r#"
+stores:
+  assets:
+    backend: native
+    root: "./public1"
+  assets:
+    backend: native
+    root: "./public2"
+"#;
+    // serde_yaml rejects duplicate keys
+    let result = load_yaml(yaml);
+    assert!(
+        result.is_err(),
+        "Duplicate store names should be rejected: {:?}",
+        result
+    );
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("duplicate") || err.contains("Duplicate"),
+        "Error should mention duplicate: {err}"
+    );
+}
+
+#[test]
+fn test_validation_invalid_http_method_rejected() {
+    let yaml = r#"
+databases:
+  main:
+    driver: "sqlite"
+    url: "sqlite://test.db"
+
+endpoints:
+  - path: "/api/test"
+    methods: ["get", "invalid_method"]
+    action: "crud"
+    crud:
+      table: "posts"
+      database: "main"
+    auth: "none"
+"#;
+    // Invalid methods should be rejected at deserialization time
+    let result = load_yaml(yaml);
+    assert!(
+        result.is_err(),
+        "Invalid HTTP method should be rejected: {:?}",
+        result
+    );
+}
+
+#[test]
+fn test_validation_endpoint_empty_path_rejected() {
+    let yaml = r#"
+databases:
+  main:
+    driver: "sqlite"
+    url: "sqlite://test.db"
+
+endpoints:
+  - path: ""
+    methods: ["get"]
+    action: "crud"
+    crud:
+      table: "posts"
+      database: "main"
+    auth: "none"
+"#;
+    let result = load_yaml(yaml);
+    assert!(
+        result.is_err(),
+        "Empty endpoint path should be rejected: {:?}",
+        result
+    );
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("path must not be empty") || err.contains("empty"),
+        "Error should mention empty path: {err}"
+    );
+}
+
+#[test]
+fn test_validation_endpoint_no_methods_rejected() {
+    let yaml = r#"
+databases:
+  main:
+    driver: "sqlite"
+    url: "sqlite://test.db"
+
+endpoints:
+  - path: "/api/test"
+    methods: []
+    action: "crud"
+    crud:
+      table: "posts"
+      database: "main"
+    auth: "none"
+"#;
+    let result = load_yaml(yaml);
+    assert!(
+        result.is_err(),
+        "Endpoint with no methods should be rejected: {:?}",
+        result
+    );
+}
+
+#[test]
+fn test_validation_spa_host_default_index_used() {
+    // spa_host config has a default index value ("index.html")
+    // when omitted, so it should parse successfully with the default
+    let yaml = r#"
+server:
+  port: 0
+
+stores:
+  assets:
+    backend: native
+    root: "./public"
+
+endpoints:
+  - path: "/app/*"
+    methods: ["get"]
+    action: "spa_host"
+    spa_host:
+      storage: "assets"
+    auth: "none"
+"#;
+    let config = load_yaml(yaml).unwrap();
+    let spa = config.endpoints[0].spa_host.as_ref().unwrap();
+    assert_eq!(spa.storage, "assets");
+    // Default index should be "index.html"
+    assert_eq!(spa.index, "index.html");
+}
+
+#[test]
+fn test_validation_duplicate_table_same_database() {
+    let yaml = r#"
+databases:
+  main:
+    driver: "sqlite"
+    url: "sqlite://test.db"
+
+tables:
+  - name: "users"
+    database: "main"
+    columns:
+      - name: "id"
+        type: "serial"
+        primary_key: true
+  - name: "users"
+    database: "main"
+    columns:
+      - name: "id"
+        type: "serial"
+        primary_key: true
+"#;
+    let result = load_yaml(yaml);
+    assert!(
+        result.is_err(),
+        "Duplicate table in same database should fail: {:?}",
+        result
+    );
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("Duplicate") || err.contains("duplicate"),
+        "Error should mention duplicate: {err}"
+    );
+}
+
+#[test]
+fn test_validation_table_column_duplicate_names() {
+    let yaml = r#"
+databases:
+  main:
+    driver: "sqlite"
+    url: "sqlite://test.db"
+
+tables:
+  - name: "users"
+    database: "main"
+    columns:
+      - name: "id"
+        type: "serial"
+        primary_key: true
+      - name: "id"
+        type: "text"
+"#;
+    let result = load_yaml(yaml);
+    assert!(
+        result.is_err(),
+        "Duplicate column names should fail: {:?}",
+        result
+    );
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("duplicate"),
+        "Error should mention duplicate column: {err}"
+    );
+}
+
+#[test]
+fn test_validation_custom_response_invalid_status() {
+    let yaml = r#"
+endpoints:
+  - path: "/api/test"
+    methods: ["get"]
+    action: "custom_response"
+    custom_response:
+      status: 999
+      body: "ok"
+    auth: "none"
+"#;
+    let result = load_yaml(yaml);
+    assert!(
+        result.is_err(),
+        "Invalid status code (999) should be rejected: {:?}",
+        result
+    );
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("status") && err.contains("valid"),
+        "Error should mention invalid status: {err}"
+    );
+}
+
+#[test]
+fn test_validation_custom_response_valid_status() {
+    let yaml = r#"
+endpoints:
+  - path: "/api/test"
+    methods: ["get"]
+    action: "custom_response"
+    custom_response:
+      status: 201
+      body: "created"
+    auth: "none"
+"#;
+    let config = load_yaml(yaml).unwrap();
+    assert_eq!(config.endpoints.len(), 1);
+    let cr = config.endpoints[0].custom_response.as_ref().unwrap();
+    assert_eq!(cr.status, 201);
+}
+
+#[test]
+fn test_validation_file_store_valid_refs() {
+    let yaml = r#"
+databases:
+  main:
+    driver: "sqlite"
+    url: "sqlite://test.db"
+
+tables:
+  - name: "file_registry"
+    database: "main"
+    columns:
+      - name: "id"
+        type: "serial"
+        primary_key: true
+
+stores:
+  file_store:
+    backend: native
+    root: "./files"
+
+endpoints:
+  - path: "/files/*"
+    methods: ["get"]
+    action: "file_store"
+    file_store:
+      storage: "file_store"
+      table: "file_registry"
+      database: "main"
+    auth: "none"
+"#;
+    let config = load_yaml(yaml).unwrap();
+    assert_eq!(config.endpoints.len(), 1);
+}
+
+#[test]
+fn test_validation_media_valid_refs() {
+    let yaml = r#"
+databases:
+  main:
+    driver: "sqlite"
+    url: "sqlite://test.db"
+
+tables:
+  - name: "media_items"
+    database: "main"
+    columns:
+      - name: "id"
+        type: "serial"
+        primary_key: true
+
+stores:
+  media_store:
+    backend: native
+    root: "./media"
+
+endpoints:
+  - path: "/media/*"
+    methods: ["get"]
+    action: "media"
+    media:
+      storage: "media_store"
+      table: "media_items"
+      database: "main"
+    auth: "none"
+"#;
+    let config = load_yaml(yaml).unwrap();
+    assert_eq!(config.endpoints.len(), 1);
+}
+
+#[test]
+fn test_validation_proxy_missing_upstream() {
+    let yaml = r#"
+endpoints:
+  - path: "/proxy/*"
+    methods: ["get"]
+    action: "proxy"
+    proxy:
+      upstream: ""
+    auth: "none"
+"#;
+    let result = load_yaml(yaml);
+    assert!(
+        result.is_err(),
+        "Empty upstream should be rejected: {:?}",
+        result
+    );
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("upstream"),
+        "Error should mention upstream: {err}"
+    );
+}
+
+#[test]
+fn test_validation_auth_provider_not_configured() {
+    let yaml = r#"
+endpoints:
+  - path: "/api/test"
+    methods: ["get"]
+    action: "custom_response"
+    custom_response:
+      status: 200
+      body: "ok"
+    auth: "nonexistent_provider"
+"#;
+    let result = load_yaml(yaml);
+    assert!(
+        result.is_err(),
+        "Unconfigured auth provider should be rejected: {:?}",
+        result
+    );
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("nonexistent_provider") || err.contains("nonexistent"),
+        "Error should mention the provider: {err}"
+    );
+}
+
+#[test]
+fn test_validation_crud_where_clause_sql_injection() {
+    let yaml = r#"
+databases:
+  main:
+    driver: "sqlite"
+    url: "sqlite://test.db"
+
+tables:
+  - name: "posts"
+    database: "main"
+    columns:
+      - name: "id"
+        type: "serial"
+        primary_key: true
+
+endpoints:
+  - path: "/api/posts"
+    methods: ["get"]
+    action: "crud"
+    crud:
+      table: "posts"
+      database: "main"
+      where_clause: "1 = 1; DROP TABLE posts"
+    auth: "none"
+"#;
+    let result = load_yaml(yaml);
+    assert!(
+        result.is_err(),
+        "SQL injection attempt should be rejected: {:?}",
+        result
+    );
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("unsafe SQL") || err.contains(";"),
+        "Error should mention unsafe SQL: {err}"
+    );
+}
+
+#[test]
+fn test_validation_table_no_columns_rejected() {
+    let yaml = r#"
+databases:
+  main:
+    driver: "sqlite"
+    url: "sqlite://test.db"
+
+tables:
+  - name: "empty_table"
+    database: "main"
+    columns: []
+"#;
+    let result = load_yaml(yaml);
+    assert!(
+        result.is_err(),
+        "Table with no columns should be rejected: {:?}",
+        result
+    );
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("at least one column"),
+        "Error should mention columns: {err}"
+    );
 }

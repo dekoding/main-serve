@@ -1,27 +1,19 @@
 /// Custom/static response handler for fixed JSON, HTML, or template responses.
 ///
 /// Returns a pre-configured response body, status code, content type, and headers.
-use axum::extract::State;
 use axum::http::{HeaderName, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 
 use crate::config::types::EndpointConfig;
-use crate::server::state::AppState;
 
 /// Handle a `custom_response` endpoint - returns the fixed response defined in config.
-pub async fn handle_custom_response(
-    State(_state): State<AppState>,
-    endpoint: EndpointConfig,
-) -> Response {
-    let cr = match &endpoint.custom_response {
-        Some(cr) => cr,
-        None => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "custom_response config missing",
-            )
-                .into_response();
-        }
+pub async fn handle_custom_response(endpoint: EndpointConfig) -> Response {
+    let Some(cr) = &endpoint.custom_response else {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "custom_response config missing",
+        )
+            .into_response();
     };
 
     let status = StatusCode::from_u16(cr.status).unwrap_or(StatusCode::OK);

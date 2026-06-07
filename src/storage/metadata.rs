@@ -17,7 +17,8 @@ pub struct FileMetadata {
 }
 
 impl FileMetadata {
-    /// Create a new FileMetadata instance.
+    /// Create a new `FileMetadata` instance.
+    #[must_use]
     pub fn new(name: String, is_file: bool, size: u64) -> Self {
         Self {
             name,
@@ -29,6 +30,7 @@ impl FileMetadata {
     }
 
     /// Check if this metadata represents a directory.
+    #[must_use]
     pub fn is_dir(&self) -> bool {
         !self.is_file
     }
@@ -56,7 +58,8 @@ pub struct DirEntry {
 }
 
 impl DirEntry {
-    /// Create a new DirEntry instance.
+    /// Create a new `DirEntry` instance.
+    #[must_use]
     pub fn new(name: String, is_dir: bool, size: u64) -> Self {
         Self {
             name,
@@ -71,36 +74,42 @@ impl DirEntry {
     }
 
     /// Set the full path for this entry.
+    #[must_use]
     pub fn with_path(mut self, path: PathBuf) -> Self {
         self.path = path;
         self
     }
 
     /// Set the Unix mode bits for this entry.
+    #[must_use]
     pub fn with_mode(mut self, mode: u32) -> Self {
         self.mode = mode;
         self
     }
 
     /// Set the UID for this entry.
+    #[must_use]
     pub fn with_uid(mut self, uid: u32) -> Self {
         self.uid = uid;
         self
     }
 
     /// Set the GID for this entry.
+    #[must_use]
     pub fn with_gid(mut self, gid: u32) -> Self {
         self.gid = gid;
         self
     }
 
     /// Set the last modification time for this entry.
+    #[must_use]
     pub fn with_modified(mut self, modified: Option<std::time::SystemTime>) -> Self {
         self.modified = modified;
         self
     }
 
     /// Check if this entry is a file.
+    #[must_use]
     pub fn is_file(&self) -> bool {
         !self.is_dir
     }

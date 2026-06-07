@@ -7,43 +7,45 @@
 ///   - /app/*      SPA fallback (no cache)
 ///   - /files/*    Directory listing
 ///
-/// Placeholder: {ROOT} - replaced by TestDatabase::write_config or test helpers.
+/// Placeholder: {ROOT} - replaced by `TestDatabase::write_config` or test helpers.
 pub const STATIC_FILES_CONFIG: &str = r#"
 server:
   port: 0
 
+stores:
+  local_assets:
+    backend: native
+    root: "{ROOT}"
+
 endpoints:
   - path: "/assets/*"
     methods: ["get"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{ROOT}"
+      storage: "local_assets"
       index: "index.html"
       directory_listing: false
       cache_max_age: 86400
-      spa_fallback: false
     auth: "none"
 
   - path: "/app/*"
     methods: ["get"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{ROOT}"
+      storage: "local_assets"
       index: "index.html"
       directory_listing: false
       cache_max_age: 0
-      spa_fallback: true
     auth: "none"
 
   - path: "/files/*"
     methods: ["get"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{ROOT}"
+      storage: "local_assets"
       index: "index.html"
       directory_listing: true
       cache_max_age: 0
-      spa_fallback: false
     auth: "none"
 "#;
 
@@ -52,6 +54,11 @@ endpoints:
 pub const CUSTOM_RESPONSES_CONFIG: &str = r#"
 server:
   port: 0
+
+stores:
+  local_assets:
+    backend: native
+    root: "{ROOT}"
 
 endpoints:
   - path: "/api/info"
@@ -140,10 +147,10 @@ endpoints:
 /// and HTTP Basic admin panel.
 ///
 /// Placeholders:
-///   __DB_DRIVER__  -> replaced by TestDatabase
-///   __DB_URL__     -> replaced by TestDatabase
-///   __TABLE_NAME__ -> replaced by TestDatabase
-///   __BASIC_AUTH_HASH__ -> replaced by test setup (argon2 hash)
+///   __`DB_DRIVER`__  -> replaced by `TestDatabase`
+///   __`DB_URL`__     -> replaced by `TestDatabase`
+///   __`TABLE_NAME`__ -> replaced by `TestDatabase`
+///   __`BASIC_AUTH_HASH`__ -> replaced by test setup (argon2 hash)
 pub const AUTH_PROTECTED_CONFIG: &str = r#"
 server:
   port: 0
@@ -202,6 +209,11 @@ tables:
         type: "timestamp"
         nullable: false
         default: "CURRENT_TIMESTAMP"
+
+stores:
+  local_assets:
+    backend: native
+    root: "{ROOT}"
 
 endpoints:
   - path: "/health"
@@ -281,10 +293,10 @@ endpoints:
 ///
 /// Placeholders:
 ///   {ROOT}              -> replaced by test helpers
-///   __DB_DRIVER__       -> replaced by TestDatabase
-///   __DB_URL__          -> replaced by TestDatabase
-///   __TABLE_NAME__      -> replaced by TestDatabase
-///   __BASIC_AUTH_HASH__ -> replaced by test setup (argon2 hash)
+///   __`DB_DRIVER`__       -> replaced by `TestDatabase`
+///   __`DB_URL`__          -> replaced by `TestDatabase`
+///   __`TABLE_NAME`__      -> replaced by `TestDatabase`
+///   __`BASIC_AUTH_HASH`__ -> replaced by test setup (argon2 hash)
 pub const COMBINED_CONFIG: &str = r#"
 server:
   port: 0
@@ -345,25 +357,28 @@ tables:
         nullable: false
         default: "CURRENT_TIMESTAMP"
 
+stores:
+  local_assets:
+    backend: native
+    root: "{ROOT}"
+
 endpoints:
   - path: "/app/*"
     methods: ["get"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{ROOT}"
+      storage: "local_assets"
       index: "index.html"
-      spa_fallback: true
       cache_max_age: 0
     auth: "none"
 
   - path: "/assets/*"
     methods: ["get"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{ROOT}"
+      storage: "local_assets"
       index: "index.html"
       cache_max_age: 604800
-      spa_fallback: false
     auth: "none"
 
   - path: "/health"
@@ -429,11 +444,11 @@ endpoints:
     roles: ["admin"]
 "#;
 
-/// Minimal OAuth2 config with token introspection, role-restricted endpoint,
+/// Minimal `OAuth2` config with token introspection, role-restricted endpoint,
 /// and JWT-protected dashboard.
 ///
 /// Placeholder:
-///   __IDP_URL__ -> replaced by test helpers with mock IdP URL
+///   __`IDP_URL`__ -> replaced by test helpers with mock `IdP` URL
 pub const OAUTH2_CONFIG: &str = r#"
 server:
   port: 0
@@ -460,6 +475,11 @@ auth:
     cookie_name: "app_session"
     state_ttl: 300
     max_pending_states: 100
+
+stores:
+  local_assets:
+    backend: native
+    root: "{ROOT}"
 
 endpoints:
   - path: "/welcome"
@@ -514,10 +534,15 @@ endpoints:
 ///   - /external/time -> passthrough
 ///
 /// Placeholder:
-///   __UPSTREAM_URL__ -> replaced by test helpers with mock upstream URL
+///   __`UPSTREAM_URL`__ -> replaced by test helpers with mock upstream URL
 pub const PROXY_CONFIG: &str = r#"
 server:
   port: 0
+
+stores:
+  local_assets:
+    backend: native
+    root: "{ROOT}"
 
 endpoints:
   - path: "/api/v1/*"
@@ -568,9 +593,9 @@ endpoints:
 /// and API key auth with three roles.
 ///
 /// Placeholders:
-///   __DB_DRIVER__  -> replaced by TestDatabase
-///   __DB_URL__     -> replaced by TestDatabase
-///   __TABLE_NAME__ -> replaced by TestDatabase (related tables suffixed)
+///   __`DB_DRIVER`__  -> replaced by `TestDatabase`
+///   __`DB_URL`__     -> replaced by `TestDatabase`
+///   __`TABLE_NAME`__ -> replaced by `TestDatabase` (related tables suffixed)
 pub const CRUD_API_CONFIG: &str = r#"
 server:
   port: 0
@@ -676,6 +701,11 @@ tables:
       - name: "description"
         type: "text"
         nullable: true
+
+stores:
+  local_assets:
+    backend: native
+    root: "{ROOT}"
 
 endpoints:
   - path: "/api/authors"
@@ -849,7 +879,7 @@ endpoints:
     roles: ["admin"]
 "#;
 
-/// Format the OAuth2 config with the given IdP URL.
+/// Format the `OAuth2` config with the given `IdP` URL.
 pub fn oauth2_config(idp_url: &str) -> String {
     OAUTH2_CONFIG.replace("__IDP_URL__", idp_url)
 }

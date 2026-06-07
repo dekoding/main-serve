@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::Arc;
 
 use axum::body::Body;
 use axum::extract::State;
@@ -10,11 +11,18 @@ use uuid::Uuid;
 
 use crate::config::types::StaticFilesConfig;
 use crate::error::AppError;
-use crate::handlers::static_files::routing::{check_upload_role, extract_auth_info};
+use crate::handlers::static_files::routing::extract_auth_info;
 use crate::handlers::static_files::utils::mime_from_path;
 use crate::server::state::AppState;
+use crate::storage::Storage;
 
 /// Handle file upload (POST/PUT/PATCH).
+///
+/// # Arguments
+///
+/// This function takes many parameters due to the complexity of multipart
+/// file uploads with authentication, configuration, and storage handling.
+#[allow(clippy::too_many_arguments)] // multipart upload handler with many axum extractors
 pub async fn handle_file_upload(
     mut multipart: axum::extract::Multipart,
     state: State<AppState>,
@@ -23,8 +31,8 @@ pub async fn handle_file_upload(
     _relative: &str,
     root: &Path,
     headers: &axum::http::HeaderMap,
+    storage: Arc<dyn Storage>,
 ) -> Result<axum::http::Response<Body>, AppError> {
-    let storage = &state.storage;
     let upload_config = config
         .upload
         .as_ref()
@@ -49,8 +57,6 @@ pub async fn handle_file_upload(
         })
         .unwrap_or_default();
     let auth_info = extract_auth_info(&state, endpoint, headers, &query_params).await?;
-    check_upload_role(&auth_info, upload_config)?;
-
     let user_id = &auth_info.subject;
 
     // Validate file size from Content-Length header if available.
@@ -72,7 +78,7 @@ pub async fn handle_file_upload(
     while let Some(mut field) = multipart
         .next_field()
         .await
-        .map_err(|e| AppError::BadRequest(format!("Failed to parse multipart form: {}", e)))?
+        .map_err(|e| AppError::BadRequest(format!("Failed to parse multipart form: {e}")))?
     {
         // Validate field name
         if let Some(field_name) = field.name() {
@@ -96,7 +102,7 @@ pub async fn handle_file_upload(
         while let Some(chunk) = field
             .chunk()
             .await
-            .map_err(|e| AppError::BadRequest(format!("Failed to read file content: {}", e)))?
+            .map_err(|e| AppError::BadRequest(format!("Failed to read file content: {e}")))?
         {
             field_bytes.extend_from_slice(&chunk);
         }
@@ -158,8 +164,7 @@ pub async fn handle_file_upload(
         && !upload_config.allowed_extensions.contains(&file_extension)
     {
         return Err(AppError::BadRequest(format!(
-            "File extension .{} is not allowed",
-            file_extension
+            "File extension .{file_extension} is not allowed"
         )));
     }
 
@@ -175,18 +180,18 @@ pub async fn handle_file_upload(
     storage
         .write(&storage_path, &file_content)
         .await
-        .map_err(|e| AppError::FileOperation(format!("Failed to write file: {}", e)))?;
+        .map_err(|e| AppError::FileOperation(format!("Failed to write file: {e}")))?;
 
     // Get file metadata for response
     let metadata = storage
         .metadata(&storage_path)
         .await
-        .map_err(|e| AppError::FileOperation(format!("Failed to read file metadata: {}", e)))?;
+        .map_err(|e| AppError::FileOperation(format!("Failed to read file metadata: {e}")))?;
 
-    let created = metadata
-        .created
-        .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339())
-        .unwrap_or_else(|| chrono::Utc::now().to_rfc3339());
+    let created = metadata.created.map_or_else(
+        || chrono::Utc::now().to_rfc3339(),
+        |t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339(),
+    );
 
     let modified = metadata
         .modified
@@ -197,10 +202,10 @@ pub async fn handle_file_upload(
 
     // Return success response with detailed file metadata.
     // Return the path relative to root for client use
-    let relative_path = storage_path
-        .strip_prefix(root)
-        .map(|p| format!("/{}", p.to_string_lossy()))
-        .unwrap_or_else(|_| format!("/{}", sanitized_filename));
+    let relative_path = storage_path.strip_prefix(root).map_or_else(
+        |_| format!("/{sanitized_filename}"),
+        |p| format!("/{}", p.to_string_lossy()),
+    );
 
     Ok((
         StatusCode::CREATED,
@@ -253,7 +258,7 @@ fn generate_upload_filename(
         Ok(uuid.to_string())
     } else {
         // Include extension: UUID.extension
-        Ok(format!("{}.{}", uuid, extension))
+        Ok(format!("{uuid}.{extension}"))
     }
 }
 
@@ -282,7 +287,7 @@ pub fn sanitize_filename(name: &str, is_upload: bool) -> Result<String, AppError
     // This also prevents directory traversal via filename manipulation.
     if is_upload {
         let uuid = Uuid::new_v4();
-        return Ok(format!("{}.{}", uuid, sanitized).to_lowercase());
+        return Ok(format!("{uuid}.{sanitized}").to_lowercase());
     }
 
     // For GET requests, just return the sanitized name.

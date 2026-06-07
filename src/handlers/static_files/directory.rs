@@ -1,3 +1,4 @@
+use std::fmt::Write;
 use std::path::Path;
 
 use axum::http::StatusCode;
@@ -106,14 +107,15 @@ pub async fn generate_directory_listing(
         let modified_str = item
             .modified
             .as_ref()
-            .map(|t| format_modified(*t))
-            .unwrap_or_else(|| "-".to_string());
+            .map_or_else(|| "-".to_string(), |t| format_modified(*t));
 
         html.push_str("<tr>");
-        html.push_str(&format!(
+        writeln!(
+            html,
             "<td class=\"perms\">{perms}</td><td>{owner}</td><td>{group}</td>\
-             <td class=\"size\">{size_str}</td><td>{modified_str}</td><td>{link}</td></tr>\n"
-        ));
+             <td class=\"size\">{size_str}</td><td>{modified_str}</td><td>{link}</td></tr>"
+        )
+        .unwrap();
     }
 
     html.push_str("</table>\n</body></html>\n");
@@ -124,6 +126,7 @@ pub async fn generate_directory_listing(
 }
 
 /// Format a Unix mode into a `drwxrwxrwx`-style permission string.
+#[must_use]
 pub fn format_permissions(mode: u32, is_dir: bool) -> String {
     let mut s = String::with_capacity(10);
     s.push(if is_dir { 'd' } else { '-' });
@@ -137,6 +140,7 @@ pub fn format_permissions(mode: u32, is_dir: bool) -> String {
 }
 
 /// Resolve a numeric uid to a username, falling back to the numeric string.
+#[must_use]
 pub fn resolve_username(uid: u32) -> String {
     nix::unistd::User::from_uid(nix::unistd::Uid::from_raw(uid))
         .ok()
@@ -145,6 +149,7 @@ pub fn resolve_username(uid: u32) -> String {
 }
 
 /// Resolve a numeric gid to a group name, falling back to the numeric string.
+#[must_use]
 pub fn resolve_group(gid: u32) -> String {
     nix::unistd::Group::from_gid(nix::unistd::Gid::from_raw(gid))
         .ok()

@@ -21,7 +21,7 @@ use crate::error::AppError;
 /// iterates over the map (no `.get()` calls), the public parameter type
 /// triggers the lint. Using `HashMap<String, String, RandomState>` explicitly
 /// in the signature would be verbose without adding safety.
-#[allow(clippy::implicit_hasher)]
+#[allow(clippy::implicit_hasher)] // public param is &HashMap<String, String> triggers lint
 pub fn validate_api_key(
     headers: &HeaderMap,
     query_params: &HashMap<String, String>,

@@ -5,7 +5,7 @@
 # cloned the Main Serve repository, there is a local copy of the schema that
 # you can use by removing one # from the line below:
 #
-## yaml-language-server: $schema=../main-serve.schema.json
+# yaml-language-server: $schema=../main-serve.schema.json
 #
 # If you prefer to use the schema from the online repository, you can remove
 # one # from this line instead:
@@ -45,7 +45,7 @@
 #               renders a browsable file listing. Useful for download portals or
 #               internal file shares.
 #
-# Placeholder: {ROOT} - absolute path to the directory containing your files.
+# Use the $ prefix to interpolate environment variables (e.g. $ROOT).
 
 server:
   host: "127.0.0.1"
@@ -63,6 +63,14 @@ cors:
   max_age: 3600
 
 # =============================================================================
+# Storage backends
+# =============================================================================
+stores:
+  static_assets:
+    backend: "native"
+    root: "./public"
+
+# =============================================================================
 # Endpoints
 # =============================================================================
 endpoints:
@@ -71,13 +79,12 @@ endpoints:
   # Serves files verbatim.  Missing paths return 404.
   - path: "/assets/*"
     methods: ["get"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{ROOT}" # Add $ to beginning to use as interpolated variable
+      storage: "static_assets"
       index: "index.html"        # served when the path ends in /
       directory_listing: false    # never expose folder contents
       cache_max_age: 86400       # 1 day - tune per deployment strategy
-      spa_fallback: false
     auth: "none"
 
   # SPA mode
@@ -85,24 +92,21 @@ endpoints:
   # (React Router, Vue Router, etc.).
   - path: "/app/*"
     methods: ["get"]
-    action: "static"
-    static_files:
-      root: "{ROOT}" # Add $ to beginning to use as interpolated variable
+    action: "spa_host"
+    spa_host:
+      storage: "static_assets"
       index: "index.html"
-      directory_listing: false
       cache_max_age: 0            # never cache the HTML shell
-      spa_fallback: true          # ← the key setting
     auth: "none"
 
   # Directory listing
   # When a folder has no index file the server generates an HTML listing.
   - path: "/files/*"
     methods: ["get"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{ROOT}" # Add $ to beginning to use as interpolated variable
+      storage: "static_assets"
       index: "index.html"
-      directory_listing: true     # ← enable browsable listings
+      directory_listing: true     # enable browsable listings
       cache_max_age: 0
-      spa_fallback: false
     auth: "none"

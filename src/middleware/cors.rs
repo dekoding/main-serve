@@ -85,13 +85,13 @@ pub fn apply_cors_headers(
                     .allowed_origins
                     .iter()
                     .find(|allowed| *allowed == origin_str)
-                    .map(|s| s.to_string())
+                    .cloned()
             }
         })
     } else if config.allowed_origins.iter().any(|o| o == "*") {
         Some("*".to_string())
     } else {
-        config.allowed_origins.first().map(|o| o.to_string())
+        config.allowed_origins.first().cloned()
     };
 
     let origin_value = allowed_origin

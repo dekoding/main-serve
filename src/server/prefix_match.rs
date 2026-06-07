@@ -13,7 +13,7 @@ use crate::config::types::EndpointConfig;
 /// Walk up the path segments looking for prefix matches.
 ///
 /// For path `/api/users/42`, checks in order:
-/// `/api/users/42`, `/api/users`, `/api`, `` (stop before empty).
+/// `/api/users/42`, `/api/users`, `/api` (stop before empty).
 ///
 /// Returns the first endpoint whose path is a prefix of `path` and
 /// whose `endpoint_check` closure returns `true`.
@@ -48,7 +48,7 @@ pub fn find_wildcard_match(
     path: &str,
     endpoint_check: impl Fn(&EndpointConfig) -> bool,
 ) -> Option<EndpointConfig> {
-    for (stored_path, endpoint) in configs.iter() {
+    for (stored_path, endpoint) in configs {
         if let Some(pattern_base) = stored_path
             .split_once('{')
             .map(|(base, _)| base.trim_end_matches('/'))

@@ -90,7 +90,7 @@ tables:
 endpoints: []
 "#;
 
-/// Target: table with `id` + `title` only, allow_destructive: true.
+/// Target: table with `id` + `title` only, `allow_destructive`: true.
 pub const MIGRATION_DROP_COLUMN_TARGET_DESTRUCTIVE: &str = r#"
 server:
   port: 0

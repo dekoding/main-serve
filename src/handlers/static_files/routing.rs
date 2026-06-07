@@ -7,6 +7,8 @@ use axum::response::Response;
 use http::HeaderValue;
 use std::collections::HashMap;
 use std::path::Path;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 use crate::config::types::EndpointConfig;
 use crate::config::types::StaticFilesConfig;
@@ -15,6 +17,7 @@ use crate::handlers::static_files::delete::handle_file_delete;
 use crate::middleware::auth::extractor::AuthInfo;
 use crate::middleware::cors;
 use crate::server::state::AppState;
+use crate::storage::Storage;
 
 /// Context for handling static file GET requests.
 pub struct StaticGetContext<'a> {
@@ -25,6 +28,7 @@ pub struct StaticGetContext<'a> {
     pub request_path: &'a str,
     pub query: Option<&'a Query<HashMap<String, String>>>,
     pub headers: &'a axum::http::HeaderMap,
+    pub storage: Arc<dyn Storage>,
 }
 
 /// Extract the relative file path from a request URI and endpoint path.
@@ -54,7 +58,7 @@ pub fn extract_relative_path(request_path: &str, endpoint_path: &str) -> String 
 /// `query_params` (a `&HashMap<String, String>`) to `validate::authenticate`,
 /// which invokes the default `DefaultHasher` for lookups. An explicit
 /// `RandomState` type parameter would be verbose without practical benefit.
-#[allow(clippy::implicit_hasher)]
+#[allow(clippy::implicit_hasher)] // passes &HashMap to validator which uses .get()
 pub async fn extract_auth_info(
     state: &AppState,
     endpoint: &EndpointConfig,
@@ -74,27 +78,28 @@ pub async fn extract_auth_info(
     .await
 }
 
-/// Check user role against required role for upload.
-pub fn check_upload_role(
-    auth_info: &AuthInfo,
-    upload_config: &crate::config::types::UploadConfig,
-) -> Result<(), AppError> {
-    if let Some(required_role) = &upload_config.required_role {
-        match &auth_info.role {
-            Some(role) if role == required_role => Ok(()),
-            _ => Err(AppError::Forbidden(format!(
-                "Role '{}' required to upload files",
-                required_role
-            ))),
-        }
+/// Resolve the storage store and root path for a static files endpoint.
+///
+/// Returns the store (Arc<dyn Storage>) and its root path (`PathBuf`).
+/// For native stores, resolves the actual filesystem path.
+/// For cloud stores, returns the store and a conceptual root.
+fn resolve_store(
+    state: &AppState,
+    static_config: &StaticFilesConfig,
+) -> Result<(Arc<dyn Storage>, PathBuf), AppError> {
+    let store_name = &static_config.storage;
+    let storage = state
+        .get_store(store_name)
+        .ok_or_else(|| AppError::Internal(format!("Store '{store_name}' not found")))?;
+
+    let root = if let Some(path) = storage.root_path() {
+        path
     } else {
-        match &auth_info.role {
-            Some(_) => Ok(()),
-            None => Err(AppError::Forbidden(
-                "Authentication required to upload files".to_string(),
-            )),
-        }
-    }
+        // For cloud stores, use the store name as a conceptual root
+        PathBuf::from(store_name)
+    };
+
+    Ok((storage, root))
 }
 
 /// Handle a static file endpoint - serves files, uploads, or deletes based on method.
@@ -108,8 +113,8 @@ pub fn check_upload_role(
 /// The `implicit_hasher` allow is needed because the function receives a
 /// `Query<HashMap<String, String>>` parameter. While axum's Query extractor
 /// handles parsing, the parameter type itself triggers the lint since it
-/// is later passed to internal functions that use HashMap lookups.
-#[allow(clippy::implicit_hasher)]
+/// is later passed to internal functions that use `HashMap` lookups.
+#[allow(clippy::implicit_hasher)] // axum's Query<HashMap<String, String>> triggers clippy lint
 pub async fn handle_static_files(
     state: State<AppState>,
     method: Method,
@@ -123,11 +128,12 @@ pub async fn handle_static_files(
         .as_ref()
         .ok_or_else(|| AppError::Internal("Static file configuration missing".to_string()))?;
 
-    let root = Path::new(&static_config.root);
-    if !state.storage.exists(root).await {
+    let (storage, root) = resolve_store(&state, static_config)?;
+
+    if !storage.exists(&root).await {
         return Err(AppError::Internal(format!(
-            "Static file root '{}' does not exist",
-            static_config.root
+            "Static file storage '{}' does not exist",
+            static_config.storage
         )));
     }
 
@@ -150,23 +156,23 @@ pub async fn handle_static_files(
                     endpoint: &endpoint,
                     config: static_config,
                     relative: &relative,
-                    root,
+                    root: &root,
                     request_path,
                     query: query.as_ref(),
                     headers: &headers,
+                    storage,
                 },
             )
             .await
         }
         Method::DELETE => {
-            let state_for_delete = state.clone();
             handle_file_delete(
-                &*state_for_delete.storage,
+                storage.as_ref(),
                 state,
                 &endpoint,
                 static_config,
                 &relative,
-                root,
+                &root,
                 &headers,
             )
             .await
@@ -184,8 +190,7 @@ pub async fn handle_static_files(
             Ok(response)
         }
         _ => Err(AppError::MethodNotAllowed(format!(
-            "Method {} not allowed for this endpoint",
-            method
+            "Method {method} not allowed for this endpoint"
         ))),
     }
 }
@@ -204,11 +209,12 @@ pub async fn handle_file_upload_route(
                 AppError::Internal("Static file configuration missing".to_string())
             })?;
 
-            let root = Path::new(&static_config.root);
-            if !root.exists() {
+            let (storage, root) = resolve_store(&state, static_config)?;
+
+            if !storage.exists(&root).await {
                 return Err(AppError::Internal(format!(
-                    "Static file root '{}' does not exist",
-                    static_config.root
+                    "Static file storage '{}' does not exist",
+                    static_config.storage
                 )));
             }
 
@@ -229,14 +235,14 @@ pub async fn handle_file_upload_route(
                 &endpoint,
                 static_config,
                 &relative,
-                root,
+                &root,
                 &headers,
+                storage,
             )
             .await
         }
         _ => Err(AppError::MethodNotAllowed(format!(
-            "Method {} not allowed for this endpoint",
-            method
+            "Method {method} not allowed for this endpoint"
         ))),
     }
 }

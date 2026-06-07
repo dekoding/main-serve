@@ -7,9 +7,8 @@ use tower::ServiceExt;
 use support::db::{TestBackend, TestDatabase, enabled_backends};
 use support::json_body;
 
-use crate::support::configs::crud_operations_configs::{
-    CRUD_CONFIG, JSONB_EXPRESSIONS_CONFIG, JSONB_FILTER_SORT_CONFIG,
-};
+use crate::support::configs::crud_operations_configs::CRUD_CONFIG;
+use crate::support::configs::shared_configs::{JSONB_EXPRESSIONS_CONFIG, JSONB_FILTER_SORT_CONFIG};
 
 async fn seed_posts(app: &axum::Router, posts: &[(&str, &str)]) {
     for (title, author) in posts {

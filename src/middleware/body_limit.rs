@@ -33,8 +33,7 @@ pub async fn body_limit_middleware(
     {
         if content_length > max_size {
             return Err(AppError::Body(format!(
-                "Request body size {} exceeds maximum allowed size {}",
-                content_length, max_size
+                "Request body size {content_length} exceeds maximum allowed size {max_size}"
             )));
         }
         // Content-Length is within limit, proceed to handler.
@@ -72,7 +71,7 @@ mod tests {
     use axum::{Router, routing::get};
     use tower::ServiceExt;
 
-    fn make_state(max_body_size: usize) -> AppState {
+    async fn make_state(max_body_size: usize) -> AppState {
         let config = crate::config::types::AppConfig {
             server: crate::config::types::ServerConfig {
                 max_body_size,
@@ -85,6 +84,8 @@ mod tests {
             std::path::PathBuf::from("/dev/null"),
             "admin-token".to_string(),
         )
+        .await
+        .unwrap()
     }
 
     async fn test_middleware(
@@ -92,7 +93,7 @@ mod tests {
         body: Bytes,
         content_length: Option<u64>,
     ) -> Result<axum::http::Response<axum::body::Body>, AppError> {
-        let state = make_state(max_body_size);
+        let state = make_state(max_body_size).await;
         let router = Router::new().route("/test", get(|| async { "ok" })).layer(
             axum::middleware::from_fn_with_state(state.clone(), body_limit_middleware),
         );
@@ -116,7 +117,7 @@ mod tests {
         if status.is_success() {
             Ok(resp)
         } else {
-            Err(AppError::Body(format!("Unexpected status: {}", status)))
+            Err(AppError::Body(format!("Unexpected status: {status}")))
         }
     }
 
@@ -125,7 +126,7 @@ mod tests {
         body: Bytes,
         content_length: Option<u64>,
     ) -> Result<axum::http::Response<axum::body::Body>, AppError> {
-        let state = make_state(max_body_size);
+        let state = make_state(max_body_size).await;
         let router = Router::new().route("/test", get(|| async { "ok" })).layer(
             axum::middleware::from_fn_with_state(state.clone(), body_limit_middleware),
         );
@@ -149,7 +150,7 @@ mod tests {
         if status.is_success() {
             Ok(resp)
         } else {
-            Err(AppError::Body(format!("Unexpected status: {}", status)))
+            Err(AppError::Body(format!("Unexpected status: {status}")))
         }
     }
 

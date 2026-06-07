@@ -147,8 +147,7 @@ async fn test_index_creation_is_present_and_idempotent_across_backends() {
             get_index_names(pools.get("main").unwrap(), backend, &test_db.table_name).await;
         assert!(
             indexes.contains(&format!("idx_{}_email", test_db.table_name)),
-            "backend: {backend}, indexes: {:?}",
-            indexes
+            "backend: {backend}, indexes: {indexes:?}"
         );
     }
 }
@@ -160,7 +159,7 @@ async fn get_index_names(
 ) -> std::collections::HashSet<String> {
     let rows = match backend {
         support::db::TestBackend::Sqlite => {
-          let sql = format!("PRAGMA index_list(\"{}\")", table_name);
+          let sql = format!("PRAGMA index_list(\"{table_name}\")");
           pool.fetch_all_json(&sql, &[]).await.expect("sqlite index list")
         }
         support::db::TestBackend::Postgres => pool

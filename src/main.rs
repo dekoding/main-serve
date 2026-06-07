@@ -52,7 +52,7 @@ fn main() {
     let cli = Cli::parse();
 
     // Resolve config path: explicit CLI flag -> $HOME/.config/main-serve/config.yaml -> /etc/main-serve/config.yaml
-    let config_path = resolve_config_path(&cli.config);
+    let config_path = resolve_config_path(cli.config.as_ref());
 
     // Load config first (before tracing init) so we can use logging settings.
     // We can't log config errors with tracing yet, so use eprintln.
@@ -106,7 +106,7 @@ fn main() {
 /// 1. Explicit CLI flag (if provided)
 /// 2. `$HOME/.config/main-serve/config.yaml` (home directory config)
 /// 3. `/etc/main-serve/config.yaml` (system install)
-fn resolve_config_path(cli_path: &Option<PathBuf>) -> PathBuf {
+fn resolve_config_path(cli_path: Option<&PathBuf>) -> PathBuf {
     if let Some(explicit) = cli_path {
         return explicit.clone();
     }
@@ -143,6 +143,7 @@ async fn async_main(cli: Cli, config: main_serve::config::AppConfig, config_path
         tracing::info!("  Server: {}:{}", config.server.host, config.server.port);
         tracing::info!("  Databases: {}", config.databases.len());
         tracing::info!("  Tables: {}", config.tables.len());
+        tracing::info!("  Stores: {}", config.stores.len());
         tracing::info!("  Endpoints:");
         for ep in &config.endpoints {
             let methods: Vec<String> = ep.methods.iter().map(|m| format!("{m:?}")).collect();
@@ -169,7 +170,13 @@ async fn async_main(cli: Cli, config: main_serve::config::AppConfig, config_path
     let shutdown_timeout = config.server.shutdown_timeout;
 
     // Build shared state and router.
-    let state = AppState::new(config, config_path, cli.admin_token.clone());
+    let state = match AppState::new(config, config_path, cli.admin_token.clone()).await {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!("Failed to initialize application state: {e}");
+            process::exit(1);
+        }
+    };
 
     // Create database pools and run migrations.
     if !state.config.read().await.databases.is_empty() {

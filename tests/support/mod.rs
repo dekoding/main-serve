@@ -15,6 +15,11 @@ use tempfile::NamedTempFile;
 use main_serve::config::load_config;
 use main_serve::server::{AppState, build_router};
 
+// Re-export helpers from support/helpers.rs at the module root for convenience.
+// These are consumed by external test files (e.g., `support::write_site_files`).
+#[allow(unused_imports)]
+pub use helpers::{MINIMAL_PNG, basic_auth_hash, seed_jsonb_posts, seed_posts, write_site_files};
+
 /// Set up a server from a YAML string without database pools.
 ///
 /// Returns the router and the temp file handle. The caller must keep the
@@ -24,7 +29,9 @@ pub async fn setup_server(yaml: &str) -> (axum::Router, NamedTempFile) {
     let mut f = NamedTempFile::new().expect("tempfile");
     f.write_all(yaml.as_bytes()).expect("write");
     let config = load_config(f.path()).expect("load config");
-    let state = AppState::new(config, f.path().to_path_buf(), "test-token".to_string());
+    let state = AppState::new(config, f.path().to_path_buf(), "test-token".to_string())
+        .await
+        .unwrap();
     let config_guard = state.config.read().await;
     let app = build_router(&config_guard, state.clone()).await;
     drop(config_guard);
@@ -38,11 +45,11 @@ pub async fn json_body(response: axum::http::Response<Body>) -> serde_json::Valu
 }
 
 /// Parse a JSON response body from bytes.
-pub async fn json_body_from_bytes(body: bytes::Bytes) -> serde_json::Value {
+pub fn json_body_from_bytes(body: bytes::Bytes) -> serde_json::Value {
     serde_json::from_slice(&body).unwrap()
 }
 
-/// Start a mock OAuth2 identity provider that handles /token and /userinfo.
+/// Start a mock `OAuth2` identity provider that handles /token and /userinfo.
 ///
 /// The mock returns different user profiles based on the Bearer token:
 ///   - "admin-token-*" -> sub: "admin-42", role: "admin"
@@ -51,7 +58,7 @@ pub async fn json_body_from_bytes(body: bytes::Bytes) -> serde_json::Value {
 ///
 /// The /token endpoint always succeeds and returns "mock-access-token".
 ///
-/// Returns (base_url, shutdown_sender).
+/// Returns (`base_url`, `shutdown_sender`).
 pub async fn start_mock_idp() -> (String, tokio::sync::oneshot::Sender<()>) {
     use axum::Router;
     use axum::routing::{get, post};

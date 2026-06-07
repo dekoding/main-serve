@@ -5,14 +5,12 @@
 use std::time::Duration;
 
 use axum::body::Body;
-use axum::extract::State;
 use axum::http::{HeaderName, HeaderValue, StatusCode, Uri};
 use axum::response::Response;
 use http_body_util::BodyExt;
 
 use crate::config::types::EndpointConfig;
 use crate::error::AppError;
-use crate::server::state::AppState;
 
 /// Headers that are hop-by-hop per HTTP spec and must not be forwarded through a proxy.
 const HOP_BY_HOP_HEADERS: &[&str] = &[
@@ -34,7 +32,6 @@ const HOP_BY_HOP_HEADERS: &[&str] = &[
 /// Returns `AppError::Internal` if the proxy config is missing or the upstream
 /// request fails.
 pub async fn handle_proxy(
-    State(_state): State<AppState>,
     method: axum::http::Method,
     uri: Uri,
     headers: axum::http::HeaderMap,

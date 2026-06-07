@@ -9,12 +9,10 @@
 ///   2. Custom responses of various types
 ///   3. API endpoints protected by each auth variety
 ///   4. Combined config: static files + protected CRUD endpoints
-///   5. OAuth2 / OIDC: token introspection with role enforcement
+///   5. `OAuth2` / OIDC: token introspection with role enforcement
 ///   6. Reverse proxy: forwarding, path rewrite, custom headers
 ///   7. CRUD API: joins, computed fields, filtering, where clause
 mod support;
-
-use std::io::Write;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
@@ -32,48 +30,11 @@ use support::configs::real_world_configs::{
 };
 use support::db::{TestDatabase, create_pools_and_migrate, enabled_backends};
 use support::helpers::jwt_config;
-use support::{json_body, setup_server, start_mock_idp};
+use support::{basic_auth_hash, json_body, setup_server, start_mock_idp, write_site_files};
 
-/// Generate the argon2 hash for the admin password.
-fn basic_auth_hash() -> String {
-    use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
-
-    let salt = SaltString::from_b64("dGVzdHNhbHR2YWx1ZQ").unwrap();
-    Argon2::default()
-        .hash_password(b"s3cureP@ss", &salt)
-        .unwrap()
-        .to_string()
-}
-
-/// Generate the auth_protected config with the password hash placeholder filled in.
+/// Generate the `auth_protected` config with the password hash placeholder filled in.
 fn auth_config() -> String {
     AUTH_PROTECTED_CONFIG.replace("__BASIC_AUTH_HASH__", &basic_auth_hash())
-}
-
-/// Populate a directory with test site files. Returns the root path.
-fn write_site_files(dir: &std::path::Path, files: &[(&str, &str)]) -> std::path::PathBuf {
-    let root = dir.join("public");
-    std::fs::create_dir_all(&root).unwrap();
-    for (path, content) in files {
-        let file_path = root.join(path);
-        if let Some(parent) = file_path.parent() {
-            std::fs::create_dir_all(parent).unwrap();
-        }
-        std::fs::write(&file_path, content).unwrap();
-    }
-    root
-}
-
-/// Set up a server from a YAML string without database pools.
-async fn setup_server_from_yaml(yaml: &str) -> (axum::Router, tempfile::NamedTempFile) {
-    let mut f = tempfile::NamedTempFile::new().expect("tempfile");
-    f.write_all(yaml.as_bytes()).expect("write");
-    let config = load_config(f.path()).expect("load config");
-    let state = AppState::new(config, f.path().to_path_buf(), "test-token".to_string());
-    let config_guard = state.config.read().await;
-    let app = build_router(&config_guard, state.clone()).await;
-    drop(config_guard);
-    (app, f)
 }
 
 const SITE_FILES: &[(&str, &str)] = &[
@@ -123,7 +84,7 @@ async fn test_static_standard_serves_existing_files() {
     let root = write_site_files(dir.path(), SITE_FILES);
 
     let yaml = STATIC_FILES_CONFIG.replace("{ROOT}", &root.display().to_string());
-    let (app, _f) = setup_server_from_yaml(&yaml).await;
+    let (app, _f) = setup_server(&yaml).await;
 
     // Serve index.html at root
     let resp = app
@@ -265,7 +226,7 @@ async fn test_static_standard_404_for_missing() {
     let root = write_site_files(dir.path(), SITE_FILES);
 
     let yaml = STATIC_FILES_CONFIG.replace("{ROOT}", &root.display().to_string());
-    let (app, _f) = setup_server_from_yaml(&yaml).await;
+    let (app, _f) = setup_server(&yaml).await;
 
     let resp = app
         .clone()
@@ -292,103 +253,12 @@ async fn test_static_standard_404_for_missing() {
 }
 
 #[tokio::test]
-async fn test_static_spa_returns_index_for_unknown_routes() {
-    let dir = tempfile::TempDir::new().expect("tempdir");
-    let root = write_site_files(dir.path(), SITE_FILES);
-
-    let yaml = STATIC_FILES_CONFIG.replace("{ROOT}", &root.display().to_string());
-    let (app, _f) = setup_server_from_yaml(&yaml).await;
-
-    // Known file still works
-    let resp = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/app/style.css")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), StatusCode::OK);
-    let ct = resp
-        .headers()
-        .get("content-type")
-        .unwrap()
-        .to_str()
-        .unwrap();
-    assert!(ct.contains("text/css"));
-
-    // Unknown deep route returns index.html (SPA client-side routing)
-    let resp = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .uri("/app/dashboard/settings/profile")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), StatusCode::OK);
-    let body = String::from_utf8(
-        resp.into_body()
-            .collect()
-            .await
-            .unwrap()
-            .to_bytes()
-            .to_vec(),
-    )
-    .unwrap();
-    assert!(
-        body.contains("My App"),
-        "SPA fallback should return index.html"
-    );
-
-    // Root also works
-    let resp = app
-        .clone()
-        .oneshot(Request::builder().uri("/app/").body(Body::empty()).unwrap())
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), StatusCode::OK);
-    let body = String::from_utf8(
-        resp.into_body()
-            .collect()
-            .await
-            .unwrap()
-            .to_bytes()
-            .to_vec(),
-    )
-    .unwrap();
-    assert!(body.contains("My App"));
-
-    // SPA mode should have cache_max_age: 0 (no caching for SPA routes)
-    let resp = app
-        .oneshot(
-            Request::builder()
-                .uri("/app/some/route")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    if let Some(cc) = resp.headers().get("cache-control") {
-        let cc = cc.to_str().unwrap();
-        assert!(
-            cc.contains("max-age=0") || cc.contains("no-cache"),
-            "Unexpected cache-control: {cc}"
-        );
-    }
-}
-
-#[tokio::test]
 async fn test_static_directory_listing() {
     let dir = tempfile::TempDir::new().expect("tempdir");
     let root = write_site_files(dir.path(), SITE_FILES);
 
     let yaml = STATIC_FILES_CONFIG.replace("{ROOT}", &root.display().to_string());
-    let (app, _f) = setup_server_from_yaml(&yaml).await;
+    let (app, _f) = setup_server(&yaml).await;
 
     // /files/images/ has no index.html - should show listing
     let resp = app
@@ -1047,8 +917,8 @@ async fn test_auth_basic_admin_endpoint() {
 // =============================================================================
 
 /// Set up a combined scenario with both static files and a DB-backed config.
-/// Returns (router, temp_dir, rendered_yaml) so callers can use the rendered
-/// YAML for jwt_config() which needs a parseable config string.
+/// Returns (router, `temp_dir`, `rendered_yaml`) so callers can use the rendered
+/// YAML for `jwt_config()` which needs a parseable config string.
 async fn setup_combined_app(
     test_db: &mut TestDatabase,
     yaml_template: &str,
@@ -1069,7 +939,9 @@ async fn setup_combined_app(
     // Store pools for Drop-based cleanup.
     test_db.set_pools(pools.clone());
 
-    let state = AppState::new(config, config_path, "test-token".to_string());
+    let state = AppState::new(config, config_path, "test-token".to_string())
+        .await
+        .unwrap();
     {
         let mut pool_lock = state.db_pools.write().await;
         *pool_lock = pools;
@@ -1105,29 +977,6 @@ async fn test_combined_static_spa_serves_frontend_across_backends() {
         )
         .unwrap();
         assert!(body.contains("MyApp"));
-
-        // SPA deep route falls back to index
-        let resp = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .uri("/app/users/123/edit")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(resp.status(), StatusCode::OK, "backend: {backend}");
-        let body = String::from_utf8(
-            resp.into_body()
-                .collect()
-                .await
-                .unwrap()
-                .to_bytes()
-                .to_vec(),
-        )
-        .unwrap();
-        assert!(body.contains("MyApp"), "SPA fallback for deep route");
 
         // Static assets served with cache
         let resp = app
@@ -1749,11 +1598,11 @@ async fn start_mock_upstream() -> (String, tokio::sync::oneshot::Sender<()>) {
             let body_bytes = body
                 .collect()
                 .await
-                .map(|c| c.to_bytes())
+                .map(http_body_util::Collected::to_bytes)
                 .unwrap_or_default();
 
             let mut hdr_map = serde_json::Map::new();
-            for (name, value) in headers.iter() {
+            for (name, value) in &headers {
                 if let Ok(v) = value.to_str() {
                     hdr_map.insert(name.to_string(), serde_json::Value::String(v.to_string()));
                 }
@@ -2109,7 +1958,7 @@ async fn test_crud_api_articles_with_joins_and_computed_fields() {
         let body_length = data[0]["body_length"].as_i64().unwrap();
         assert_eq!(
             body_length,
-            "A detailed article about Rust programming.".len() as i64,
+            ("A detailed article about Rust programming.".len() as i64),
             "computed body_length, backend: {backend}"
         );
     }

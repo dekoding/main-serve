@@ -1,24 +1,26 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 use crate::storage::{DirEntry, FileMetadata, Result, Storage, StorageError};
 
-/// In-memory storage backend for testing.
+/// In-memory storage backend.
 ///
-/// Uses a thread-safe HashMap to store file contents in memory.
+/// Uses a thread-safe `HashMap` to store file contents in memory.
 /// This backend is useful for unit testing without filesystem I/O.
 pub struct MemoryStorage {
     data: Arc<RwLock<HashMap<PathBuf, Vec<u8>>>>,
-    dirs: Arc<RwLock<HashMap<PathBuf, ()>>>,
+    dirs: Arc<RwLock<HashSet<PathBuf>>>,
 }
 
 impl MemoryStorage {
     /// Create a new in-memory storage instance.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             data: Arc::new(RwLock::new(HashMap::new())),
-            dirs: Arc::new(RwLock::new(HashMap::new())),
+            dirs: Arc::new(RwLock::new(HashSet::new())),
         }
     }
 }
@@ -35,7 +37,7 @@ impl Storage for MemoryStorage {
         let data = self.data.read().unwrap();
         let dirs = self.dirs.read().unwrap();
         data.contains_key(path)
-            || dirs.contains_key(path)
+            || dirs.contains(path)
             // A directory "exists" if any file path starts with it
             || data.keys().any(|k| k.starts_with(path) && k != path)
     }
@@ -45,7 +47,7 @@ impl Storage for MemoryStorage {
     }
 
     async fn is_dir(&self, path: &Path) -> bool {
-        self.dirs.read().unwrap().contains_key(path)
+        self.dirs.read().unwrap().contains(path)
     }
 
     async fn read(&self, path: &Path) -> Result<Vec<u8>> {
@@ -55,13 +57,22 @@ impl Storage for MemoryStorage {
             .ok_or_else(|| StorageError::NotFound(path.to_path_buf()))
     }
 
-    async fn open(&self, _path: &Path) -> Result<tokio::fs::File> {
-        // For in-memory storage, we can't return a real File
-        // This is acceptable for testing - real file operations use NativeStorage
-        Err(StorageError::Internal(
-            "open() not supported for MemoryStorage - use NativeStorage for file streaming"
-                .to_string(),
-        ))
+    async fn open(&self, path: &Path) -> Result<Box<dyn tokio::io::AsyncRead + Send + Unpin>> {
+        let data = self.read(path).await?;
+        Ok(Box::new(Cursor::new(data)))
+    }
+
+    async fn seek_read(
+        &self,
+        path: &Path,
+        offset: u64,
+    ) -> Result<Box<dyn tokio::io::AsyncRead + Send + Unpin>> {
+        let data = self.read(path).await?;
+        if offset >= data.len() as u64 {
+            return Ok(Box::new(Cursor::new(Vec::new())));
+        }
+        let sliced = data[offset as usize..].to_vec();
+        Ok(Box::new(Cursor::new(sliced)))
     }
 
     async fn write(&self, path: &Path, contents: &[u8]) -> Result<()> {
@@ -86,11 +97,11 @@ impl Storage for MemoryStorage {
             return Ok(());
         }
 
-        if dirs.remove(path).is_some() {
+        if dirs.remove(path) {
             // Also remove all children
             let prefix = format!("{}/", path.display());
             data.retain(|k, _| !k.starts_with(&prefix));
-            dirs.retain(|k, _| !k.starts_with(&prefix));
+            dirs.retain(|k| !k.starts_with(&prefix));
             return Ok(());
         }
 
@@ -112,7 +123,7 @@ impl Storage for MemoryStorage {
             ));
         }
 
-        if dirs.contains_key(path) {
+        if dirs.contains(path) {
             return Ok(FileMetadata::new(
                 path.file_name()
                     .unwrap_or_default()
@@ -133,7 +144,7 @@ impl Storage for MemoryStorage {
         let mut entries = Vec::new();
 
         // Add directories
-        for dir_path in dirs.keys() {
+        for dir_path in dirs.iter() {
             if let Some(parent) = dir_path.parent()
                 && parent == dir
             {
@@ -168,7 +179,7 @@ impl Storage for MemoryStorage {
                         false,
                         data.get(file_path).map_or(0, |v| v.len() as u64),
                     )
-                    .with_mode(0o100644)
+                    .with_mode(0o100_644)
                     .with_modified(None),
                 );
             }
@@ -182,7 +193,7 @@ impl Storage for MemoryStorage {
 
     async fn create_dir(&self, path: &Path) -> Result<()> {
         // Check if path already exists in dirs
-        if self.dirs.read().unwrap().contains_key(path) {
+        if self.dirs.read().unwrap().contains(path) {
             return Err(StorageError::AlreadyExists(path.to_path_buf()));
         }
         // The root path "/" always implicitly exists.
@@ -193,14 +204,13 @@ impl Storage for MemoryStorage {
             let has_parent = {
                 let dirs = self.dirs.read().unwrap();
                 let data = self.data.read().unwrap();
-                dirs.contains_key(parent)
-                    || data.keys().any(|k| k.starts_with(parent) && k != parent)
+                dirs.contains(parent) || data.keys().any(|k| k.starts_with(parent) && k != parent)
             };
             if !has_parent {
                 return Err(StorageError::NotFound(parent.to_path_buf()));
             }
         }
-        self.dirs.write().unwrap().insert(path.to_path_buf(), ());
+        self.dirs.write().unwrap().insert(path.to_path_buf());
         Ok(())
     }
 
@@ -210,8 +220,8 @@ impl Storage for MemoryStorage {
 
         for component in path.components() {
             current.push(component);
-            if !dirs.contains_key(&current) {
-                dirs.insert(current.to_path_buf(), ());
+            if !dirs.contains(&current) {
+                dirs.insert(current.clone());
             }
         }
 
@@ -222,14 +232,14 @@ impl Storage for MemoryStorage {
         let mut dirs = self.dirs.write().unwrap();
         let data = self.data.read().unwrap();
 
-        if !dirs.contains_key(path) {
+        if !dirs.contains(path) {
             return Err(StorageError::NotFound(path.to_path_buf()));
         }
 
         // Check if directory is empty
         let prefix = format!("{}/", path.display());
         let has_children = data.keys().any(|k| k.starts_with(&prefix))
-            || dirs.keys().any(|k| k.starts_with(&prefix) && k != path);
+            || dirs.iter().any(|k| k.starts_with(&prefix) && *k != path);
 
         if has_children {
             return Err(StorageError::DirectoryNotEmpty(path.to_path_buf()));
@@ -247,7 +257,7 @@ impl Storage for MemoryStorage {
 
         // Remove all files and subdirectories
         data.retain(|k, _| !k.starts_with(&prefix));
-        dirs.retain(|k, _| !k.starts_with(&prefix) && k != path);
+        dirs.retain(|k| !k.starts_with(&prefix) && k != path);
 
         // Remove the directory itself
         dirs.remove(path);
@@ -264,8 +274,8 @@ impl Storage for MemoryStorage {
             return Ok(());
         }
 
-        if dirs.remove(from).is_some() {
-            dirs.insert(to.to_path_buf(), ());
+        if dirs.remove(from) {
+            dirs.insert(to.to_path_buf());
             return Ok(());
         }
 
@@ -304,6 +314,7 @@ impl Storage for MemoryStorage {
 mod tests {
     use super::*;
     use crate::storage::Storage;
+    use tokio::io::AsyncReadExt;
 
     #[tokio::test]
     async fn test_write_and_read() {
@@ -666,7 +677,7 @@ mod tests {
         assert_eq!(entries[1].name, "file2.txt");
         assert_eq!(entries[2].name, "subdir");
         // Check modes
-        assert_eq!(entries[0].mode, 0o100644);
+        assert_eq!(entries[0].mode, 0o100_644);
         assert_eq!(entries[2].mode, 0o40755);
     }
 
@@ -700,15 +711,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_memory_storage_not_supported_for_open() {
+    async fn test_open_returns_streaming_reader() {
         let storage = MemoryStorage::new();
-        let result = storage.open(&PathBuf::from("/test.txt")).await;
-        assert!(result.is_err());
-        match result.unwrap_err() {
-            StorageError::Internal(msg) => {
-                assert!(msg.contains("open() not supported"));
-            }
-            _ => panic!("expected Internal error for open()"),
-        }
+        let path = PathBuf::from("/open_test.txt");
+        storage.write(&path, b"open test data").await.unwrap();
+        let mut reader = storage.open(&path).await.unwrap();
+        let mut buf = Vec::new();
+        reader.read_to_end(&mut buf).await.unwrap();
+        assert_eq!(buf, b"open test data");
     }
 }

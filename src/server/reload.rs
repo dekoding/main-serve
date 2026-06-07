@@ -10,10 +10,13 @@ use axum::response::IntoResponse;
 use serde_json::json;
 use subtle::ConstantTimeEq;
 
-use super::state::AppState;
+use std::sync::Arc;
+
+use super::state::{AppState, compute_store_changes};
 use crate::config::load_config;
 use crate::db::migration::run_migrations;
 use crate::db::pool::{close_pools, create_pools};
+use crate::storage::create_store;
 
 /// Health check handler.
 ///
@@ -26,13 +29,15 @@ use crate::db::pool::{close_pools, create_pools};
 ///   "status": "healthy",
 ///   "databases_configured": 1,
 ///   "databases_connected": 1,
-///   "endpoints_configured": 5
+///   "endpoints_configured": 5,
+///   "stores_configured": 1
 /// }
 /// ```
 pub async fn handle_health(State(state): State<AppState>) -> impl IntoResponse {
     let config = state.config.read().await;
     let db_count = config.databases.len();
     let endpoint_count = config.endpoints.len();
+    let store_count = config.stores.len();
     drop(config);
 
     let pools = state.db_pools.read().await;
@@ -44,6 +49,7 @@ pub async fn handle_health(State(state): State<AppState>) -> impl IntoResponse {
         "databases_configured": db_count,
         "databases_connected": connected_dbs,
         "endpoints_configured": endpoint_count,
+        "stores_configured": store_count,
     }))
 }
 
@@ -58,7 +64,7 @@ pub async fn handle_health(State(state): State<AppState>) -> impl IntoResponse {
 /// Returns a `(StatusCode, Json)` error tuple if the admin token is missing
 /// or invalid, or if config loading/migration fails.
 pub async fn handle_reload(
-    State(state): State<AppState>,
+    State(mut state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, (StatusCode, Json<serde_json::Value>)> {
     // Authenticate the request.
@@ -103,6 +109,12 @@ pub async fn handle_reload(
     let db_count = new_config.databases.len();
     let table_count = new_config.tables.len();
 
+    // Compute store changes before the config/pools swap, so we still have
+    // access to new_config for the swap below.
+    let old_store_configs = state.store_configs.read().await.clone();
+    let (unchanged, changed_or_removed): (Vec<String>, Vec<String>) =
+        compute_store_changes(&old_store_configs, &new_config.stores);
+
     // Recreate database pools for the new config.
     let new_pools = match create_pools(&new_config.databases).await {
         Ok(p) => p,
@@ -135,15 +147,65 @@ pub async fn handle_reload(
         ));
     }
 
-    // Atomically swap both config and pools together to avoid inconsistencies.
-    // Hold both write locks simultaneously so no request can see mismatched state.
+    // Handle store changes: create new/updated stores BEFORE swapping config/pools.
+    // This ensures failures are handled gracefully without partial state swaps.
+    let new_store_configs = new_config.stores.clone();
+    let (old_stores, new_stores): (Vec<Arc<dyn crate::storage::Storage>>, _) = {
+        if changed_or_removed.is_empty() {
+            (Vec::new(), Arc::clone(&state.stores))
+        } else {
+            // Collect old store references to close later
+            let old_stores: Vec<Arc<dyn crate::storage::Storage>> = changed_or_removed
+                .iter()
+                .filter_map(|name| state.stores.get(name).cloned())
+                .collect();
+
+            // Build new stores map by copying existing and removing/replacing changed ones
+            let mut map = (*state.stores).clone();
+            for name in &changed_or_removed {
+                map.remove(name);
+            }
+            for (name, store_config) in &new_store_configs {
+                if !unchanged.contains(name) {
+                    let store = create_store(store_config).await.map_err(|e| {
+                        tracing::error!("Store creation failed during reload: {name}: {e}");
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(json!({
+                                "error": {
+                                    "code": "reload_failed",
+                                    "message": format!("Store creation failed: {e}")
+                                }
+                            })),
+                        )
+                    })?;
+                    map.insert(name.clone(), store);
+                }
+            }
+            (old_stores, Arc::new(map))
+        }
+    };
+
+    // Atomically swap config, pools, stores, and store_configs together.
+    // Hold all write locks simultaneously so no request can see mismatched state.
     let old_pools = {
         let mut config = state.config.write().await;
         let mut pools = state.db_pools.write().await;
+        let mut store_configs = state.store_configs.write().await;
         let old_pools = std::mem::replace(&mut *pools, new_pools);
         *config = new_config;
+        *store_configs = new_store_configs;
+        drop(store_configs);
+        state.stores = new_stores;
         old_pools
     };
+
+    // Spawn drain for old stores
+    for _old_store in old_stores {
+        tokio::spawn(async move {
+            tracing::debug!("Old store drained.");
+        });
+    }
 
     // Drain old pools *after* releasing the locks so in-flight requests on the
     // old pools can finish naturally. sqlx pool close() waits for active

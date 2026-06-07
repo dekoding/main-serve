@@ -9,7 +9,7 @@ use http::Method;
 use http_body_util::BodyExt;
 use main_serve::middleware::auth::validators::jwt::create_token;
 use support::helpers::jwt_config;
-use support::json_body;
+use support::{MINIMAL_PNG, json_body};
 use tower::ServiceExt;
 
 // =============================================================================
@@ -32,12 +32,17 @@ async fn test_static_file_serving() {
 server:
   port: 0
 
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
 endpoints:
   - path: "/static/*"
     methods: ["get"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{root}"
+      storage: "local_assets"
       index: "index.html"
     auth: "none"
 "#;
@@ -102,12 +107,17 @@ async fn test_static_file_not_found() {
 server:
   port: 0
 
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
 endpoints:
   - path: "/static/*"
     methods: ["get"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{root}"
+      storage: "local_assets"
       index: "index.html"
     auth: "none"
 "#;
@@ -123,42 +133,7 @@ endpoints:
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
-#[tokio::test]
-async fn test_static_spa_fallback() {
-    let dir = tempfile::TempDir::new().expect("tempdir");
-    let public_dir = dir.path().join("public");
-    std::fs::create_dir_all(&public_dir).unwrap();
-    std::fs::write(public_dir.join("index.html"), "<html>SPA</html>").unwrap();
-
-    let yaml_tmpl = r#"
-server:
-  port: 0
-
-endpoints:
-  - path: "/app/*"
-    methods: ["get"]
-    action: "static"
-    static_files:
-      root: "{root}"
-      index: "index.html"
-      spa_fallback: true
-    auth: "none"
-"#;
-    let yaml = yaml_tmpl.replace("{root}", &public_dir.display().to_string());
-    let (app, _f) = support::setup_server(&yaml).await;
-
-    // Request a non-existent path - SPA fallback should return index.html.
-    let req = Request::builder()
-        .uri("/app/deep/route")
-        .body(Body::empty())
-        .unwrap();
-
-    let response = app.oneshot(req).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
-    let body = response.into_body().collect().await.unwrap().to_bytes();
-    assert!(String::from_utf8_lossy(&body).contains("SPA"));
-}
-
+// SPA fallback is now handled by the spa_host endpoint type (see tests/spa_host.rs)
 // =============================================================================
 // Static file - subdirectory index
 // =============================================================================
@@ -176,12 +151,17 @@ async fn test_static_subdirectory_index() {
 server:
   port: 0
 
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
 endpoints:
   - path: "/static/*"
     methods: ["get"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{root}"
+      storage: "local_assets"
     auth: "none"
 "#;
     let yaml = yaml_tmpl.replace("{root}", &public_dir.display().to_string());
@@ -233,12 +213,17 @@ async fn test_static_serve_various_file_types() {
 server:
   port: 0
 
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
 endpoints:
   - path: "/static/*"
     methods: ["get"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{root}"
+      storage: "local_assets"
       index: "index.html"
     auth: "none"
 "#;
@@ -377,12 +362,17 @@ async fn test_static_path_without_wildcard() {
 server:
   port: 0
 
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
 endpoints:
   - path: "/site"
     methods: ["get"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{root}"
+      storage: "local_assets"
       index: "index.html"
     auth: "none"
 "#;
@@ -462,12 +452,17 @@ async fn test_scenario1b_no_listing_index_specified_but_missing() {
 server:
   port: 0
 
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
 endpoints:
   - path: "/site/*"
     methods: ["get"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{root}"
+      storage: "local_assets"
       index: "home.html"
       directory_listing: false
     auth: "none"
@@ -519,12 +514,17 @@ async fn test_root_path_no_listing_index_specified() {
 server:
   port: 0
 
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
 endpoints:
   - path: "/"
     methods: ["get"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{root}"
+      storage: "local_assets"
       index: "home.html"
       directory_listing: false
     auth: "none"
@@ -615,12 +615,17 @@ async fn test_root_path_no_listing_default_index_present() {
 server:
   port: 0
 
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
 endpoints:
   - path: "/"
     methods: ["get"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{root}"
+      storage: "local_assets"
       directory_listing: false
     auth: "none"
 "#;
@@ -667,12 +672,17 @@ async fn test_root_path_no_listing_no_index_file() {
 server:
   port: 0
 
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
 endpoints:
   - path: "/"
     methods: ["get"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{root}"
+      storage: "local_assets"
       directory_listing: false
     auth: "none"
 "#;
@@ -715,12 +725,17 @@ async fn test_root_path_listing_no_index_file() {
 server:
   port: 0
 
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
 endpoints:
   - path: "/"
     methods: ["get"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{root}"
+      storage: "local_assets"
       directory_listing: true
     auth: "none"
 "#;
@@ -789,12 +804,17 @@ async fn test_root_path_listing_with_default_index_present() {
 server:
   port: 0
 
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
 endpoints:
   - path: "/"
     methods: ["get"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{root}"
+      storage: "local_assets"
       directory_listing: true
     auth: "none"
 "#;
@@ -842,12 +862,17 @@ async fn test_root_path_listing_custom_index_present() {
 server:
   port: 0
 
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
 endpoints:
   - path: "/"
     methods: ["get"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{root}"
+      storage: "local_assets"
       index: "home.html"
       directory_listing: true
     auth: "none"
@@ -908,12 +933,17 @@ async fn test_root_path_listing_custom_index_missing() {
 server:
   port: 0
 
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
 endpoints:
   - path: "/"
     methods: ["get"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{root}"
+      storage: "local_assets"
       index: "home.html"
       directory_listing: true
     auth: "none"
@@ -978,12 +1008,17 @@ async fn test_directory_listing_nested_links() {
 server:
   port: 0
 
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
 endpoints:
   - path: "/"
     methods: ["get"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{root}"
+      storage: "local_assets"
       directory_listing: true
     auth: "none"
 "#;
@@ -1038,18 +1073,6 @@ endpoints:
 // File Management Tests - Upload and Deletion
 // =============================================================================
 
-/// Helper function to create a minimal valid PNG file
-fn create_minimal_png() -> Vec<u8> {
-    vec![
-        0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG signature
-        0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, // IHDR chunk
-        0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, // 1x1 pixel
-        0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44,
-        0x41, 0x54, 0x08, 0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x03, 0x01, 0x01, 0x00, 0x18,
-        0xDD, 0x8D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
-    ]
-}
-
 #[tokio::test]
 async fn test_valid_file_upload_succeeds_with_201() {
     use axum::http::Method;
@@ -1082,16 +1105,21 @@ tables:
         type: "serial"
         primary_key: true
 
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
 endpoints:
   - path: "/files/*"
     methods: ["get", "post"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{root}"
+      storage: "local_assets"
       upload:
         enabled: true
         max_size: 10485760
-        allowed_extensions: ["jpg", "png", "pdf"]
+        allowed_extensions: [".jpg", ".png", ".pdf"]
     auth: "jwt"
 "#,
         root = upload_dir.display()
@@ -1099,7 +1127,7 @@ endpoints:
 
     let (app, _f) = support::setup_server(&yaml).await;
 
-    let png_data = create_minimal_png();
+    let png_data = MINIMAL_PNG.to_vec();
 
     // Create multipart form data using axum's multipart extraction
     let mut body = Vec::new();
@@ -1117,7 +1145,7 @@ endpoints:
     let req = Request::builder()
         .method(Method::POST)
         .uri("/files/test_image.png")
-        .header("authorization", format!("Bearer {}", token))
+        .header("authorization", format!("Bearer {token}"))
         .header("content-type", "multipart/form-data; boundary=boundary")
         .body(Body::from(body))
         .unwrap();
@@ -1134,9 +1162,10 @@ endpoints:
     assert!(json_body["success"].as_bool().unwrap());
     let path = json_body["path"].as_str().unwrap();
     assert!(
-        path.ends_with(".png"),
-        "Path should end with .png, got: {}",
-        path
+        std::path::Path::new(path)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("png")),
+        "Path should end with .png, got: {path}"
     );
     assert_eq!(json_body["size"].as_u64().unwrap(), png_data.len() as u64);
 }
@@ -1169,12 +1198,17 @@ tables:
         type: "serial"
         primary_key: true
 
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
 endpoints:
   - path: "/files/*"
     methods: ["post"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{root}"
+      storage: "local_assets"
       upload:
         enabled: true
     auth: "jwt"
@@ -1192,7 +1226,7 @@ endpoints:
     let req = Request::builder()
         .method(Method::POST)
         .uri("/files/test.txt")
-        .header("authorization", format!("Bearer {}", token))
+        .header("authorization", format!("Bearer {token}"))
         .header("content-type", "multipart/form-data; boundary=boundary")
         .body(Body::from(body))
         .unwrap();
@@ -1207,8 +1241,6 @@ endpoints:
 
     let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
     let json_body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
-    eprintln!("Response body: {}", String::from_utf8_lossy(&body_bytes));
-    eprintln!("JSON: {:?}", json_body);
     assert!(
         json_body["error"]["message"]
             .as_str()
@@ -1245,12 +1277,17 @@ tables:
         type: "serial"
         primary_key: true
 
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
 endpoints:
   - path: "/files/*"
     methods: ["post"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{root}"
+      storage: "local_assets"
       upload:
         enabled: true
         max_size: 1024
@@ -1278,7 +1315,7 @@ endpoints:
     let req = Request::builder()
         .method(Method::POST)
         .uri("/files/large_file.txt")
-        .header("authorization", format!("Bearer {}", token))
+        .header("authorization", format!("Bearer {token}"))
         .header("content-type", "multipart/form-data; boundary=boundary")
         .header("content-length", "2100") // Approximate with boundary overhead
         .body(Body::from(body))
@@ -1294,7 +1331,6 @@ endpoints:
 
     let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
     let json_body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
-    eprintln!("Response body: {}", String::from_utf8_lossy(&body_bytes));
     assert!(
         json_body["error"]["message"]
             .as_str()
@@ -1331,12 +1367,17 @@ tables:
         type: "serial"
         primary_key: true
 
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
 endpoints:
   - path: "/files/*"
     methods: ["post"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{root}"
+      storage: "local_assets"
       upload:
         enabled: true
         max_size: 1024
@@ -1364,7 +1405,7 @@ endpoints:
     let req = Request::builder()
         .method(Method::POST)
         .uri("/files/large_file.txt")
-        .header("authorization", format!("Bearer {}", token))
+        .header("authorization", format!("Bearer {token}"))
         .header("content-type", "multipart/form-data; boundary=boundary")
         .body(Body::from(body))
         .unwrap();
@@ -1406,15 +1447,20 @@ tables:
         type: "serial"
         primary_key: true
 
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
 endpoints:
   - path: "/files/*"
     methods: ["post"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{root}"
+      storage: "local_assets"
       upload:
         enabled: true
-        allowed_extensions: ["jpg", "png"]
+        allowed_extensions: [".jpg", ".png"]
     auth: "jwt"
 "#,
         root = upload_dir.display()
@@ -1440,7 +1486,7 @@ endpoints:
     let req = Request::builder()
         .method(Method::POST)
         .uri("/files/document.pdf")
-        .header("authorization", format!("Bearer {}", token))
+        .header("authorization", format!("Bearer {token}"))
         .header("content-type", "multipart/form-data; boundary=boundary")
         .body(Body::from(body))
         .unwrap();
@@ -1450,8 +1496,6 @@ endpoints:
     let status = response.status();
     let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
     let json_body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
-    eprintln!("Response body: {}", String::from_utf8_lossy(&body_bytes));
-    eprintln!("JSON: {:?}", json_body);
 
     assert_eq!(
         status,
@@ -1495,15 +1539,20 @@ tables:
         type: "serial"
         primary_key: true
 
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
 endpoints:
   - path: "/files/*"
     methods: ["post"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{root}"
+      storage: "local_assets"
       upload:
         enabled: true
-        allowed_extensions: ["jpg", "png"]
+        allowed_extensions: [".jpg", ".png"]
     auth: "jwt"
 "#,
         root = upload_dir.display()
@@ -1528,7 +1577,7 @@ endpoints:
     let req = Request::builder()
         .method(Method::POST)
         .uri("/files/fake_image.png")
-        .header("authorization", format!("Bearer {}", token))
+        .header("authorization", format!("Bearer {token}"))
         .header("content-type", "multipart/form-data; boundary=boundary")
         .body(Body::from(body))
         .unwrap();
@@ -1543,8 +1592,6 @@ endpoints:
 
     let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
     let json_body: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
-    eprintln!("Response body: {}", String::from_utf8_lossy(&body_bytes));
-    eprintln!("JSON: {:?}", json_body);
     assert!(
         json_body["error"]["message"]
             .as_str()
@@ -1581,12 +1628,17 @@ tables:
         type: "serial"
         primary_key: true
 
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
 endpoints:
   - path: "/files/*"
     methods: ["post"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{root}"
+      storage: "local_assets"
       upload:
         enabled: true
     auth: "jwt"
@@ -1598,7 +1650,7 @@ endpoints:
 
     let token = create_token("user-123", Some("user"), &jwt_config(&yaml)).unwrap();
 
-    let file_data = create_minimal_png();
+    let file_data = MINIMAL_PNG.to_vec();
 
     // First upload
     let mut body1 = Vec::new();
@@ -1614,7 +1666,7 @@ endpoints:
     let req1 = Request::builder()
         .method(Method::POST)
         .uri("/files/test.png")
-        .header("authorization", format!("Bearer {}", token))
+        .header("authorization", format!("Bearer {token}"))
         .header("content-type", "multipart/form-data; boundary=boundary")
         .body(Body::from(body1))
         .unwrap();
@@ -1640,7 +1692,7 @@ endpoints:
     let req2 = Request::builder()
         .method(Method::POST)
         .uri("/files/test.png")
-        .header("authorization", format!("Bearer {}", token))
+        .header("authorization", format!("Bearer {token}"))
         .header("content-type", "multipart/form-data; boundary=boundary")
         .body(Body::from(body2))
         .unwrap();
@@ -1660,8 +1712,8 @@ endpoints:
     );
 
     // Both files should have UUID prefix (UUID contains dashes)
-    assert!(path1.contains("-"), "First upload should have UUID prefix");
-    assert!(path2.contains("-"), "Second upload should have UUID prefix");
+    assert!(path1.contains('-'), "First upload should have UUID prefix");
+    assert!(path2.contains('-'), "Second upload should have UUID prefix");
 }
 
 #[tokio::test]
@@ -1672,7 +1724,7 @@ async fn test_parent_directories_created_automatically() {
     // Don't create subdirectories - they should be created automatically
 
     let yaml = format!(
-        r##"
+        r#"
 server:
   port: 0
 
@@ -1693,17 +1745,22 @@ tables:
         type: "serial"
         primary_key: true
 
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
 endpoints:
   - path: "/files/*"
     methods: ["post"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{root}"
+      storage: "local_assets"
       upload:
         enabled: true
         create_subdirectory: "{{user_id}}/2024/01"
     auth: "jwt"
-"##,
+"#,
         root = upload_dir.display()
     );
 
@@ -1726,7 +1783,7 @@ endpoints:
     let req = Request::builder()
         .method(Method::POST)
         .uri("/files/nested_file.txt")
-        .header("authorization", format!("Bearer {}", token))
+        .header("authorization", format!("Bearer {token}"))
         .header("content-type", "multipart/form-data; boundary=boundary")
         .body(Body::from(body))
         .unwrap();
@@ -1748,8 +1805,7 @@ endpoints:
 
     assert!(
         file_path.exists(),
-        "File should exist at nested path: {:?}",
-        file_path
+        "File should exist at nested path: {file_path:?}"
     );
 }
 
@@ -1781,12 +1837,17 @@ tables:
         type: "serial"
         primary_key: true
 
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
 endpoints:
   - path: "/files/*"
     methods: ["post"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{root}"
+      storage: "local_assets"
       upload:
         enabled: true
     auth: "jwt"
@@ -1799,7 +1860,7 @@ endpoints:
     let token = create_token("user-123", Some("user"), &jwt_config(&yaml)).unwrap();
 
     // First upload - should succeed
-    let file_data = create_minimal_png();
+    let file_data = MINIMAL_PNG.to_vec();
 
     let mut body1 = Vec::new();
     body1.extend_from_slice(b"--boundary\r\n");
@@ -1814,14 +1875,14 @@ endpoints:
     let req1 = Request::builder()
         .method(Method::POST)
         .uri("/files/test.png")
-        .header("authorization", format!("Bearer {}", token))
+        .header("authorization", format!("Bearer {token}"))
         .header("content-type", "multipart/form-data; boundary=boundary")
         .body(Body::from(body1))
         .unwrap();
 
     let response1: axum::http::Response<Body> = app.clone().oneshot(req1).await.unwrap();
     let status1 = response1.status();
-    eprintln!("First upload response status: {:?}", status1);
+    eprintln!("First upload response status: {status1:?}");
     let body_bytes = response1.into_body().collect().await.unwrap().to_bytes();
     eprintln!(
         "First upload response body: {}",
@@ -1847,7 +1908,7 @@ endpoints:
     let req2 = Request::builder()
         .method(Method::POST)
         .uri("/files/test2.png")
-        .header("authorization", format!("Bearer {}", token))
+        .header("authorization", format!("Bearer {token}"))
         .header("content-type", "multipart/form-data; boundary=boundary")
         .body(Body::from(body2))
         .unwrap();
@@ -1895,12 +1956,17 @@ tables:
         type: "serial"
         primary_key: true
 
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
 endpoints:
   - path: "/files/*"
     methods: ["get", "post", "delete"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{root}"
+      storage: "local_assets"
       upload:
         enabled: true
     auth: "jwt"
@@ -1913,7 +1979,7 @@ endpoints:
     let token = create_token("user-123", Some("user"), &jwt_config(&yaml)).unwrap();
 
     // First, upload a file
-    let file_data = create_minimal_png();
+    let file_data = MINIMAL_PNG.to_vec();
 
     let mut body = Vec::new();
     body.extend_from_slice(b"--boundary\r\n");
@@ -1928,7 +1994,7 @@ endpoints:
     let req = Request::builder()
         .method(Method::POST)
         .uri("/files/to_delete.png")
-        .header("authorization", format!("Bearer {}", token))
+        .header("authorization", format!("Bearer {token}"))
         .header("content-type", "multipart/form-data; boundary=boundary")
         .body(Body::from(body))
         .unwrap();
@@ -1942,8 +2008,8 @@ endpoints:
     // Now delete the file
     let delete_req = Request::builder()
         .method(Method::DELETE)
-        .uri(format!("/files{}", file_path))
-        .header("authorization", format!("Bearer {}", token))
+        .uri(format!("/files{file_path}"))
+        .header("authorization", format!("Bearer {token}"))
         .body(Body::empty())
         .unwrap();
 
@@ -1955,7 +2021,7 @@ endpoints:
         .await
         .unwrap()
         .to_bytes();
-    eprintln!("Delete response status: {:?}", status);
+    eprintln!("Delete response status: {status:?}");
     eprintln!(
         "Delete response body: {}",
         String::from_utf8_lossy(&body_bytes)
@@ -2000,16 +2066,22 @@ tables:
         type: "serial"
         primary_key: true
 
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
 endpoints:
   - path: "/files/*"
     methods: ["delete"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{root}"
+      storage: "local_assets"
       upload:
         enabled: true
-        required_role: "admin"
     auth: "jwt"
+    roles:
+      - "admin"
 "#,
         root = upload_dir.display()
     );
@@ -2022,7 +2094,7 @@ endpoints:
     let delete_req = Request::builder()
         .method(Method::DELETE)
         .uri("/files/somefile.png")
-        .header("authorization", format!("Bearer {}", token))
+        .header("authorization", format!("Bearer {token}"))
         .body(Body::empty())
         .unwrap();
 
@@ -2041,6 +2113,361 @@ endpoints:
         json_body["error"]["message"]
             .as_str()
             .unwrap()
-            .contains("admin")
+            .contains("not authorized")
     );
+}
+
+// =============================================================================
+// 5.2 Static file security tests - directory traversal prevention
+// =============================================================================
+
+#[tokio::test]
+async fn test_static_files_directory_traversal_dotdot() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let root_str = dir.path().display().to_string();
+
+    // Create a legitimate file
+    std::fs::create_dir_all(dir.path().join("sub")).unwrap();
+    std::fs::write(
+        dir.path().join("sub").join("index.html"),
+        b"<html>ok</html>",
+    )
+    .unwrap();
+    // Create a "sensitive" file at root level
+    std::fs::write(dir.path().join("sensitive.txt"), b"secret data").unwrap();
+
+    let yaml = format!(
+        r#"
+server:
+  port: 0
+
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
+endpoints:
+  - path: "/assets/*"
+    methods: ["get"]
+    action: "static_files"
+    static_files:
+      storage: "local_assets"
+    auth: "none"
+"#,
+        root = root_str
+    );
+
+    let (app, _f) = support::setup_server(&yaml).await;
+
+    // Request with ../ traversal - should be forbidden
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri("/assets/sub/../../sensitive.txt")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_static_files_directory_traversal_single_dot() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let root_str = dir.path().display().to_string();
+
+    std::fs::write(dir.path().join("real.html"), b"<html>ok</html>").unwrap();
+
+    let yaml = format!(
+        r#"
+server:
+  port: 0
+
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
+endpoints:
+  - path: "/assets/*"
+    methods: ["get"]
+    action: "static_files"
+    static_files:
+      storage: "local_assets"
+    auth: "none"
+"#,
+        root = root_str
+    );
+
+    let (app, _f) = support::setup_server(&yaml).await;
+
+    // Request with . segment - should be forbidden
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri("/assets/./../../sensitive.txt")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_static_files_directory_traversal_percent_encoded() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let root_str = dir.path().display().to_string();
+
+    std::fs::write(dir.path().join("real.html"), b"<html>ok</html>").unwrap();
+
+    let yaml = format!(
+        r#"
+server:
+  port: 0
+
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
+endpoints:
+  - path: "/assets/*"
+    methods: ["get"]
+    action: "static_files"
+    static_files:
+      storage: "local_assets"
+    auth: "none"
+"#,
+        root = root_str
+    );
+
+    let (app, _f) = support::setup_server(&yaml).await;
+
+    // Request with percent-encoded ../ as %2e%2e%2f
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri("/assets/%2e%2e/%2e%2e/sensitive.txt")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_static_files_directory_traversal_nested_dotdot() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let root_str = dir.path().display().to_string();
+
+    std::fs::write(dir.path().join("real.html"), b"<html>ok</html>").unwrap();
+
+    let yaml = format!(
+        r#"
+server:
+  port: 0
+
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
+endpoints:
+  - path: "/assets/*"
+    methods: ["get"]
+    action: "static_files"
+    static_files:
+      storage: "local_assets"
+    auth: "none"
+"#,
+        root = root_str
+    );
+
+    let (app, _f) = support::setup_server(&yaml).await;
+
+    // Multiple levels of traversal
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri("/assets/a/b/../../../sensitive.txt")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_static_files_normal_subdirectory_access() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let root_str = dir.path().display().to_string();
+
+    std::fs::create_dir_all(dir.path().join("sub")).unwrap();
+    std::fs::write(
+        dir.path().join("sub").join("index.html"),
+        b"<html>ok</html>",
+    )
+    .unwrap();
+
+    let yaml = format!(
+        r#"
+server:
+  port: 0
+
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
+endpoints:
+  - path: "/assets/*"
+    methods: ["get"]
+    action: "static_files"
+    static_files:
+      storage: "local_assets"
+    auth: "none"
+"#,
+        root = root_str
+    );
+
+    let (app, _f) = support::setup_server(&yaml).await;
+
+    // Normal subdirectory access should work
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri("/assets/sub/index.html")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(&*body_bytes, b"<html>ok</html>");
+}
+
+// =============================================================================
+// 5.2 Static file security tests - path canonicalization for store-backed
+// =============================================================================
+
+#[tokio::test]
+async fn test_spa_host_directory_traversal_prevention() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let root_str = dir.path().display().to_string();
+
+    std::fs::write(dir.path().join("index.html"), b"<html>spa</html>").unwrap();
+    std::fs::write(dir.path().join("secret.txt"), b"should not be accessible").unwrap();
+
+    let yaml = format!(
+        r#"
+server:
+  port: 0
+
+stores:
+  assets:
+    backend: native
+    root: "{root}"
+
+endpoints:
+  - path: "/app/*"
+    methods: ["get"]
+    action: "spa_host"
+    spa_host:
+      storage: "assets"
+      index: "index.html"
+    auth: "none"
+"#,
+        root = root_str
+    );
+
+    let (app, _f) = support::setup_server(&yaml).await;
+
+    // SPA host should reject path traversal
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri("/app/../../secret.txt")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_static_files_empty_path_serves_root() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let root_str = dir.path().display().to_string();
+
+    std::fs::write(dir.path().join("index.html"), b"<html>root</html>").unwrap();
+
+    let yaml = format!(
+        r#"
+server:
+  port: 0
+
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
+endpoints:
+  - path: "/static/*"
+    methods: ["get"]
+    action: "static_files"
+    static_files:
+      storage: "local_assets"
+    auth: "none"
+"#,
+        root = root_str
+    );
+
+    let (app, _f) = support::setup_server(&yaml).await;
+
+    // Requesting just /static/ should serve index.html
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri("/static/")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body_bytes = response.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(&*body_bytes, b"<html>root</html>");
+}
+
+#[tokio::test]
+async fn test_static_files_single_dot_file_forbidden() {
+    let dir = tempfile::TempDir::new().expect("tempdir");
+    let root_str = dir.path().display().to_string();
+
+    std::fs::write(dir.path().join("index.html"), b"<html>ok</html>").unwrap();
+
+    let yaml = format!(
+        r#"
+server:
+  port: 0
+
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
+endpoints:
+  - path: "/static/*"
+    methods: ["get"]
+    action: "static_files"
+    static_files:
+      storage: "local_assets"
+    auth: "none"
+"#,
+        root = root_str
+    );
+
+    let (app, _f) = support::setup_server(&yaml).await;
+
+    // Request with ./ segment
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri("/static/./index.html")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }

@@ -35,6 +35,10 @@
                     "$ref": "#/definitions/Auth",
                     "description": "AUTHENTICATION (Global auth provider definitions)\nDefine named auth providers. Endpoints reference these by name."
                 },
+                "stores": {
+                    "$ref": "#/definitions/Stores",
+                    "description": "Named storage backends. Endpoints that need file storage reference these by key."
+                },
                 "endpoints": {
                     "type": "array",
                     "description": "The core of Main Serve. Each entry in the endpoints list defines an HTTP route and its behavior.\nDefine API routes, static file serving paths, and reverse proxies.",
@@ -427,6 +431,183 @@
             ],
             "title": "Database"
         },
+        "Stores": {
+            "type": "object",
+            "additionalProperties": false,
+            "patternProperties": {
+                "^.*$": {
+                    "$ref": "#/definitions/Store",
+                    "description": "Each key is a unique name used to reference this store in endpoints."
+                }
+            },
+            "title": "Stores"
+        },
+        "Store": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "backend": {
+                    "description": "Storage backend type: \"native\" (local disk), \"s3\" (Amazon S3),\n\"azure\" (Azure Blob Storage), \"gcs\" (Google Cloud Storage),\n\"memory\" (in-memory for testing, no config needed).",
+                    "anyOf": [
+                        { "type": "string", "enum": [ "native", "s3", "azure", "gcs", "memory" ] },
+                        { "$ref": "#/definitions/EnvVar" }
+                    ]
+                },
+                "root": {
+                    "type": "string",
+                    "description": "Root directory for local storage. Required when backend is \"native\"."
+                },
+                "s3": {
+                    "type": "object",
+                    "description": "AWS s3 configuration options.",
+                    "additionalProperties": false,
+                    "properties": {
+                        "region": {
+                            "description": "The AWS region.",
+                            "type": "string"
+                        },
+                        "bucket": {
+                            "description": "The S3 bucket name.",
+                            "type": "string"
+                        },
+                        "access_key": {
+                            "description": "The access key used with this bucket.",
+                            "type": "string"
+                        },
+                        "secret_key": {
+                            "description": "The secret key used with this bucket.",
+                            "type": "string"
+                        },
+                        "endpoint": {
+                            "description": "Optional custom endpoint URL for S3-compatible services.",
+                            "type": "string"
+                        },
+                        "force_path_style": {
+                            "description": "Optional setting used for local s3-compatible services like MinIO.",
+                            "type": "boolean",
+                            "default": false
+                        }
+                    },
+                    "required": [ "region", "bucket", "access_key", "secret_key" ]
+                },
+                "azure": {
+                    "type": "object",
+                    "description": "Microsoft Azure configuration options.",
+                    "additionalProperties": false,
+                    "properties": {
+                        "account_name": {
+                            "description": "The Azure account to use.",
+                            "type": "string"
+                        },
+                        "account_key": {
+                            "description": "The Azure account key to use.",
+                            "type": "string"
+                        },
+                        "container": {
+                            "description": "The Azure container that stores files.",
+                            "type": "string"
+                        }
+                    },
+                    "required": [ "account_name", "account_key", "container" ]
+                },
+                "gcs": {
+                    "type": "object",
+                    "description": "Google Cloud Storage configuration options.",
+                    "additionalProperties": false,
+                    "properties": {
+                        "project_id": {
+                            "description": "The GCS project to connect to.",
+                            "type": "string"
+                        },
+                        "credentials": {
+                            "description": "The GCS credentials to use.",
+                            "type": "string"
+                        },
+                        "bucket": {
+                            "description": "The GCS bucket that stores files.",
+                            "type": "string"
+                        }
+                    },
+                    "required": [ "project_id", "credentials", "bucket" ]
+                }
+            },
+            "required": [ "backend" ],
+            "oneOf": [
+                {
+                    "description": "Native backend configuration (root required, no s3/azure/gcs/memory)",
+                    "allOf": [
+                        { "if": { "properties": { "backend": { "const": "native" } } } },
+                        { "then": { "required": [ "root" ] } },
+                        { "not": { "required": [ "s3" ] } },
+                        { "not": { "required": [ "azure" ] } },
+                        { "not": { "required": [ "gcs" ] } },
+                        { "not": { "required": [ "memory" ] } },
+                        { "not": { "properties": { "backend": { "const": "s3" } } } },
+                        { "not": { "properties": { "backend": { "const": "azure" } } } },
+                        { "not": { "properties": { "backend": { "const": "gcs" } } } },
+                        { "not": { "properties": { "backend": { "const": "memory" } } } }
+                    ]
+                },
+                {
+                    "description": "S3 backend configuration (s3 required, no root/azure/gcs)",
+                    "allOf": [
+                        { "if": { "properties": { "backend": { "const": "s3" } } } },
+                        { "then": { "required": [ "s3" ] } },
+                        { "not": { "required": [ "root" ] } },
+                        { "not": { "required": [ "azure" ] } },
+                        { "not": { "required": [ "gcs" ] } },
+                        { "not": { "properties": { "backend": { "const": "native" } } } },
+                        { "not": { "properties": { "backend": { "const": "azure" } } } },
+                        { "not": { "properties": { "backend": { "const": "gcs" } } } },
+                        { "not": { "properties": { "backend": { "const": "memory" } } } }
+                    ]
+                },
+                {
+                    "description": "Azure backend configuration (azure required, no root/s3/gcs/memory)",
+                    "allOf": [
+                        { "if": { "properties": { "backend": { "const": "azure" } } } },
+                        { "then": { "required": [ "azure" ] } },
+                        { "not": { "required": [ "root" ] } },
+                        { "not": { "required": [ "s3" ] } },
+                        { "not": { "required": [ "gcs" ] } },
+                        { "not": { "required": [ "memory" ] } },
+                        { "not": { "properties": { "backend": { "const": "native" } } } },
+                        { "not": { "properties": { "backend": { "const": "s3" } } } },
+                        { "not": { "properties": { "backend": { "const": "gcs" } } } },
+                        { "not": { "properties": { "backend": { "const": "memory" } } } }
+                    ]
+                },
+                {
+                    "description": "GCS backend configuration (gcs required, no root/s3/azure/memory)",
+                    "allOf": [
+                        { "if": { "properties": { "backend": { "const": "gcs" } } } },
+                        { "then": { "required": [ "gcs" ] } },
+                        { "not": { "required": [ "root" ] } },
+                        { "not": { "required": [ "s3" ] } },
+                        { "not": { "required": [ "azure" ] } },
+                        { "not": { "required": [ "memory" ] } },
+                        { "not": { "properties": { "backend": { "const": "native" } } } },
+                        { "not": { "properties": { "backend": { "const": "s3" } } } },
+                        { "not": { "properties": { "backend": { "const": "azure" } } } },
+                        { "not": { "properties": { "backend": { "const": "memory" } } } }
+                    ]
+                },
+                {
+                    "description": "Memory backend configuration (no config needed)",
+                    "allOf": [
+                        { "if": { "properties": { "backend": { "const": "memory" } } } },
+                        { "not": { "required": [ "root" ] } },
+                        { "not": { "required": [ "s3" ] } },
+                        { "not": { "required": [ "azure" ] } },
+                        { "not": { "required": [ "gcs" ] } },
+                        { "not": { "properties": { "backend": { "const": "native" } } } },
+                        { "not": { "properties": { "backend": { "const": "s3" } } } },
+                        { "not": { "properties": { "backend": { "const": "azure" } } } },
+                        { "not": { "properties": { "backend": { "const": "gcs" } } } }
+                    ]
+                }
+            ]
+        },
         "Endpoint": {
             "type": "object",
             "additionalProperties": false,
@@ -443,10 +624,10 @@
                     "description": "Supported HTTP verbs.",
                     "items": {
                         "anyOf": [
-                            { "type": "string", "enum": [ "get", "post", "put", "patch", "delete" ] },
+                            { "type": "string", "enum": [ "get", "post", "put", "patch", "delete", "head" ] },
                             { "$ref": "#/definitions/EnvVar" }
                         ]
-                    }  
+                    }
                 },
                 "action": {
                     "description": "Type of action to perform.",
@@ -456,12 +637,15 @@
                             "enum": [
                                 "crud",
                                 "proxy",
-                                "static",
+                                "media",
+                                "static_files",
+                                "spa_host",
+                                "file_store",
                                 "custom_response"
                             ]
                         },
                         { "$ref": "#/definitions/EnvVar" }
-                    ]  
+                    ]
                 },
                 "crud": {
                     "$ref": "#/definitions/CRUD",
@@ -473,7 +657,19 @@
                 },
                 "static_files": {
                     "$ref": "#/definitions/StaticFiles",
-                    "description": "Static file serving configuration (required when action is \"static\")."
+                    "description": "Static file serving configuration (required when action is \"static_files\")."
+                },
+                "media": {
+                    "$ref": "#/definitions/Media",
+                    "description": "Media service configuration (required when action is \"media\")."
+                },
+                "spa_host": {
+                    "$ref": "#/definitions/SpaHost",
+                    "description": "SPA hosting configuration (required when action is \"spa_host\")."
+                },
+                "file_store": {
+                    "$ref": "#/definitions/FileStore",
+                    "description": "File store configuration (required when action is \"file_store\")."
                 },
                 "custom_response": {
                     "$ref": "#/definitions/CustomResponse",
@@ -511,11 +707,19 @@
                 "if": { "properties": { "action": { "const": "proxy" } } },
                 "then": { "required": [ "proxy" ] },
                 "else": {
-                    "if": { "properties": { "action": { "const": "static" } } },
+                    "if": { "properties": { "action": { "const": "static_files" } } },
                     "then": { "required": [ "static_files" ] },
                     "else": {
-                        "if": { "properties": { "action": { "const": "custom_response" } } },
-                        "then": { "required": [ "custom_response" ] }
+                        "if": { "properties": { "action": { "const": "spa_host" } } },
+                        "then": { "required": [ "spa_host" ] },
+                        "else": {
+                            "if": { "properties": { "action": { "const": "file_store" } } },
+                            "then": { "required": [ "file_store" ] },
+                            "else": {
+                                "if": { "properties": { "action": { "const": "custom_response" } } },
+                                "then": { "required": [ "custom_response" ] }
+                            }
+                        }
                     }
                 }
             },
@@ -700,7 +904,7 @@
                         { "type": "string", "enum": [ "asc", "desc" ] },
                         { "$ref": "#/definitions/EnvVar" }
                     ],
-                    "default": "asc"                    
+                    "default": "asc"
                 },
                 "allowed_fields": {
                     "type": "array",
@@ -846,13 +1050,9 @@
             "type": "object",
             "additionalProperties": false,
             "properties": {
-                "root": {
+                "storage": {
                     "type": "string",
-                    "description": "Root directory for static files (relative to CWD or absolute).",
-                    "examples": [
-                        "./public",
-                        "/var/www"
-                    ]
+                    "description": "Which named store to use (must match a key in `stores`)."
                 },
                 "index": {
                     "type": "string",
@@ -870,32 +1070,736 @@
                     "description": "Cache-Control header max-age in seconds. 0 disables caching.",
                     "default": 3600
                 },
-                "spa_fallback": {
+                "etag": {
                     "type": "boolean",
-                    "description": "SPA fallback: if true, 404s for non-file paths return the index file\nThis enables display of SPAs, such as those created with React, Angular, and other frameworks/libraries.",
-                    "default": false
+                    "description": "ETag generation for cache validation.",
+                    "default": true
+                },
+                "range_requests": {
+                    "type": "boolean",
+                    "description": "Support for HTTP range requests (partial content / 206).",
+                    "default": true
+                },
+                "head_support": {
+                    "type": "boolean",
+                    "description": "Support for HTTP HEAD method.",
+                    "default": true
+                },
+                "cache_rules": {
+                    "type": "array",
+                    "description": "Per-extension Cache-Control rules. Overrides cache_max_age for matching extensions.",
+                    "items": {
+                        "$ref": "#/definitions/CacheRule"
+                    }
                 },
                 "upload": {
                     "$ref": "#/definitions/FileUpload",
                     "description": "File upload configuration (optional)."
                 },
-                "user_scope": {
-                    "$ref": "#/definitions/UserScope",
-                    "description": "User-scoped file browsing configuration (optional)."
+                "streaming": {
+                    "$ref": "#/definitions/Streaming",
+                    "description": "Chunked streaming configuration for large files (optional)."
                 },
                 "image_resize": {
                     "$ref": "#/definitions/ImageResize",
                     "description": "On-demand image resizing configuration (optional)."
-                },
-                "streaming": {
-                    "$ref": "#/definitions/Streaming",
-                    "description": "Chunked streaming configuration for large files (optional)."
                 }
             },
             "required": [
-                "root"
+                "storage"
             ],
             "title": "StaticFiles"
+        },
+        "CacheRule": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "extensions": {
+                    "type": "array",
+                    "description": "File extensions to apply this Cache-Control rule to.",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "cache_control": {
+                    "type": "string",
+                    "description": "Cache-Control header value."
+                }
+            },
+            "required": [ "extensions", "cache_control" ],
+            "title": "CacheRule"
+        },
+        "Media": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "storage": {
+                    "type": "string",
+                    "description": "Which named store to use (must match a key in `stores`)."
+                },
+                "table": {
+                    "type": "string",
+                    "description": "Database table for media metadata."
+                },
+                "database": {
+                    "type": "string",
+                    "description": "Which named database to use (must match a key in `databases`)."
+                },
+                "columns": {
+                    "type": "array",
+                    "description": "Tracked metadata presets.\n\nValid columns: \"auto\", \"tags\", \"description\", \"alt_text\", \"content_type\"",
+                    "items": {
+                        "type": "string",
+                        "enum": [ "auto", "tags", "description", "alt_text", "content_type" ]
+                    },
+                    "default": [ "auto" ]
+                },
+                "metadata_columns": {
+                    "type": "array",
+                    "description": "Additional columns not covered by presets. Same structure as tables.columns but without primary_key, unique, or indexed constraints.",
+                    "items": {
+                        "$ref": "#/definitions/MediaMetadataColumn"
+                    }
+                },
+                "upload": {
+                    "$ref": "#/definitions/MediaUpload",
+                    "description": "Upload configuration."
+                },
+                "move": {
+                    "$ref": "#/definitions/MediaMove",
+                    "description": "Move configuration."
+                },
+                "rename": {
+                    "$ref": "#/definitions/MediaRename",
+                    "description": "Rename configuration."
+                },
+                "delete": {
+                    "$ref": "#/definitions/MediaDelete",
+                    "description": "Delete configuration."
+                },
+                "attach_to_content": {
+                    "$ref": "#/definitions/MediaAttachToContent",
+                    "description": "Attach media to content entities configuration."
+                },
+                "detach_from_content": {
+                    "$ref": "#/definitions/MediaDetachFromContent",
+                    "description": "Detach media from content entities configuration."
+                },
+                "user_scope": {
+                    "$ref": "#/definitions/MediaUserScope",
+                    "description": "User scoping configuration."
+                },
+                "content_references": {
+                    "$ref": "#/definitions/MediaContentReferences",
+                    "description": "Content entity integration configuration."
+                },
+                "trash": {
+                    "$ref": "#/definitions/MediaTrashConfig",
+                    "description": "Trash configuration."
+                },
+                "sharing": {
+                    "$ref": "#/definitions/MediaSharingConfig",
+                    "description": "Sharing / public links configuration."
+                },
+                "pagination": {
+                    "$ref": "#/definitions/MediaPagination",
+                    "description": "Pagination configuration for the metadata listing API."
+                },
+                "sorting": {
+                    "$ref": "#/definitions/MediaSorting",
+                    "description": "Sorting configuration for the metadata listing API."
+                },
+                "filtering": {
+                    "$ref": "#/definitions/MediaFiltering",
+                    "description": "Filtering configuration for the metadata listing API."
+                },
+                "facets": {
+                    "type": "array",
+                    "description": "Faceted search configuration (for media library UI).",
+                    "items": {
+                        "$ref": "#/definitions/MediaFacet"
+                    }
+                },
+                "image_resize": {
+                    "$ref": "#/definitions/MediaImageResize",
+                    "description": "Image resize configuration."
+                }
+            },
+            "required": [
+                "storage",
+                "table",
+                "database"
+            ],
+            "title": "Media"
+        },
+        "MediaMetadataColumn": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Column name."
+                },
+                "type": {
+                    "type": "string",
+                    "description": "Column data type."
+                },
+                "nullable": {
+                    "type": "boolean",
+                    "description": "Whether the column can be NULL.",
+                    "default": true
+                },
+                "default": {
+                    "type": [ "string", "null" ],
+                    "description": "Default value or SQL expression for this column."
+                }
+            },
+            "required": [ "name", "type" ],
+            "title": "MediaMetadataColumn"
+        },
+        "MediaUpload": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "max_size": {
+                    "type": "integer",
+                    "description": "Maximum upload size in bytes.",
+                    "default": 104857600
+                },
+                "allowed_extensions": {
+                    "type": "array",
+                    "description": "Allowed file extensions (empty = all extensions allowed).",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": []
+                },
+                "allowed_mime_types": {
+                    "type": "array",
+                    "description": "MIME type filtering (empty = all MIME types allowed).",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": []
+                },
+                "mime_detection": {
+                    "description": "MIME type detection method: \"extension\" or \"magic\".",
+                    "anyOf": [
+                        { "type": "string", "enum": [ "extension", "magic" ] },
+                        { "$ref": "#/definitions/EnvVar" }
+                    ],
+                    "default": "magic"
+                },
+                "bulk_supported": {
+                    "type": "boolean",
+                    "description": "Whether bulk upload (multipart/mixed) is supported.",
+                    "default": true
+                },
+                "create_subdirectory": {
+                    "type": [ "string", "null" ],
+                    "description": "Subdirectory pattern for organizing uploads.\nAvailable placeholders: {user_id}, {year}, {month}, {day}, {uuid}\nIf not set, files are stored at root of store.",
+                    "default": null
+                },
+                "versioning": {
+                    "$ref": "#/definitions/FileVersioning",
+                    "description": "File versioning configuration."
+                },
+                "preview_generation": {
+                    "$ref": "#/definitions/PreviewGeneration",
+                    "description": "Preview generation configuration."
+                }
+            },
+            "title": "MediaUpload"
+        },
+        "FileVersioning": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Whether file versioning is enabled.",
+                    "default": false
+                },
+                "max_versions": {
+                    "type": "integer",
+                    "description": "Maximum number of versions to keep.",
+                    "default": 10
+                }
+            },
+            "title": "FileVersioning"
+        },
+        "PreviewGeneration": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Whether preview generation is enabled.",
+                    "default": false
+                },
+                "previews": {
+                    "type": "array",
+                    "description": "Preview configurations.",
+                    "items": {
+                        "$ref": "#/definitions/PreviewConfig"
+                    }
+                }
+            },
+            "title": "PreviewGeneration"
+        },
+        "PreviewConfig": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Preview name."
+                },
+                "max_width": {
+                    "type": "integer",
+                    "description": "Maximum preview width."
+                },
+                "max_height": {
+                    "type": "integer",
+                    "description": "Maximum preview height."
+                },
+                "format": {
+                    "type": "string",
+                    "description": "Preview output format."
+                }
+            },
+            "required": [ "name", "max_width", "max_height", "format" ],
+            "title": "PreviewConfig"
+        },
+        "MediaMove": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Whether move operations are enabled. Defaults to true when section is present.",
+                    "default": true
+                },
+                "admin_override": {
+                    "type": "boolean",
+                    "description": "Admin users can move files anywhere in the store. Non-admin users can only move within their own directory tree.",
+                    "default": true
+                },
+                "auto_create_destination": {
+                    "type": "boolean",
+                    "description": "Auto-create destination directory if it doesn't exist.",
+                    "default": false
+                }
+            },
+            "title": "MediaMove"
+        },
+        "MediaRename": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Whether rename operations are enabled. Defaults to true when section is present.",
+                    "default": true
+                },
+                "admin_override": {
+                    "type": "boolean",
+                    "description": "Admin users can rename any file. Non-admin users can only rename their own files.",
+                    "default": true
+                }
+            },
+            "title": "MediaRename"
+        },
+        "MediaDelete": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Whether delete operations are enabled. Defaults to true when section is present.",
+                    "default": true
+                },
+                "admin_override": {
+                    "type": "boolean",
+                    "description": "Admin users can delete any file. Non-admin users can only delete their own files.",
+                    "default": true
+                }
+            },
+            "title": "MediaDelete"
+        },
+        "MediaAttachToContent": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Whether this feature is enabled. Defaults to true when section is present.",
+                    "default": true
+                }
+            },
+            "title": "MediaAttachToContent"
+        },
+        "MediaDetachFromContent": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Whether this feature is enabled. Defaults to true when section is present.",
+                    "default": true
+                }
+            },
+            "title": "MediaDetachFromContent"
+        },
+        "MediaUserScope": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Whether user scoping is enabled. Defaults to true when section is present.",
+                    "default": true
+                },
+                "mode": {
+                    "description": "Scoping mode:\n  \"user\"   - users see only their own uploads, manage only their own files\n  \"shared\" - all authenticated users see all files, but manage only their own\n  \"open\"   - no user restrictions, role-based access only",
+                    "anyOf": [
+                        { "type": "string", "enum": [ "user", "shared", "open" ] },
+                        { "$ref": "#/definitions/EnvVar" }
+                    ],
+                    "default": "shared"
+                },
+                "admin_roles": {
+                    "type": "array",
+                    "description": "Roles that bypass user scoping entirely.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": []
+                },
+                "allow_cross_user_browse": {
+                    "type": "boolean",
+                    "description": "Whether users can browse directories they don't own but are publicly accessible.",
+                    "default": false
+                }
+            },
+            "title": "MediaUserScope"
+        },
+        "MediaContentReferences": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Whether content references are enabled. Defaults to true when section is present.",
+                    "default": true
+                },
+                "table": {
+                    "type": "string",
+                    "description": "The association table name (auto-created).",
+                    "default": "media_entity_refs"
+                },
+                "media_id_column": {
+                    "type": "string",
+                    "description": "Column name for media ID in the association table."
+                },
+                "entity_id_column": {
+                    "type": "string",
+                    "description": "Column name for entity ID in the association table."
+                },
+                "content_type_column": {
+                    "type": "string",
+                    "description": "Column name for content type in the association table."
+                },
+                "order_column": {
+                    "type": "string",
+                    "description": "Column name for attachment order in the association table."
+                },
+                "allowed_content_types": {
+                    "type": [ "array", "null" ],
+                    "description": "Which content entity types can reference this media. When null, all content types can reference.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": null
+                },
+                "on_delete": {
+                    "description": "Behavior when media is deleted and is attached to entities:\n  \"detach\"   - remove association, leave media intact\n  \"cascade\"  - delete associations and the media\n  \"error\"    - refuse to delete if attached to any entity",
+                    "anyOf": [
+                        { "type": "string", "enum": [ "detach", "cascade", "error" ] },
+                        { "$ref": "#/definitions/EnvVar" }
+                    ],
+                    "default": "detach"
+                }
+            },
+            "required": [
+                "media_id_column",
+                "entity_id_column",
+                "content_type_column",
+                "order_column"
+            ],
+            "title": "MediaContentReferences"
+        },
+        "MediaTrashConfig": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Whether trash is enabled. Deleted files are moved to trash instead of being permanently removed.",
+                    "default": false
+                },
+                "retention_days": {
+                    "type": "integer",
+                    "description": "Number of days to retain trashed files.",
+                    "default": 14
+                },
+                "prefix": {
+                    "type": "string",
+                    "description": "Store prefix for trashed files.",
+                    "default": ".trash"
+                },
+                "management_endpoints": {
+                    "type": "boolean",
+                    "description": "Whether to expose trash management endpoints (list, restore, permanently delete, empty trash).",
+                    "default": true
+                },
+                "admin_roles": {
+                    "type": "array",
+                    "description": "Roles allowed to permanently delete and empty trash.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [ "admin" ]
+                }
+            },
+            "title": "MediaTrashConfig"
+        },
+        "MediaSharingConfig": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Whether time-limited public download links are enabled.",
+                    "default": false
+                },
+                "signing_secret": {
+                    "type": "string",
+                    "description": "Secret for signing and verifying share links (use ${ENV_VAR}).\nRequired when sharing.enabled is true.",
+                    "examples": [ "${FILE_SHARING_SECRET}" ]
+                },
+                "default_ttl": {
+                    "type": "integer",
+                    "description": "Default TTL for share links in seconds.",
+                    "default": 86400
+                },
+                "max_ttl": {
+                    "type": "integer",
+                    "description": "Maximum TTL for share links in seconds.",
+                    "default": 604800
+                },
+                "prefix": {
+                    "type": "string",
+                    "description": "Store prefix for publicly accessible files.",
+                    "default": "shared"
+                },
+                "allow_any_user": {
+                    "type": "boolean",
+                    "description": "Whether any authenticated user can create share links.",
+                    "default": true
+                },
+                "required_link_role": {
+                    "type": [ "string", "null" ],
+                    "description": "Role required to create share links (only used when allow_any_user is false).",
+                    "default": null
+                }
+            },
+            "if": { "properties": { "enabled": { "const": true } } },
+            "then": { "required": [ "signing_secret" ] },
+            "title": "MediaSharingConfig"
+        },
+        "MediaPagination": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Whether pagination is enabled.",
+                    "default": true
+                },
+                "default_page_size": {
+                    "type": "integer",
+                    "description": "Default page size.",
+                    "default": 20
+                },
+                "max_page_size": {
+                    "type": "integer",
+                    "description": "Maximum allowed page size.",
+                    "default": 100
+                }
+            },
+            "title": "MediaPagination"
+        },
+        "MediaSorting": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Whether sorting is enabled.",
+                    "default": true
+                },
+                "default_field": {
+                    "type": "string",
+                    "description": "Default sort field.",
+                    "default": "created_at"
+                },
+                "default_order": {
+                    "description": "Default sort order.",
+                    "anyOf": [
+                        { "type": "string", "enum": [ "asc", "desc" ] },
+                        { "$ref": "#/definitions/EnvVar" }
+                    ],
+                    "default": "desc"
+                },
+                "allowed_fields": {
+                    "type": "array",
+                    "description": "Fields that can be sorted on. Use [\"*\"] for all.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": "[\"*\"]"
+                }
+            },
+            "title": "MediaSorting"
+        },
+        "MediaFiltering": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Whether filtering is enabled.",
+                    "default": true
+                },
+                "allowed_fields": {
+                    "type": "array",
+                    "description": "Fields that can be filtered on.",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            },
+            "title": "MediaFiltering"
+        },
+        "MediaFacet": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Facet name."
+                },
+                "field": {
+                    "type": "string",
+                    "description": "Field to facet on."
+                },
+                "facet_type": {
+                    "description": "Facet type.",
+                    "anyOf": [
+                        { "type": "string", "enum": [ "term", "date_range", "numeric" ] },
+                        { "$ref": "#/definitions/EnvVar" }
+                    ]
+                }
+            },
+            "required": [ "name", "field", "facet_type" ],
+            "title": "MediaFacet"
+        },
+        "MediaImageResize": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Whether on-demand image resizing is enabled.",
+                    "default": false
+                },
+                "max_dimension": {
+                    "type": "integer",
+                    "description": "Maximum dimension (width or height) for auto-resize.\nImages larger than this will be scaled down.",
+                    "default": 4096
+                },
+                "supported_formats": {
+                    "type": "array",
+                    "description": "Supported formats for image conversion.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [ "jpg", "jpeg", "png", "webp" ]
+                },
+                "default_fit": {
+                    "description": "Default resize fit mode.",
+                    "anyOf": [
+                        { "type": "string", "enum": [ "scale_down", "cover", "contain" ] },
+                        { "$ref": "#/definitions/EnvVar" }
+                    ],
+                    "default": "scale_down"
+                },
+                "cache_dir": {
+                    "type": [ "string", "null" ],
+                    "description": "Cache directory/prefix for resized images within the store.",
+                    "default": null
+                },
+                "styles": {
+                    "type": "array",
+                    "description": "Named image styles for pre-generated thumbnails.",
+                    "items": {
+                        "$ref": "#/definitions/ImageStyle"
+                    }
+                },
+                "generate_on_upload": {
+                    "type": "boolean",
+                    "description": "Whether to generate image styles automatically on upload.",
+                    "default": false
+                }
+            },
+            "title": "MediaImageResize"
+        },
+        "ImageStyle": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Style name."
+                },
+                "max_width": {
+                    "type": "integer",
+                    "description": "Maximum width."
+                },
+                "max_height": {
+                    "type": "integer",
+                    "description": "Maximum height."
+                },
+                "resize_fit": {
+                    "description": "Resize fit mode.",
+                    "anyOf": [
+                        { "type": "string", "enum": [ "scale_down", "cover", "contain" ] },
+                        { "$ref": "#/definitions/EnvVar" }
+                    ]
+                },
+                "format": {
+                    "type": "string",
+                    "description": "Output format."
+                },
+                "quality": {
+                    "type": "integer",
+                    "description": "Quality (0-100).",
+                    "default": 85
+                }
+            },
+            "required": [ "name", "max_width", "max_height", "resize_fit", "format" ],
+            "title": "ImageStyle"
         },
         "Logging": {
             "type": "object",
@@ -994,7 +1898,7 @@
                 "workers": {
                     "type": "integer",
                     "description": "Number of worker threads. Set to 0 or omit for auto (num CPUs).",
-                    "default": "0"
+                    "default": 0
                 },
                 "max_body_size": {
                     "type": "integer",
@@ -1221,40 +2125,37 @@
                     "description": "Subdirectory pattern for organizing uploads.\nAvailable placeholders: {user_id}, {year}, {month}, {day}, {uuid}\nIf not set, files are stored directly in the root directory.",
                     "default": null
                 },
-                "required_role": {
-                    "type": [ "string", "null" ],
-                    "description": "Role required to upload files. If not set, any authenticated user can upload.",
-                    "default": null
+                "mime_detection": {
+                    "description": "MIME type detection method: \"extension\" or \"magic\".",
+                    "anyOf": [
+                        { "type": "string", "enum": [ "extension", "magic" ] },
+                        { "$ref": "#/definitions/EnvVar" }
+                    ],
+                    "default": "magic"
+                },
+                "allowed_mime_types": {
+                    "type": "array",
+                    "description": "MIME type filtering (empty = all MIME types allowed).",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": []
+                },
+                "bulk_supported": {
+                    "type": "boolean",
+                    "description": "Whether bulk upload (multipart/mixed) is supported.",
+                    "default": false
+                },
+                "versioning": {
+                    "$ref": "#/definitions/FileVersioning",
+                    "description": "File versioning configuration."
+                },
+                "preview_generation": {
+                    "$ref": "#/definitions/PreviewGeneration",
+                    "description": "Preview generation configuration."
                 }
             },
             "title": "FileUpload"
-        },
-        "UserScope": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-                "enabled": {
-                    "type": "boolean",
-                    "description": "Enable user-scoped file browsing. When enabled, each user can only access their own directory.",
-                    "default": false
-                },
-                "required_role": {
-                    "type": [ "string", "null" ],
-                    "description": "Role required to access user-scoped files. If not set, any authenticated user can access their own files.",
-                    "default": null
-                },
-                "directory_pattern": {
-                    "type": "string",
-                    "description": "Pattern for user-specific directories.\nAvailable placeholders: {user_id}\nDefault: \"{user_id}\"",
-                    "default": "{user_id}"
-                },
-                "expose_root": {
-                    "type": "boolean",
-                    "description": "Whether the root directory is exposed when user_scope is enabled.\nWhen false, users can only access their own subdirectory.\nWhen true, users can also access the root directory.",
-                    "default": false
-                }
-            },
-            "title": "UserScope"
         },
         "ImageResize": {
             "type": "object",
@@ -1278,10 +2179,30 @@
                     },
                     "default": [ "jpg", "jpeg", "png", "webp" ]
                 },
+                "default_fit": {
+                    "description": "Default resize fit mode.",
+                    "anyOf": [
+                        { "type": "string", "enum": [ "scale_down", "cover", "contain" ] },
+                        { "$ref": "#/definitions/EnvVar" }
+                    ],
+                    "default": "scale_down"
+                },
                 "cache_dir": {
                     "type": [ "string", "null" ],
                     "description": "Cache directory for resized images. If not set, resized images are returned on each request.",
                     "default": null
+                },
+                "styles": {
+                    "type": "array",
+                    "description": "Named image styles for pre-generated thumbnails.",
+                    "items": {
+                        "$ref": "#/definitions/ImageStyle"
+                    }
+                },
+                "generate_on_upload": {
+                    "type": "boolean",
+                    "description": "Whether to generate image styles automatically on upload.",
+                    "default": false
                 }
             },
             "title": "ImageResize"
@@ -1304,11 +2225,264 @@
                     "type": "integer",
                     "description": "Threshold for enabling streaming (files larger than this use streaming).\nFiles below this threshold are read entirely into memory.",
                     "default": 1048576
+                },
+                "include_content_length": {
+                    "type": "boolean",
+                    "description": "Include Content-Length header in the response.",
+                    "default": true
                 }
             },
             "title": "Streaming"
+        },
+        "FileStore": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "storage": {
+                    "type": "string",
+                    "description": "Which named store to use (must match a key in `stores`)."
+                },
+                "table": {
+                    "type": "string",
+                    "description": "Database table that serves as the file registry."
+                },
+                "database": {
+                    "type": "string",
+                    "description": "Which named database to use (must match a key in `databases`)."
+                },
+                "metadata_columns": {
+                    "type": "array",
+                    "description": "File metadata columns tracked by the registry.",
+                    "items": {
+                        "$ref": "#/definitions/FileStoreMetadataColumn"
+                    }
+                },
+                "field_permissions": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "description": "Field-level permissions for reading and writing metadata.",
+                    "patternProperties": {
+                        "^.*$": {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "properties": {
+                                "read": {
+                                    "type": "array",
+                                    "description": "Roles allowed to read this field.",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                },
+                                "write": {
+                                    "type": "array",
+                                    "description": "Roles allowed to write this field.",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            },
+                            "required": [ "read", "write" ]
+                        }
+                    }
+                },
+                "ownership": {
+                    "$ref": "#/definitions/FileStoreOwnership",
+                    "description": "Row-level authorization via an owner column."
+                },
+                "trash": {
+                    "$ref": "#/definitions/FileStoreTrash",
+                    "description": "Trash support for deleted file registry entries."
+                },
+                "pagination": {
+                    "$ref": "#/definitions/FileStorePagination",
+                    "description": "Pagination for listing files."
+                },
+                "sorting": {
+                    "$ref": "#/definitions/FileStoreSorting",
+                    "description": "Sorting for listing files."
+                },
+                "filtering": {
+                    "$ref": "#/definitions/FileStoreFiltering",
+                    "description": "Filtering for listing files."
+                }
+            },
+            "required": [
+                "storage",
+                "table",
+                "database"
+            ],
+            "title": "FileStore"
+        },
+        "FileStoreMetadataColumn": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Column name."
+                },
+                "type": {
+                    "type": "string",
+                    "description": "Column data type."
+                },
+                "nullable": {
+                    "type": "boolean",
+                    "description": "Whether the column can be NULL.",
+                    "default": true
+                },
+                "default": {
+                    "type": [ "string", "null" ],
+                    "description": "Default value or SQL expression for this column."
+                }
+            },
+            "required": [ "name", "type" ],
+            "title": "FileStoreMetadataColumn"
+        },
+        "FileStoreOwnership": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "owner_column": {
+                    "type": "string",
+                    "description": "Column name that stores the owner ID."
+                },
+                "admin_override": {
+                    "type": "boolean",
+                    "description": "Admin users can access any row.",
+                    "default": true
+                }
+            },
+            "required": [ "owner_column", "admin_override" ],
+            "title": "FileStoreOwnership"
+        },
+        "FileStoreTrash": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Whether trash is enabled.",
+                    "default": false
+                },
+                "retention_days": {
+                    "type": "integer",
+                    "description": "Number of days to retain trashed entries.",
+                    "default": 30
+                }
+            },
+            "title": "FileStoreTrash"
+        },
+        "FileStorePagination": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Whether pagination is enabled.",
+                    "default": true
+                },
+                "default_page_size": {
+                    "type": "integer",
+                    "description": "Default page size.",
+                    "default": 20
+                },
+                "max_page_size": {
+                    "type": "integer",
+                    "description": "Maximum allowed page size.",
+                    "default": 100
+                }
+            },
+            "title": "FileStorePagination"
+        },
+        "FileStoreSorting": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Whether sorting is enabled.",
+                    "default": true
+                },
+                "default_field": {
+                    "type": "string",
+                    "description": "Default sort field."
+                },
+                "default_order": {
+                    "description": "Default sort order.",
+                    "anyOf": [
+                        { "type": "string", "enum": [ "asc", "desc" ] },
+                        { "$ref": "#/definitions/EnvVar" }
+                    ],
+                    "default": "desc"
+                },
+                "allowed_fields": {
+                    "type": "array",
+                    "description": "Fields that can be sorted on. Use [\"*\"] for all.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": "[\"*\"]"
+                }
+            },
+            "title": "FileStoreSorting"
+        },
+        "FileStoreFiltering": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Whether filtering is enabled.",
+                    "default": true
+                },
+                "allowed_fields": {
+                    "type": "array",
+                    "description": "Fields that can be filtered on.",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            },
+            "title": "FileStoreFiltering"
+        },
+        "SpaHost": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "storage": {
+                    "type": "string",
+                    "description": "Which named store to use (must match a key in `stores`)."
+                },
+                "index": {
+                    "type": "string",
+                    "description": "Index file for SPA fallback.",
+                    "default": "index.html"
+                },
+                "cache_max_age": {
+                    "type": "integer",
+                    "description": "Default Cache-Control max-age in seconds for served files.",
+                    "default": 3600
+                },
+                "cache_rules": {
+                    "type": "array",
+                    "description": "Per-extension Cache-Control rules. Overrides cache_max_age for matching extensions.",
+                    "items": {
+                        "$ref": "#/definitions/CacheRule"
+                    }
+                },
+                "etag": {
+                    "type": "boolean",
+                    "description": "ETag generation for cache validation.",
+                    "default": true
+                },
+                "fallback_status": {
+                    "type": "integer",
+                    "description": "HTTP status code for SPA fallback responses (non-existent paths).",
+                    "default": 200
+                }
+            },
+            "required": [ "storage" ],
+            "title": "SpaHost"
         }
     }
 }
-
-
