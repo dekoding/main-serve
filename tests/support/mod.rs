@@ -18,7 +18,7 @@ use main_serve::server::{AppState, build_router};
 // Re-export helpers from support/helpers.rs at the module root for convenience.
 // These are consumed by external test files (e.g., `support::write_site_files`).
 #[allow(unused_imports)]
-pub use helpers::{MINIMAL_PNG, basic_auth_hash, seed_jsonb_posts, seed_posts, write_site_files};
+pub use helpers::{MINIMAL_PNG, basic_auth_hash, basic_auth_hash_with_password, seed_default_jsonb_posts, seed_jsonb_posts, seed_posts, write_site_files};
 
 /// Set up a server from a YAML string without database pools.
 ///
