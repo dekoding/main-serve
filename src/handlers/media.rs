@@ -160,23 +160,13 @@ pub async fn handle_media(
 
     if path.contains("/resize") {
         if let Some(id) = extract_media_id(&path) {
-            return handle_media_resize(
-                &*storage,
-                &root,
-                &id,
-                config,
-                &query_params,
-                &pool,
-                
-            )
-            .await;
+            return handle_media_resize(&*storage, &root, &id, config, &query_params, &pool).await;
         }
     }
 
     if path.contains("/thumbnail") {
         if let Some(id) = extract_media_id(&path) {
-            return handle_media_thumbnail(&*storage, &root, &id, config, &pool, &table_config)
-                .await;
+            return handle_media_thumbnail(&*storage, &root, &id, config, &pool).await;
         }
     }
 
@@ -733,7 +723,7 @@ async fn handle_media_resize(
     id: &str,
     config: &MediaConfig,
     query_params: &HashMap<String, String>,
-    pool: &crate::db::pool::DatabasePool
+    pool: &crate::db::pool::DatabasePool,
 ) -> Result<Response, AppError> {
     let image_resize = config
         .image_resize
@@ -843,7 +833,6 @@ async fn handle_media_thumbnail(
     id: &str,
     config: &MediaConfig,
     pool: &crate::db::pool::DatabasePool,
-    table_config: &crate::config::types::TableConfig,
 ) -> Result<Response, AppError> {
     let image_resize = config
         .image_resize
