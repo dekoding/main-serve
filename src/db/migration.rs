@@ -361,75 +361,96 @@ fn generate_drop_column(table_name: &str, column_name: &str, driver: DatabaseDri
 #[must_use]
 fn generate_create_table(table: &TableConfig, driver: DatabaseDriver) -> String {
     let mut parts: Vec<String> = Vec::new();
-    let mut pk_columns: Vec<String> = Vec::new();
 
+    // Column definitions.
     for col in &table.columns {
-        let mut col_def = format!(
-            "  {} {}",
-            quote_ident(&col.name, driver),
-            column_type_to_sql(&col.column_type, driver)
-        );
-
-        if col.primary_key && driver == DatabaseDriver::Sqlite {
-            if !col_def.contains("PRIMARY KEY") {
-                col_def.push_str(" PRIMARY KEY");
-            }
-            if !col_def.contains("AUTOINCREMENT") {
-                col_def.push_str(" AUTOINCREMENT");
-            }
-        }
-
-        if !col.nullable || col.primary_key {
-            col_def.push_str(" NOT NULL");
-        }
-
-        if col.unique {
-            col_def.push_str(" UNIQUE");
-        }
-
-        if let Some(ref default) = col.default {
-            col_def.push_str(&format!(" DEFAULT {default}"));
-        }
-
-        if col.primary_key {
-            pk_columns.push(quote_ident(&col.name, driver));
-        }
-
+        let col_def = generate_column_def(col, driver);
         parts.push(col_def);
-    }
-
-    // Composite or single primary key constraint.
-    if !pk_columns.is_empty() {
-        let is_single_pk = pk_columns.len() == 1;
-        let should_add_constraint = if driver == DatabaseDriver::Sqlite {
-            // For SQLite, only add PRIMARY KEY constraint for composite keys
-            !is_single_pk
-        } else {
-            // For other drivers, always add the constraint
-            true
-        };
-
-        if should_add_constraint {
-            parts.push(format!("  PRIMARY KEY ({})", pk_columns.join(", ")));
+        if col.primary_key {
+            // Track PK columns for constraint generation.
         }
     }
 
-    // Foreign keys.
+    // Primary key constraint.
+    add_pk_constraint(&mut parts, &table.columns, driver);
+
+    // Foreign key definitions.
     for fk in &table.foreign_keys {
-        parts.push(format!(
-            "  FOREIGN KEY ({}) REFERENCES {} ({}) ON DELETE {} ON UPDATE {}",
-            quote_ident(&fk.column, driver),
-            quote_object_name(&fk.references_table, driver),
-            quote_ident(&fk.references_column, driver),
-            fk_action_to_sql(&fk.on_delete),
-            fk_action_to_sql(&fk.on_update),
-        ));
+        parts.push(generate_fk_def(fk, driver));
     }
 
     format!(
         "CREATE TABLE IF NOT EXISTS {} (\n{}\n)",
         quote_object_name(&table.name, driver),
         parts.join(",\n")
+    )
+}
+
+/// Generate a single column definition DDL fragment.
+fn generate_column_def(col: &ColumnConfig, driver: DatabaseDriver) -> String {
+    let mut col_def = format!(
+        "  {} {}",
+        quote_ident(&col.name, driver),
+        column_type_to_sql(&col.column_type, driver)
+    );
+
+    if col.primary_key && driver == DatabaseDriver::Sqlite {
+        if !col_def.contains("PRIMARY KEY") {
+            col_def.push_str(" PRIMARY KEY");
+        }
+        if !col_def.contains("AUTOINCREMENT") {
+            col_def.push_str(" AUTOINCREMENT");
+        }
+    }
+
+    if !col.nullable || col.primary_key {
+        col_def.push_str(" NOT NULL");
+    }
+
+    if col.unique {
+        col_def.push_str(" UNIQUE");
+    }
+
+    if let Some(ref default) = col.default {
+        col_def.push_str(&format!(" DEFAULT {default}"));
+    }
+
+    col_def
+}
+
+/// Add the primary key constraint to the parts list.
+fn add_pk_constraint(parts: &mut Vec<String>, columns: &[ColumnConfig], driver: DatabaseDriver) {
+    let pk_columns: Vec<String> = columns
+        .iter()
+        .filter(|c| c.primary_key)
+        .map(|c| quote_ident(&c.name, driver))
+        .collect();
+
+    if pk_columns.is_empty() {
+        return;
+    }
+
+    let is_single_pk = pk_columns.len() == 1;
+    let should_add_constraint = if driver == DatabaseDriver::Sqlite {
+        !is_single_pk
+    } else {
+        true
+    };
+
+    if should_add_constraint {
+        parts.push(format!("  PRIMARY KEY ({})", pk_columns.join(", ")));
+    }
+}
+
+/// Generate a single foreign key definition DDL fragment.
+fn generate_fk_def(fk: &crate::config::types::ForeignKeyConfig, driver: DatabaseDriver) -> String {
+    format!(
+        "  FOREIGN KEY ({}) REFERENCES {} ({}) ON DELETE {} ON UPDATE {}",
+        quote_ident(&fk.column, driver),
+        quote_object_name(&fk.references_table, driver),
+        quote_ident(&fk.references_column, driver),
+        fk_action_to_sql(&fk.on_delete),
+        fk_action_to_sql(&fk.on_update),
     )
 }
 

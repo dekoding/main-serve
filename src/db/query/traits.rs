@@ -1,5 +1,5 @@
 /// Trait abstracting driver-specific SQL generation patterns for filtering.
-pub trait FilterBehavior {
+pub(crate) trait FilterBehavior {
     /// Generate JSON extraction for nested JSONB/JSON paths.
     fn json_extract_path(&self, column: &str, path: &str) -> String;
 
@@ -42,7 +42,7 @@ pub trait FilterBehavior {
 }
 
 /// PostgreSQL-specific filter behavior.
-pub struct PostgresFilter;
+pub(crate) struct PostgresFilter;
 
 impl FilterBehavior for PostgresFilter {
     fn json_extract_path(&self, column: &str, path: &str) -> String {
@@ -89,7 +89,7 @@ impl FilterBehavior for PostgresFilter {
 }
 
 /// MySQL-specific filter behavior.
-pub struct MysqlFilter;
+pub(crate) struct MysqlFilter;
 
 impl FilterBehavior for MysqlFilter {
     fn json_extract_path(&self, column: &str, path: &str) -> String {
@@ -137,7 +137,7 @@ impl FilterBehavior for MysqlFilter {
 }
 
 /// SQLite-specific filter behavior.
-pub struct SqliteFilter;
+pub(crate) struct SqliteFilter;
 
 impl FilterBehavior for SqliteFilter {
     fn json_extract_path(&self, column: &str, path: &str) -> String {

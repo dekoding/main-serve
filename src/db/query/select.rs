@@ -267,9 +267,6 @@ impl SelectBuilder {
                 value.split(',').map(|s| s.trim().to_string()).collect()
             }
             FilterOperator::Contains => {
-                // Non-JSONB contains uses LIKE for substring matching.
-                // The % wildcards are added here since build_contains
-                // doesn't use like_pattern (it builds SQL differently).
                 if is_jsonb_field {
                     vec![value.to_string()]
                 } else {
@@ -280,115 +277,23 @@ impl SelectBuilder {
         };
         let num_params = values.len();
 
-        let condition = match expr.operator {
-            FilterOperator::Exists => {
-                let exists_cond =
-                    self.build_exists(is_jsonb_field, &base_column, &path_str, behavior)?;
-                self.conditions.push(exists_cond);
-                // Exists generates IS NOT NULL - skip parameter addition
-                return Ok(());
-            }
-            FilterOperator::Eq => self.build_comparison(
-                &base_column,
-                is_jsonb_field,
-                &placeholder(self.driver, self.param_idx),
-                behavior.eq_op(),
-                &path_str,
-                behavior,
-            ),
-            FilterOperator::Ne => self.build_comparison(
-                &base_column,
-                is_jsonb_field,
-                &placeholder(self.driver, self.param_idx),
-                behavior.ne_op(),
-                &path_str,
-                behavior,
-            ),
-            FilterOperator::Gt => self.build_comparison(
-                &base_column,
-                is_jsonb_field,
-                &placeholder(self.driver, self.param_idx),
-                behavior.gt_op(),
-                &path_str,
-                behavior,
-            ),
-            FilterOperator::Gte => self.build_comparison(
-                &base_column,
-                is_jsonb_field,
-                &placeholder(self.driver, self.param_idx),
-                behavior.gte_op(),
-                &path_str,
-                behavior,
-            ),
-            FilterOperator::Lt => self.build_comparison(
-                &base_column,
-                is_jsonb_field,
-                &placeholder(self.driver, self.param_idx),
-                behavior.lt_op(),
-                &path_str,
-                behavior,
-            ),
-            FilterOperator::Lte => self.build_comparison(
-                &base_column,
-                is_jsonb_field,
-                &placeholder(self.driver, self.param_idx),
-                behavior.lte_op(),
-                &path_str,
-                behavior,
-            ),
-            FilterOperator::In => {
-                let placeholders: Vec<String> = (0..num_params)
-                    .map(|i| placeholder(self.driver, self.param_idx + i))
-                    .collect();
-                let param_list = placeholders.join(", ");
-                self.build_in(
-                    &base_column,
-                    is_jsonb_field,
-                    &param_list,
-                    &path_str,
-                    behavior,
-                )
-            }
-            FilterOperator::NotIn => {
-                let placeholders: Vec<String> = (0..num_params)
-                    .map(|i| placeholder(self.driver, self.param_idx + i))
-                    .collect();
-                let param_list = placeholders.join(", ");
-                let condition = self.build_in(
-                    &base_column,
-                    is_jsonb_field,
-                    &param_list,
-                    &path_str,
-                    behavior,
-                );
-                format!("NOT {condition}")
-            }
-            FilterOperator::Contains => self.build_contains(
-                is_jsonb_field,
-                &placeholder(self.driver, self.param_idx),
-                &path_str,
-                value,
-                behavior,
-            )?,
-            FilterOperator::StartsWith => {
-                let pattern =
-                    behavior.like_pattern_start(&placeholder(self.driver, self.param_idx));
-                self.build_like(&base_column, is_jsonb_field, &pattern, &path_str, behavior)
-            }
-            FilterOperator::EndsWith => {
-                let pattern = behavior.like_pattern_end(&placeholder(self.driver, self.param_idx));
-                self.build_like(&base_column, is_jsonb_field, &pattern, &path_str, behavior)
-            }
-            FilterOperator::Like => {
-                let pattern = behavior.like_pattern(&placeholder(self.driver, self.param_idx));
-                self.build_like(&base_column, is_jsonb_field, &pattern, &path_str, behavior)
-            }
-            FilterOperator::ILike => {
-                let pattern = behavior.like_pattern(&placeholder(self.driver, self.param_idx));
-                self.build_ilike(&base_column, is_jsonb_field, &pattern, &path_str, behavior)
-            }
-        };
+        // Handle Exists separately (no parameters added).
+        if expr.operator == FilterOperator::Exists {
+            let exists_cond =
+                self.build_exists(is_jsonb_field, &base_column, &path_str, behavior)?;
+            self.conditions.push(exists_cond);
+            return Ok(());
+        }
 
+        let condition = self.build_filter_condition(
+            expr.operator,
+            &base_column,
+            is_jsonb_field,
+            &path_str,
+            num_params,
+            value,
+            behavior,
+        );
         self.conditions.push(condition);
 
         for v in &values {
@@ -398,6 +303,88 @@ impl SelectBuilder {
         self.param_idx += num_params;
 
         Ok(())
+    }
+
+    /// Build the SQL condition string for a single filter operator.
+    #[allow(clippy::too_many_arguments)] // needed for 14-operator dispatch
+    fn build_filter_condition(
+        &self,
+        operator: FilterOperator,
+        base_column: &str,
+        is_jsonb: bool,
+        path_str: &str,
+        num_params: usize,
+        value: &str,
+        behavior: &dyn FilterBehavior,
+    ) -> String {
+        match operator {
+            FilterOperator::Eq
+            | FilterOperator::Ne
+            | FilterOperator::Gt
+            | FilterOperator::Gte
+            | FilterOperator::Lt
+            | FilterOperator::Lte => {
+                let op = match operator {
+                    FilterOperator::Eq => behavior.eq_op(),
+                    FilterOperator::Ne => behavior.ne_op(),
+                    FilterOperator::Gt => behavior.gt_op(),
+                    FilterOperator::Gte => behavior.gte_op(),
+                    FilterOperator::Lt => behavior.lt_op(),
+                    FilterOperator::Lte => behavior.lte_op(),
+                    _ => unreachable!(),
+                };
+                self.build_comparison(
+                    base_column,
+                    is_jsonb,
+                    &placeholder(self.driver, self.param_idx),
+                    op,
+                    path_str,
+                    behavior,
+                )
+            }
+            FilterOperator::In | FilterOperator::NotIn => {
+                let placeholders: Vec<String> = (0..num_params)
+                    .map(|i| placeholder(self.driver, self.param_idx + i))
+                    .collect();
+                let param_list = placeholders.join(", ");
+                let condition =
+                    self.build_in(base_column, is_jsonb, &param_list, path_str, behavior);
+                if operator == FilterOperator::NotIn {
+                    format!("NOT {condition}")
+                } else {
+                    condition
+                }
+            }
+            FilterOperator::Contains => self
+                .build_contains(
+                    is_jsonb,
+                    &placeholder(self.driver, self.param_idx),
+                    path_str,
+                    value,
+                    behavior,
+                )
+                .unwrap_or_default(),
+            FilterOperator::StartsWith => {
+                let pattern =
+                    behavior.like_pattern_start(&placeholder(self.driver, self.param_idx));
+                self.build_like(base_column, is_jsonb, &pattern, path_str, behavior)
+            }
+            FilterOperator::EndsWith => {
+                let pattern = behavior.like_pattern_end(&placeholder(self.driver, self.param_idx));
+                self.build_like(base_column, is_jsonb, &pattern, path_str, behavior)
+            }
+            FilterOperator::Like | FilterOperator::ILike => {
+                let pattern = behavior.like_pattern(&placeholder(self.driver, self.param_idx));
+                if operator == FilterOperator::ILike {
+                    self.build_ilike(base_column, is_jsonb, &pattern, path_str, behavior)
+                } else {
+                    self.build_like(base_column, is_jsonb, &pattern, path_str, behavior)
+                }
+            }
+            FilterOperator::Exists => {
+                unreachable!("Exists handled separately in apply_filter_common")
+            }
+        }
     }
 
     /// Build a simple comparison condition (e.g., column = param).
