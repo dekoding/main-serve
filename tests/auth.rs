@@ -297,13 +297,7 @@ async fn test_basic_auth_realm_header() {
 
 /// Generate Basic auth YAML config with a properly hashed password.
 fn basic_auth_yaml() -> String {
-    use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
-
-    let salt = SaltString::from_b64("dGVzdHNhbHR2YWx1ZQ").unwrap();
-    let hash = Argon2::default()
-        .hash_password(b"testpass", &salt)
-        .unwrap()
-        .to_string();
+    let hash = support::basic_auth_hash_with_password("testpass");
 
     format!(
         r#"

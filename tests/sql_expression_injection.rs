@@ -22,42 +22,7 @@ use tower::ServiceExt;
 
 use crate::support::configs::shared_configs::JSONB_EXPRESSIONS_CONFIG;
 use crate::support::db::enabled_backends;
-
-// =============================================================================
-// Test Configuration: JSONB-enabled table for expression testing
-// =============================================================================
-
-async fn seed_jsonb_posts(app: &axum::Router, posts: &[(&str, &str, &str)]) {
-    for (title, author, metadata_json) in posts {
-        let metadata_value: serde_json::Value =
-            serde_json::from_str(metadata_json).unwrap_or_else(|e| {
-                panic!(
-                    "Failed to parse metadata JSON for post '{title}': {e}\nJSON input: {metadata_json}"
-                );
-            });
-
-        let req = Request::builder()
-            .method("POST")
-            .uri("/api/posts")
-            .header("content-type", "application/json")
-            .body(Body::from(
-                serde_json::json!({
-                    "title": title,
-                    "author": author,
-                    "metadata": metadata_value
-                })
-                .to_string(),
-            ))
-            .unwrap();
-
-        let response = app.clone().oneshot(req).await.unwrap();
-        assert_eq!(
-            response.status(),
-            StatusCode::CREATED,
-            "Failed to seed post: '{title}'"
-        );
-    }
-}
+use crate::support::helpers::seed_jsonb_posts;
 
 // =============================================================================
 // Test 1: SQL Comment Injection with Parentheses

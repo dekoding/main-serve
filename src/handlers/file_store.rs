@@ -228,7 +228,7 @@ async fn handle_file_store_list(
     )?;
     let rows = pool.fetch_all_json(&built.sql, &built.params).await?;
 
-    let count_built = build_select_list_count(&config.table, table_config, driver, &qp)?;
+    let count_built = build_select_list_count(&config.table, driver, &qp)?;
     let count_row = pool
         .fetch_optional_json(&count_built.sql, &count_built.params)
         .await?;
@@ -256,7 +256,6 @@ async fn handle_file_store_list(
 
 fn build_select_list_count(
     table_name: &str,
-    _table_config: &crate::config::types::TableConfig,
     driver: DatabaseDriver,
     query_params: &QueryParams,
 ) -> Result<crate::db::query::types::BuiltQuery, AppError> {
@@ -334,12 +333,12 @@ async fn handle_file_store_create(
     table_config: &crate::config::types::TableConfig,
     driver: DatabaseDriver,
     endpoint: &EndpointConfig,
-    _headers: &axum::http::HeaderMap,
+    headers: &axum::http::HeaderMap,
     body: &serde_json::Value,
     state: &AppState,
     query_params: &HashMap<String, String>,
 ) -> Result<Response, AppError> {
-    let user_id = extract_user_id(state, endpoint, _headers, query_params).await?;
+    let user_id = extract_user_id(state, endpoint, headers, query_params).await?;
 
     let writable_columns = table_config
         .columns
@@ -412,12 +411,12 @@ async fn handle_file_store_update(
     table_config: &crate::config::types::TableConfig,
     driver: DatabaseDriver,
     endpoint: &EndpointConfig,
-    _headers: &axum::http::HeaderMap,
+    headers: &axum::http::HeaderMap,
     body: &serde_json::Value,
     query_params: &HashMap<String, String>,
 ) -> Result<Response, AppError> {
     if config.ownership.as_ref().is_some_and(|o| !o.admin_override) {
-        let user_id = extract_user_id(state, endpoint, _headers, query_params).await?;
+        let user_id = extract_user_id(state, endpoint, headers, query_params).await?;
         let pool = {
             let pools = state.db_pools.read().await;
             pools

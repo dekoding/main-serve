@@ -6,30 +6,11 @@ use tower::ServiceExt;
 
 use support::db::{TestBackend, TestDatabase, enabled_backends};
 use support::json_body;
+use support::seed_default_jsonb_posts;
+use support::seed_posts;
 
 use crate::support::configs::crud_operations_configs::CRUD_CONFIG;
 use crate::support::configs::shared_configs::{JSONB_EXPRESSIONS_CONFIG, JSONB_FILTER_SORT_CONFIG};
-
-async fn seed_posts(app: &axum::Router, posts: &[(&str, &str)]) {
-    for (title, author) in posts {
-        let req = Request::builder()
-            .method("POST")
-            .uri("/api/posts")
-            .header("content-type", "application/json")
-            .body(Body::from(
-                serde_json::json!({
-                    "title": title,
-                    "body": "",
-                    "author": author,
-                })
-                .to_string(),
-            ))
-            .unwrap();
-
-        let response = app.clone().oneshot(req).await.unwrap();
-        assert_eq!(response.status(), StatusCode::CREATED);
-    }
-}
 
 #[tokio::test]
 async fn test_crud_pagination_across_backends() {
@@ -906,71 +887,6 @@ async fn test_crud_response_envelope_structure_across_backends() {
 // JSONB Filtering and Sorting Integration Tests
 // =============================================================================
 
-/// Seed posts with rich JSONB metadata for comprehensive filter/sort testing.
-async fn seed_jsonb_posts(app: &axum::Router) {
-    let seed_data = vec![
-        serde_json::json!({
-            "title": "Post Alpha",
-            "author": "alice",
-            "metadata": serde_json::json!({
-                "role": "alpha",
-                "status": "active",
-                "user": {"age": 30}
-            }),
-            "tags": ["rust", "web"]
-        }),
-        serde_json::json!({
-            "title": "Post Beta",
-            "author": "bob",
-            "metadata": serde_json::json!({
-                "role": "beta",
-                "status": "active",
-                "user": {"age": 25}
-            }),
-            "tags": ["python", "ml"]
-        }),
-        serde_json::json!({
-            "title": "Post Gamma",
-            "author": "charlie",
-            "metadata": serde_json::json!({
-                "role": "gamma",
-                "status": "inactive",
-                "user": {"age": 35}
-            }),
-            "tags": ["go", "systems"]
-        }),
-        serde_json::json!({
-            "title": "Post Delta",
-            "author": "alice",
-            "metadata": serde_json::json!({
-                "role": "delta",
-                "status": "active",
-                "user": {"age": 28}
-            }),
-            "tags": ["rust", "ml"]
-        }),
-        serde_json::json!({
-            "title": "Post Epsilon",
-            "author": "bob",
-            "metadata": serde_json::json!({
-                "role": "epsilon",
-                "status": "draft",
-                "user": {"age": 22}
-            }),
-            "tags": ["javascript"]
-        }),
-    ];
-    for data in &seed_data {
-        let req = Request::builder()
-            .method("POST")
-            .uri("/api/posts")
-            .header("content-type", "application/json")
-            .body(Body::from(data.to_string()))
-            .unwrap();
-        let _response = app.clone().oneshot(req).await.unwrap();
-    }
-}
-
 /// Seed posts with null and empty JSONB values for edge case testing.
 async fn seed_jsonb_posts_with_nulls(app: &axum::Router) {
     let seed_data = vec![
@@ -1017,7 +933,7 @@ async fn test_jsonb_filter_eq_across_backends() {
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_eq.yaml")
             .await;
 
-        seed_jsonb_posts(&app).await;
+        seed_default_jsonb_posts(&app).await;
 
         // Filter by metadata.role = "beta"
         let req = Request::builder()
@@ -1085,7 +1001,7 @@ async fn test_jsonb_filter_gt_across_backends() {
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_gt.yaml")
             .await;
 
-        seed_jsonb_posts(&app).await;
+        seed_default_jsonb_posts(&app).await;
 
         // Filter by metadata.user.age > 30 (should match Gamma age=35)
         let req = Request::builder()
@@ -1144,7 +1060,7 @@ async fn test_jsonb_filter_lt_across_backends() {
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_lt.yaml")
             .await;
 
-        seed_jsonb_posts(&app).await;
+        seed_default_jsonb_posts(&app).await;
 
         // Filter by metadata.user.age < 30 (should match Beta=25, Delta=28, Epsilon=22)
         let req = Request::builder()
@@ -1199,7 +1115,7 @@ async fn test_jsonb_filter_ne_across_backends() {
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_ne.yaml")
             .await;
 
-        seed_jsonb_posts(&app).await;
+        seed_default_jsonb_posts(&app).await;
 
         // Filter by metadata.role != "alpha" (should return 4 posts)
         let req = Request::builder()
@@ -1231,7 +1147,7 @@ async fn test_jsonb_filter_contains_across_backends() {
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_contains.yaml")
             .await;
 
-        seed_jsonb_posts(&app).await;
+        seed_default_jsonb_posts(&app).await;
 
         // Filter by tags contains "rust" (should match Alpha and Delta)
         let req = Request::builder()
@@ -1272,7 +1188,7 @@ async fn test_jsonb_filter_exists_across_backends() {
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_exists.yaml")
             .await;
 
-        seed_jsonb_posts(&app).await;
+        seed_default_jsonb_posts(&app).await;
 
         // Filter by metadata.role exists (should return all 5 posts since all have it)
         let req = Request::builder()
@@ -1304,7 +1220,7 @@ async fn test_jsonb_filter_like_across_backends() {
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_like.yaml")
             .await;
 
-        seed_jsonb_posts(&app).await;
+        seed_default_jsonb_posts(&app).await;
 
         // Filter by metadata.role like "%alpha%" (should match "alpha")
         let req = Request::builder()
@@ -1354,7 +1270,7 @@ async fn test_jsonb_filter_startswith_across_backends() {
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_startswith.yaml")
             .await;
 
-        seed_jsonb_posts(&app).await;
+        seed_default_jsonb_posts(&app).await;
 
         // Filter by metadata.role startswith "alpha" (should match "alpha")
         let req = Request::builder()
@@ -1381,7 +1297,7 @@ async fn test_jsonb_filter_endswith_across_backends() {
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_endswith.yaml")
             .await;
 
-        seed_jsonb_posts(&app).await;
+        seed_default_jsonb_posts(&app).await;
 
         // Filter by metadata.role endswith "psilon" (should match "epsilon")
         let req = Request::builder()
@@ -1408,7 +1324,7 @@ async fn test_jsonb_filter_combined_across_backends() {
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_combined.yaml")
             .await;
 
-        seed_jsonb_posts(&app).await;
+        seed_default_jsonb_posts(&app).await;
 
         // Combined: metadata.status = "active" AND author = "bob" (Beta=active/bob, Epsilon=draft/bob)
         let req = Request::builder()
@@ -1465,7 +1381,7 @@ async fn test_jsonb_filter_jsonb_column_exists_across_backends() {
             )
             .await;
 
-        seed_jsonb_posts(&app).await;
+        seed_default_jsonb_posts(&app).await;
 
         // Filter by author exists (non-JSONB column) - all 5 should match
         let req = Request::builder()
@@ -1500,7 +1416,7 @@ async fn test_jsonb_filter_jsonb_column_contains_across_backends() {
             )
             .await;
 
-        seed_jsonb_posts(&app).await;
+        seed_default_jsonb_posts(&app).await;
 
         // Filter by title contains "Post" (non-JSONB column) - all 5 should match
         let req = Request::builder()
@@ -1532,7 +1448,7 @@ async fn test_jsonb_filter_bracket_notation_across_backends() {
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_bracket.yaml")
             .await;
 
-        seed_jsonb_posts(&app).await;
+        seed_default_jsonb_posts(&app).await;
 
         // Filter using bracket notation: metadata.user.age[gte]=28
         let req = Request::builder()
@@ -1564,7 +1480,7 @@ async fn test_jsonb_filter_in_across_backends() {
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_in.yaml")
             .await;
 
-        seed_jsonb_posts(&app).await;
+        seed_default_jsonb_posts(&app).await;
 
         // Filter by metadata.role in "alpha,beta" (should match Alpha and Beta)
         let req = Request::builder()
@@ -1605,7 +1521,7 @@ async fn test_jsonb_filter_not_in_across_backends() {
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_not_in.yaml")
             .await;
 
-        seed_jsonb_posts(&app).await;
+        seed_default_jsonb_posts(&app).await;
 
         // Filter by metadata.role not_in "alpha,gamma" (should match Beta, Delta, Epsilon)
         let req = Request::builder()
@@ -1637,7 +1553,7 @@ async fn test_jsonb_filter_ilike_across_backends() {
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_ilike.yaml")
             .await;
 
-        seed_jsonb_posts(&app).await;
+        seed_default_jsonb_posts(&app).await;
 
         // Filter by metadata.role ilike "ALPHA" (case-insensitive, should match Alpha)
         let req = Request::builder()
@@ -1673,7 +1589,7 @@ async fn test_jsonb_sort_multiple_fields_across_backends() {
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_sort_multi.yaml")
             .await;
 
-        seed_jsonb_posts(&app).await;
+        seed_default_jsonb_posts(&app).await;
 
         // Sort by author ASC, then by metadata.role ASC
         // Author order: alice (Alpha, Delta), bob (Beta, Epsilon), charlie (Gamma)
@@ -1734,7 +1650,7 @@ async fn test_jsonb_sort_nested_field_across_backends() {
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_sort_nested.yaml")
             .await;
 
-        seed_jsonb_posts(&app).await;
+        seed_default_jsonb_posts(&app).await;
 
         // Sort by metadata.user.age ASC (22, 25, 28, 30, 35)
         let req = Request::builder()
@@ -1783,7 +1699,7 @@ async fn test_jsonb_sort_with_pagination_across_backends() {
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_sort_paginated.yaml")
             .await;
 
-        seed_jsonb_posts(&app).await;
+        seed_default_jsonb_posts(&app).await;
 
         // Sort by metadata.user.age ASC with pagination (page_size=2)
         let req = Request::builder()
@@ -1846,7 +1762,7 @@ async fn test_jsonb_filter_with_pagination_across_backends() {
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_filter_paginated.yaml")
             .await;
 
-        seed_jsonb_posts(&app).await;
+        seed_default_jsonb_posts(&app).await;
 
         // Filter by metadata.status = "active" with pagination
         // Active posts: Alpha, Beta, Delta (3 results)
@@ -1888,7 +1804,7 @@ async fn test_jsonb_filter_combined_with_sort_and_pagination_across_backends() {
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_full_query.yaml")
             .await;
 
-        seed_jsonb_posts(&app).await;
+        seed_default_jsonb_posts(&app).await;
 
         // Filter: metadata.status = "active" AND metadata.user.age < 30
         // Matches: Beta (age=25/active) and Delta (age=28/active)
@@ -1930,7 +1846,7 @@ async fn test_jsonb_filter_on_multiple_jsonb_columns_across_backends() {
             )
             .await;
 
-        seed_jsonb_posts(&app).await;
+        seed_default_jsonb_posts(&app).await;
 
         // Filter by metadata.status = "active" AND tags contains "ml"
         // Active+ml: Beta (active, ["python","ml"]) and Delta (active, ["rust","ml"])
@@ -1971,7 +1887,7 @@ async fn test_jsonb_filter_in_non_jsonb_across_backends() {
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_in_non_jsonb.yaml")
             .await;
 
-        seed_jsonb_posts(&app).await;
+        seed_default_jsonb_posts(&app).await;
 
         // Filter by author IN "alice,bob" (should match Alpha, Delta, Beta, Epsilon = 4 results)
         let req = Request::builder()
@@ -2012,7 +1928,7 @@ async fn test_jsonb_filter_not_in_non_jsonb_across_backends() {
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_not_in_non_jsonb.yaml")
             .await;
 
-        seed_jsonb_posts(&app).await;
+        seed_default_jsonb_posts(&app).await;
 
         // Filter by author NOT IN "alice,charlie" (should match Beta, Epsilon = 2 results)
         let req = Request::builder()
@@ -2120,7 +2036,7 @@ async fn test_jsonb_filter_invalid_syntax_across_backends() {
             .setup_app(JSONB_FILTER_SORT_CONFIG, "jsonb_invalid_filter.yaml")
             .await;
 
-        seed_jsonb_posts(&app).await;
+        seed_default_jsonb_posts(&app).await;
 
         // Filter with non-existent column should return 400 or empty
         let req = Request::builder()

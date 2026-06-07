@@ -160,23 +160,13 @@ pub async fn handle_media(
 
     if path.contains("/resize") {
         if let Some(id) = extract_media_id(&path) {
-            return handle_media_resize(
-                &*storage,
-                &root,
-                &id,
-                config,
-                &query_params,
-                &pool,
-                &table_config,
-            )
-            .await;
+            return handle_media_resize(&*storage, &root, &id, config, &query_params, &pool).await;
         }
     }
 
     if path.contains("/thumbnail") {
         if let Some(id) = extract_media_id(&path) {
-            return handle_media_thumbnail(&*storage, &root, &id, config, &pool, &table_config)
-                .await;
+            return handle_media_thumbnail(&*storage, &root, &id, config, &pool).await;
         }
     }
 
@@ -331,7 +321,7 @@ async fn handle_media_list(
     )?;
     let rows = pool.fetch_all_json(&built.sql, &built.params).await?;
 
-    let count_built = build_select_list_count(&config.table, table_config, driver, &qp)?;
+    let count_built = build_select_list_count(&config.table, driver, &qp)?;
     let count_row = pool
         .fetch_optional_json(&count_built.sql, &count_built.params)
         .await?;
@@ -356,7 +346,6 @@ async fn handle_media_list(
 
 fn build_select_list_count(
     table_name: &str,
-    _table_config: &crate::config::types::TableConfig,
     driver: DatabaseDriver,
     query_params: &QueryParams,
 ) -> Result<crate::db::query::types::BuiltQuery, AppError> {
@@ -735,7 +724,6 @@ async fn handle_media_resize(
     config: &MediaConfig,
     query_params: &HashMap<String, String>,
     pool: &crate::db::pool::DatabasePool,
-    _table_config: &crate::config::types::TableConfig,
 ) -> Result<Response, AppError> {
     let image_resize = config
         .image_resize
@@ -845,7 +833,6 @@ async fn handle_media_thumbnail(
     id: &str,
     config: &MediaConfig,
     pool: &crate::db::pool::DatabasePool,
-    table_config: &crate::config::types::TableConfig,
 ) -> Result<Response, AppError> {
     let image_resize = config
         .image_resize
@@ -863,7 +850,7 @@ async fn handle_media_thumbnail(
     params.insert("w".to_string(), default_size.to_string());
     params.insert("h".to_string(), default_size.to_string());
 
-    handle_media_resize(storage, root, id, config, &params, pool, table_config).await
+    handle_media_resize(storage, root, id, config, &params, pool).await
 }
 
 /// Handle trash management routes.
@@ -914,7 +901,6 @@ async fn handle_media_trash(
                     storage,
                     root,
                     pool,
-                    driver,
                     endpoint,
                     headers,
                     query_params,
@@ -990,7 +976,6 @@ async fn handle_media_trash_restore(
     storage: &dyn Storage,
     root: &Path,
     pool: &crate::db::pool::DatabasePool,
-    _driver: DatabaseDriver,
     endpoint: &EndpointConfig,
     headers: &axum::http::HeaderMap,
     query_params: &HashMap<String, String>,
@@ -1214,14 +1199,12 @@ async fn handle_media_delete(
 
     if trash_enabled {
         handle_media_trash_delete(
-            table_config,
             state,
             id,
             config,
             storage,
             root,
             pool,
-            driver,
             endpoint,
             __headers,
             _query_params,
@@ -1276,14 +1259,12 @@ async fn delete_media_permanently(
 
 #[allow(clippy::too_many_arguments)]
 async fn handle_media_trash_delete(
-    _table_config: &crate::config::types::TableConfig,
     state: &AppState,
     id: &str,
     config: &MediaConfig,
     storage: &dyn Storage,
     root: &Path,
     pool: &crate::db::pool::DatabasePool,
-    _driver: DatabaseDriver,
     endpoint: &EndpointConfig,
     headers: &axum::http::HeaderMap,
     query_params: &HashMap<String, String>,

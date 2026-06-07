@@ -2,8 +2,6 @@
 use std::fmt;
 
 use serde::Deserialize;
-
-/// Server bind address, port, TLS, and runtime settings.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ServerConfig {

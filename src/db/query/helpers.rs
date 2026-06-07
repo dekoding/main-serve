@@ -46,7 +46,7 @@ pub struct FilterExpression {
 }
 
 /// Parse a filter key like `metadata.user.age[gt]` into a `FilterExpression`.
-pub fn parse_filter_key(key: &str) -> Result<FilterExpression, AppError> {
+pub(crate) fn parse_filter_key(key: &str) -> Result<FilterExpression, AppError> {
     use regex::Regex;
     let re = Regex::new(r"^(.*)\[([a-z_]+)\]$")
         .map_err(|e| AppError::Internal(format!("Invalid regex: {e}")))?;
@@ -101,7 +101,7 @@ pub fn parse_filter_key(key: &str) -> Result<FilterExpression, AppError> {
 }
 
 /// Helper to interpolate a string value.
-pub fn interpolate_value(
+pub(crate) fn interpolate_value(
     value: &str,
     context: &RequestContext,
 ) -> Result<serde_json::Value, AppError> {
@@ -165,7 +165,7 @@ pub fn interpolate_value(
 
 /// Helper to resolve a single context key.
 #[must_use]
-pub fn resolve_single_key(key: &str, context: &RequestContext) -> Option<String> {
+pub(crate) fn resolve_single_key(key: &str, context: &RequestContext) -> Option<String> {
     if key == "request.user.id" {
         context.user_id.clone()
     } else if key == "request.user.role" {
@@ -185,7 +185,7 @@ pub fn resolve_single_key(key: &str, context: &RequestContext) -> Option<String>
 
 /// Generate a driver-appropriate parameter placeholder.
 #[must_use]
-pub fn placeholder(driver: DatabaseDriver, index: usize) -> String {
+pub(crate) fn placeholder(driver: DatabaseDriver, index: usize) -> String {
     match driver {
         DatabaseDriver::Postgres => format!("${index}"),
         DatabaseDriver::Sqlite | DatabaseDriver::Mysql => "?".to_string(),
@@ -194,7 +194,7 @@ pub fn placeholder(driver: DatabaseDriver, index: usize) -> String {
 
 /// Resolve writable fields: ["*"] -> all column names, otherwise as-is.
 #[must_use]
-pub fn resolve_writable_fields(
+pub(crate) fn resolve_writable_fields(
     writable: &[String],
     table: &crate::config::types::TableConfig,
 ) -> std::collections::HashSet<String> {
@@ -207,7 +207,10 @@ pub fn resolve_writable_fields(
 
 /// Resolve field list: ["*"] -> all column names, otherwise as-is.
 #[must_use]
-pub fn resolve_fields(fields: &[String], table: &crate::config::types::TableConfig) -> Vec<String> {
+pub(crate) fn resolve_fields(
+    fields: &[String],
+    table: &crate::config::types::TableConfig,
+) -> Vec<String> {
     if fields.len() == 1 && fields[0] == "*" {
         table.columns.iter().map(|c| c.name.clone()).collect()
     } else {
@@ -216,7 +219,9 @@ pub fn resolve_fields(fields: &[String], table: &crate::config::types::TableConf
 }
 
 /// Find the primary key column name.
-pub fn find_pk_column(table: &crate::config::types::TableConfig) -> Result<String, AppError> {
+pub(crate) fn find_pk_column(
+    table: &crate::config::types::TableConfig,
+) -> Result<String, AppError> {
     table
         .columns
         .iter()
@@ -231,7 +236,10 @@ pub fn find_pk_column(table: &crate::config::types::TableConfig) -> Result<Strin
 /// `PostgreSQL` requires bind parameters to match the column type exactly;
 /// binding a string `"1"` against an integer column causes a type error.
 #[must_use]
-pub fn coerce_pk_value(table: &crate::config::types::TableConfig, raw: &str) -> serde_json::Value {
+pub(crate) fn coerce_pk_value(
+    table: &crate::config::types::TableConfig,
+    raw: &str,
+) -> serde_json::Value {
     let col_type = table
         .columns
         .iter()
@@ -282,7 +290,7 @@ pub fn coerce_pk_value(table: &crate::config::types::TableConfig, raw: &str) -> 
 /// # Returns
 ///
 /// The value coerced to the most appropriate `serde_json::Value` type.
-pub fn coerce_filter_value(value: &str) -> serde_json::Value {
+pub(crate) fn coerce_filter_value(value: &str) -> serde_json::Value {
     // Handle null explicitly
     if value.to_lowercase() == "null" {
         return serde_json::Value::Null;
@@ -331,7 +339,7 @@ pub fn coerce_filter_value(value: &str) -> serde_json::Value {
 ///
 /// The value coerced to the appropriate `serde_json::Value` type based on both
 /// the value itself and the column type.
-pub fn coerce_filter_value_by_type(
+pub(crate) fn coerce_filter_value_by_type(
     value: &str,
     column_type: &crate::config::types::ColumnType,
     driver: DatabaseDriver,
@@ -420,7 +428,7 @@ pub fn coerce_filter_value_by_type(
 ///
 /// The value coerced to the appropriate `serde_json::Value` type.
 #[must_use]
-pub fn build_filter_param(
+pub(crate) fn build_filter_param(
     value: &str,
     column_type: Option<&crate::config::types::ColumnType>,
     driver: DatabaseDriver,
@@ -434,7 +442,7 @@ pub fn build_filter_param(
 /// Validate that a string is a safe SQL identifier (prevents injection).
 /// Allows alphanumeric, underscores, dots (for table.column), and hyphens.
 #[must_use]
-pub fn is_valid_identifier(s: &str) -> bool {
+pub(crate) fn is_valid_identifier(s: &str) -> bool {
     !s.is_empty()
         && s.chars()
             .all(|c| c.is_alphanumeric() || c == '_' || c == '.' || c == '-')
@@ -442,7 +450,7 @@ pub fn is_valid_identifier(s: &str) -> bool {
 
 /// Check if a field path is a JSONB nested path (contains dots).
 #[must_use]
-pub fn is_jsonb_path(field: &str) -> bool {
+pub(crate) fn is_jsonb_path(field: &str) -> bool {
     field.contains('.')
 }
 
@@ -455,7 +463,7 @@ pub fn is_jsonb_path(field: &str) -> bool {
 ///
 /// Returns (`base_column`, `path_segments`) where `path_segments` are the nested field names.
 #[must_use]
-pub fn parse_sort_field(field: &str) -> (String, Vec<String>) {
+pub(crate) fn parse_sort_field(field: &str) -> (String, Vec<String>) {
     let mut parts = Vec::new();
     let mut current = String::new();
     let mut i = 0;
@@ -513,20 +521,20 @@ pub fn parse_sort_field(field: &str) -> (String, Vec<String>) {
 
 /// Check if a sort field uses bracket notation (e.g., `field[key]`).
 #[must_use]
-pub fn is_bracket_notation(field: &str) -> bool {
+pub(crate) fn is_bracket_notation(field: &str) -> bool {
     field.contains('[')
 }
 
 /// Check if a filter column exists in the table schema.
 #[must_use]
-pub fn column_exists(column_name: &str, columns: &[ColumnConfig]) -> bool {
+pub(crate) fn column_exists(column_name: &str, columns: &[ColumnConfig]) -> bool {
     columns.iter().any(|c| c.name == column_name)
 }
 
 /// Validate that a sort field exists in the table schema.
 /// Returns true if the field is valid (either a regular column or a JSONB nested path).
 #[must_use]
-pub fn is_valid_sort_field(field: &str, columns: &[ColumnConfig]) -> bool {
+pub(crate) fn is_valid_sort_field(field: &str, columns: &[ColumnConfig]) -> bool {
     let (base, _) = parse_sort_field(field);
     // Allow bracket notation (e.g., metadata[role])
     if is_bracket_notation(field) {
@@ -547,7 +555,7 @@ pub fn is_valid_sort_field(field: &str, columns: &[ColumnConfig]) -> bool {
 /// - `metadata#>'{user,role}'` -> `metadata`
 /// - `metadata.role` -> `metadata`
 #[must_use]
-pub fn extract_base_column(field: &str) -> String {
+pub(crate) fn extract_base_column(field: &str) -> String {
     // Handle JSONPath syntax starting with $
     if field.starts_with('$') {
         // Extract column name from $.metadata.role or $.metadata.tags[0]
@@ -587,7 +595,7 @@ pub fn extract_base_column(field: &str) -> String {
 /// Validate that a filter column exists in the table schema.
 /// Returns true if the column is valid (either a regular column or a JSONB column).
 #[must_use]
-pub fn is_valid_filter_column(field: &str, columns: &[ColumnConfig]) -> bool {
+pub(crate) fn is_valid_filter_column(field: &str, columns: &[ColumnConfig]) -> bool {
     let base = extract_base_column(field);
     is_jsonb_column(&base, columns) || column_exists(&base, columns)
 }
@@ -596,7 +604,7 @@ pub fn is_valid_filter_column(field: &str, columns: &[ColumnConfig]) -> bool {
 /// Converts `metadata.role` to `$.role` and `metadata[role]` to `$.role`.
 /// Converts `metadata.user.profile` to `$.user.profile` and `metadata[user][profile]` to `$.user.profile`.
 #[must_use]
-pub fn extract_jsonb_path(field: &str) -> String {
+pub(crate) fn extract_jsonb_path(field: &str) -> String {
     let (_, path) = parse_sort_field(field);
     if path.is_empty() {
         return "$".to_string();
@@ -606,7 +614,7 @@ pub fn extract_jsonb_path(field: &str) -> String {
 
 /// Check if a column in the table config is a JSON or JSONB type.
 #[must_use]
-pub fn is_jsonb_column(column_name: &str, columns: &[ColumnConfig]) -> bool {
+pub(crate) fn is_jsonb_column(column_name: &str, columns: &[ColumnConfig]) -> bool {
     columns.iter().any(|c| {
         c.name == column_name
             && matches!(
@@ -623,100 +631,99 @@ pub fn is_jsonb_column(column_name: &str, columns: &[ColumnConfig]) -> bool {
 /// 2. Standard SQL/PostgreSQL JSONB operators (e.g., `->`, `->>`, `#>`, `#>>`).
 /// 3. Bracket notation for sorting (e.g., `metadata[role]`).
 #[must_use]
-pub fn is_valid_expression(s: &str) -> bool {
+pub(crate) fn is_valid_expression(s: &str) -> bool {
     if s.is_empty() {
         return false;
     }
-
-    // 1. Block common SQL injection patterns.
-    let forbidden = [";", "--", "/*", "*/"];
-    if forbidden.iter().any(|&p| s.contains(p)) {
+    if has_forbidden_patterns(s) {
         return false;
     }
-
-    // 2. Try parsing as a formal JSONPath.
-    // If it's valid JSONPath, we trust the crate's parser.
-    if jsonb::jsonpath::parse_json_path(s.as_bytes()).is_ok() {
+    if is_valid_json_path(s) {
         return true;
     }
-
-    // 3. Check for bracket notation (e.g., metadata[role])
-    if is_bracket_notation(s) {
-        // Validate bracket notation is well-formed
-        let mut bracket_depth = 0;
-        let mut in_bracket = false;
-        for c in s.chars() {
-            if c == '[' {
-                bracket_depth += 1;
-                in_bracket = true;
-            } else if c == ']' {
-                bracket_depth -= 1;
-                in_bracket = false;
-            } else if in_bracket {
-                // Inside brackets, only allow alphanumeric and underscores
-                if !c.is_alphanumeric() && c != '_' {
-                    return false;
-                }
-            }
-        }
-        if bracket_depth != 0 {
-            return false; // Unbalanced brackets
-        }
-        return true;
+    // If the string uses bracket notation, it must be well-formed.
+    if is_bracket_notation(s) && !is_valid_bracket_notation(s) {
+        return false;
     }
+    if !has_balanced_parens(s) {
+        return false;
+    }
+    if !has_balanced_quotes(s) {
+        return false;
+    }
+    if has_dangerous_sql_keywords(s) {
+        return false;
+    }
+    if has_dangerous_function_calls(s) {
+        return false;
+    }
+    s.chars()
+        .all(|c| c.is_alphanumeric() || "_.,()=<>+-*/'#[]".contains(c))
+}
 
-    // 4. Fallback: Heuristic check for standard SQL/PostgreSQL JSONB expressions.
+/// Check for forbidden SQL injection patterns (comments, semicolons, block comments).
+fn has_forbidden_patterns(s: &str) -> bool {
+    let forbidden = [";", "--", "/*", "*/"];
+    forbidden.iter().any(|&p| s.contains(p))
+}
 
-    // Check for balanced parentheses.
-    let mut paren_depth = 0;
+/// Check if string is valid JSONPath syntax (parsed by the jsonb crate).
+fn is_valid_json_path(s: &str) -> bool {
+    jsonb::jsonpath::parse_json_path(s.as_bytes()).is_ok()
+}
+
+/// Check if string uses bracket notation and validate it is well-formed.
+fn is_valid_bracket_notation(s: &str) -> bool {
+    if !is_bracket_notation(s) {
+        return false;
+    }
+    let mut bracket_depth = 0;
+    let mut in_bracket = false;
+    for c in s.chars() {
+        if c == '[' {
+            bracket_depth += 1;
+            in_bracket = true;
+        } else if c == ']' {
+            bracket_depth -= 1;
+            in_bracket = false;
+        } else if in_bracket && !c.is_alphanumeric() && c != '_' {
+            return false;
+        }
+    }
+    bracket_depth == 0
+}
+
+/// Check for balanced parentheses.
+fn has_balanced_parens(s: &str) -> bool {
+    let mut depth = 0;
     for c in s.chars() {
         match c {
-            '(' => paren_depth += 1,
+            '(' => depth += 1,
             ')' => {
-                paren_depth -= 1;
-                if paren_depth < 0 {
+                depth -= 1;
+                if depth < 0 {
                     return false;
                 }
             }
             _ => {}
         }
     }
-    if paren_depth != 0 {
-        return false;
-    }
+    depth == 0
+}
 
-    // Check for balanced single quotes.
-    let quote_count = s.chars().filter(|&c| c == '\'').count();
-    if quote_count % 2 != 0 {
-        return false;
-    }
+/// Check for balanced single quotes.
+fn has_balanced_quotes(s: &str) -> bool {
+    s.chars().filter(|&c| c == '\'').count() % 2 == 0
+}
 
-    // 5. Check for dangerous SQL keywords and function calls.
-    // Use word boundaries to match whole words only (e.g., "OR" matches
-    // but "ORANGE" does not). This blocks SQL injection attempts that
-    // slip past the character whitelist.
-    if let Some(ref sql_keywords) = *SQL_KEYWORDS_RE
-        && sql_keywords.is_match(s)
-    {
-        return false;
-    }
+/// Check for dangerous SQL keywords using regex.
+fn has_dangerous_sql_keywords(s: &str) -> bool {
+    SQL_KEYWORDS_RE.as_ref().is_some_and(|re| re.is_match(s))
+}
 
-    // Block dangerous function call patterns: xp_ (SQL Server extended
-    // procedures) and sleep (time-based injection, including pg_sleep).
-    // Note: _ is a regex word character so \bsleep\b doesn't match pg_sleep.
-    if let Some(ref dangerous_fn) = *DANGEROUS_FN_RE
-        && dangerous_fn.is_match(s)
-    {
-        return false;
-    }
-
-    // 6. Whitelist of allowed characters.
-    // Added '#' to support PostgreSQL JSONB operators like #> and #>>.
-    // Added '[' and ']' to support bracket notation.
-    // Whitespace is not allowed - expressions with spaces produce malformed SQL
-    // and can be used to inject additional SQL tokens.
-    s.chars()
-        .all(|c| c.is_alphanumeric() || "_.,()=<>+-*/'#[]".contains(c))
+/// Check for dangerous function calls (xp_, pg_sleep, etc.) using regex.
+fn has_dangerous_function_calls(s: &str) -> bool {
+    DANGEROUS_FN_RE.as_ref().is_some_and(|re| re.is_match(s))
 }
 
 // =============================================================================
