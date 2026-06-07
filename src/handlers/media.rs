@@ -148,7 +148,6 @@ pub async fn handle_media(
             driver,
             endpoint,
             &headers,
-            body,
             &query_params,
         )
         .await;
@@ -156,7 +155,7 @@ pub async fn handle_media(
 
     if path.starts_with("/shared/") {
         let token = path.strip_prefix("/shared/").unwrap_or("");
-        return handle_media_share_get(state, token, config, &*storage, &root).await;
+        return handle_media_share_get(token, config, &*storage, &root).await;
     }
 
     if path.contains("/resize") {
@@ -183,25 +182,25 @@ pub async fn handle_media(
 
     if path.contains("/attach") {
         if let Some(id) = extract_media_id(&path) {
-            return handle_media_attach(state, &id, config, &pool, driver, endpoint, body).await;
+            return handle_media_attach(&id, config, &pool, body).await;
         }
     }
 
     if path.contains("/detach") {
         if let Some(id) = extract_media_id(&path) {
-            return handle_media_detach(state, &id, config, &pool, driver, endpoint, body).await;
+            return handle_media_detach(&id, config, &pool, body).await;
         }
     }
 
     if path.contains("/move") {
         if let Some(id) = extract_media_id(&path) {
-            return handle_media_move(state, &id, config, &pool, &*storage, &root, body).await;
+            return handle_media_move(&id, config, &pool, &*storage, &root, body).await;
         }
     }
 
     if path.contains("/rename") {
         if let Some(id) = extract_media_id(&path) {
-            return handle_media_rename(state, &id, config, &pool, &*storage, &root, body).await;
+            return handle_media_rename(&id, config, &pool, &*storage, &root, body).await;
         }
     }
 
@@ -875,13 +874,12 @@ async fn handle_media_trash(
     path: &str,
     config: &MediaConfig,
     storage: &dyn Storage,
-    root: &PathBuf,
+    root: &Path,
     pool: &crate::db::pool::DatabasePool,
     table_config: &crate::config::types::TableConfig,
     driver: DatabaseDriver,
     endpoint: &EndpointConfig,
     headers: &axum::http::HeaderMap,
-    _body: &serde_json::Value,
     query_params: &HashMap<String, String>,
 ) -> Result<Response, AppError> {
     let trash_config = config
@@ -903,14 +901,11 @@ async fn handle_media_trash(
             if path == "/_main-serve/media/trash" || path == "/_main-serve/media/trash/" =>
         {
             handle_media_trash_empty(
-                state,
                 config,
-                storage,
-                root,
                 pool,
                 table_config,
                 driver,
-                endpoint,
+                
             )
             .await
         }
@@ -1070,14 +1065,11 @@ async fn handle_media_trash_restore(
 
 #[allow(clippy::too_many_arguments)]
 async fn handle_media_trash_empty(
-    _state: &AppState,
     config: &MediaConfig,
-    _storage: &dyn Storage,
-    _root: &PathBuf,
     pool: &crate::db::pool::DatabasePool,
     table_config: &crate::config::types::TableConfig,
     driver: DatabaseDriver,
-    _endpoint: &EndpointConfig,
+    
 ) -> Result<Response, AppError> {
     let sql = format!(
         "SELECT id FROM {} WHERE trashed_at IS NOT NULL",
@@ -1172,7 +1164,6 @@ async fn handle_media_trash_permanent_delete(
 
 /// Handle sharing: GET /shared/:token.
 async fn handle_media_share_get(
-    _state: &AppState,
     token: &str,
     config: &MediaConfig,
     storage: &dyn Storage,
@@ -1369,12 +1360,9 @@ async fn handle_media_trash_delete(
 
 /// Handle content reference attach.
 async fn handle_media_attach(
-    _state: &AppState,
     id: &str,
     config: &MediaConfig,
     pool: &crate::db::pool::DatabasePool,
-    _driver: DatabaseDriver,
-    _endpoint: &EndpointConfig,
     body: &serde_json::Value,
 ) -> Result<Response, AppError> {
     let content_refs = config
@@ -1466,12 +1454,9 @@ async fn handle_media_attach(
 
 /// Handle content reference detach.
 async fn handle_media_detach(
-    _state: &AppState,
     id: &str,
     config: &MediaConfig,
     pool: &crate::db::pool::DatabasePool,
-    _driver: DatabaseDriver,
-    _endpoint: &EndpointConfig,
     body: &serde_json::Value,
 ) -> Result<Response, AppError> {
     let content_refs = config
@@ -1539,7 +1524,6 @@ async fn handle_media_detach(
 
 /// Handle media move (POST /:id/move).
 async fn handle_media_move(
-    _state: &AppState,
     id: &str,
     config: &MediaConfig,
     pool: &crate::db::pool::DatabasePool,
@@ -1623,7 +1607,6 @@ async fn handle_media_move(
 
 /// Handle media rename (PATCH /:id/rename).
 async fn handle_media_rename(
-    _state: &AppState,
     id: &str,
     config: &MediaConfig,
     pool: &crate::db::pool::DatabasePool,

@@ -96,7 +96,7 @@ pub async fn handle_file_store(
             } else {
                 match extract_file_id(&path) {
                     Some(id) => {
-                        handle_file_store_get(&pool, config, &table_config, driver, &id, endpoint)
+                        handle_file_store_get(&pool, config, &table_config, driver, &id)
                             .await
                     }
                     None => Err(AppError::BadRequest("File ID required".to_string())),
@@ -240,7 +240,7 @@ async fn handle_file_store_list(
         .unwrap_or(0);
 
     // Apply field permissions to response rows
-    let rows = apply_row_permissions(&rows, config, endpoint).await?;
+    let rows = apply_row_permissions(&rows, config).await?;
 
     let response = serde_json::json!({
         "data": rows,
@@ -294,7 +294,6 @@ async fn handle_file_store_get(
     table_config: &crate::config::types::TableConfig,
     driver: DatabaseDriver,
     id: &str,
-    endpoint: &EndpointConfig,
 ) -> Result<Response, AppError> {
     let built = build_select_one(
         &config.table,
@@ -312,7 +311,7 @@ async fn handle_file_store_get(
                     let keys: Vec<String> = obj.keys().cloned().collect();
                     for key in keys {
                         if let Some(value) = obj.remove(&key)
-                            && is_field_readable(&key, permissions, endpoint).await
+                            && is_field_readable(&key, permissions).await
                         {
                             filtered.insert(key, value);
                         }
@@ -660,7 +659,6 @@ async fn extract_user_id(
 async fn apply_row_permissions(
     rows: &[serde_json::Value],
     config: &FileStoreConfig,
-    endpoint: &EndpointConfig,
 ) -> Result<Vec<serde_json::Value>, AppError> {
     let permissions = match &config.field_permissions {
         Some(p) => p,
@@ -672,7 +670,7 @@ async fn apply_row_permissions(
         if let Some(obj) = row.as_object() {
             let mut filtered = serde_json::Map::new();
             for (key, value) in obj {
-                if is_field_readable(key, permissions, endpoint).await {
+                if is_field_readable(key, permissions).await {
                     filtered.insert(key.clone(), value.clone());
                 }
             }
@@ -688,7 +686,6 @@ async fn apply_row_permissions(
 async fn is_field_readable(
     field: &str,
     permissions: &HashMap<String, crate::config::types::FileStoreFieldPermissions>,
-    _endpoint: &EndpointConfig,
 ) -> bool {
     let auto_readonly = ["id", "created_at", "updated_at", "owner_id"];
     if auto_readonly.contains(&field) {

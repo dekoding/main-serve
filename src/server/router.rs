@@ -515,7 +515,7 @@ async fn handle_custom_response_route(
         })
         .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
 
-    Ok(handle_custom_response(state, endpoint)
+    Ok(handle_custom_response(endpoint)
         .await
         .into_response())
 }
@@ -607,7 +607,7 @@ async fn handle_proxy_route(
         })
         .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
 
-    handle_proxy(state, method, uri, headers, body, endpoint).await
+    handle_proxy(method, uri, headers, body, endpoint).await
 }
 
 #[debug_handler]
