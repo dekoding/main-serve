@@ -1,7 +1,5 @@
 /// CORS policy (global or per-endpoint override).
 use serde::Deserialize;
-
-/// CORS policy (global or per-endpoint override).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct CorsConfig {

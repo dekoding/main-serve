@@ -67,23 +67,6 @@ pub struct TableConfig {
     pub foreign_keys: Vec<ForeignKeyConfig>,
 }
 
-/// A unique identifier for a table (name + database combination).
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct TableIdentifier {
-    pub name: String,
-    pub database: String,
-}
-
-impl TableIdentifier {
-    /// Create a new table identifier from a table name and database name.
-    pub fn new(name: impl Into<String>, database: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            database: database.into(),
-        }
-    }
-}
-
 /// A column definition within a table.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]

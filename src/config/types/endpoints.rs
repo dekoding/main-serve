@@ -371,9 +371,6 @@ pub struct StaticFilesConfig {
     /// Support for HTTP HEAD method.
     #[serde(default = "default_true")]
     pub head_support: bool,
-    /// Per-extension Cache-Control rules.
-    #[serde(default)]
-    pub cache_rules: Vec<CacheRuleConfig>,
     /// File upload configuration (optional).
     #[serde(default)]
     pub upload: Option<UploadConfig>,
@@ -403,7 +400,6 @@ impl Default for StaticFilesConfig {
             etag: true,
             range_requests: true,
             head_support: true,
-            cache_rules: Vec::new(),
             upload: None,
             image_resize: None,
             streaming: None,
