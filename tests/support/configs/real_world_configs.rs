@@ -7,7 +7,7 @@
 ///   - /app/*      SPA fallback (no cache)
 ///   - /files/*    Directory listing
 ///
-/// Placeholder: {ROOT} - replaced by TestDatabase::write_config or test helpers.
+/// Placeholder: {ROOT} - replaced by `TestDatabase::write_config` or test helpers.
 pub const STATIC_FILES_CONFIG: &str = r#"
 server:
   port: 0
@@ -147,10 +147,10 @@ endpoints:
 /// and HTTP Basic admin panel.
 ///
 /// Placeholders:
-///   __DB_DRIVER__  -> replaced by TestDatabase
-///   __DB_URL__     -> replaced by TestDatabase
-///   __TABLE_NAME__ -> replaced by TestDatabase
-///   __BASIC_AUTH_HASH__ -> replaced by test setup (argon2 hash)
+///   __`DB_DRIVER`__  -> replaced by `TestDatabase`
+///   __`DB_URL`__     -> replaced by `TestDatabase`
+///   __`TABLE_NAME`__ -> replaced by `TestDatabase`
+///   __`BASIC_AUTH_HASH`__ -> replaced by test setup (argon2 hash)
 pub const AUTH_PROTECTED_CONFIG: &str = r#"
 server:
   port: 0
@@ -293,10 +293,10 @@ endpoints:
 ///
 /// Placeholders:
 ///   {ROOT}              -> replaced by test helpers
-///   __DB_DRIVER__       -> replaced by TestDatabase
-///   __DB_URL__          -> replaced by TestDatabase
-///   __TABLE_NAME__      -> replaced by TestDatabase
-///   __BASIC_AUTH_HASH__ -> replaced by test setup (argon2 hash)
+///   __`DB_DRIVER`__       -> replaced by `TestDatabase`
+///   __`DB_URL`__          -> replaced by `TestDatabase`
+///   __`TABLE_NAME`__      -> replaced by `TestDatabase`
+///   __`BASIC_AUTH_HASH`__ -> replaced by test setup (argon2 hash)
 pub const COMBINED_CONFIG: &str = r#"
 server:
   port: 0
@@ -444,11 +444,11 @@ endpoints:
     roles: ["admin"]
 "#;
 
-/// Minimal OAuth2 config with token introspection, role-restricted endpoint,
+/// Minimal `OAuth2` config with token introspection, role-restricted endpoint,
 /// and JWT-protected dashboard.
 ///
 /// Placeholder:
-///   __IDP_URL__ -> replaced by test helpers with mock IdP URL
+///   __`IDP_URL`__ -> replaced by test helpers with mock `IdP` URL
 pub const OAUTH2_CONFIG: &str = r#"
 server:
   port: 0
@@ -534,7 +534,7 @@ endpoints:
 ///   - /external/time -> passthrough
 ///
 /// Placeholder:
-///   __UPSTREAM_URL__ -> replaced by test helpers with mock upstream URL
+///   __`UPSTREAM_URL`__ -> replaced by test helpers with mock upstream URL
 pub const PROXY_CONFIG: &str = r#"
 server:
   port: 0
@@ -593,9 +593,9 @@ endpoints:
 /// and API key auth with three roles.
 ///
 /// Placeholders:
-///   __DB_DRIVER__  -> replaced by TestDatabase
-///   __DB_URL__     -> replaced by TestDatabase
-///   __TABLE_NAME__ -> replaced by TestDatabase (related tables suffixed)
+///   __`DB_DRIVER`__  -> replaced by `TestDatabase`
+///   __`DB_URL`__     -> replaced by `TestDatabase`
+///   __`TABLE_NAME`__ -> replaced by `TestDatabase` (related tables suffixed)
 pub const CRUD_API_CONFIG: &str = r#"
 server:
   port: 0
@@ -879,7 +879,7 @@ endpoints:
     roles: ["admin"]
 "#;
 
-/// Format the OAuth2 config with the given IdP URL.
+/// Format the `OAuth2` config with the given `IdP` URL.
 pub fn oauth2_config(idp_url: &str) -> String {
     OAUTH2_CONFIG.replace("__IDP_URL__", idp_url)
 }

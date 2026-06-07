@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::collections::HashMap;
 use std::env;
 use std::fmt;
@@ -169,10 +167,12 @@ impl TestDatabase {
         let config = load_config(&config_path).expect("load config");
         let pools = create_pools_and_migrate(&config).await;
 
-        let state = AppState::new(config, config_path, "test-token".to_string());
+        let state = AppState::new(config, config_path, "test-token".to_string())
+            .await
+            .unwrap();
         {
             let mut pool_lock = state.db_pools.write().await;
-            *pool_lock = pools.clone();
+            (*pool_lock).clone_from(&pools);
         }
 
         // Store a clone for Drop-based cleanup.
@@ -196,7 +196,7 @@ impl TestDatabase {
 
     /// Store pools for Drop-based cleanup.
     ///
-    /// Used by tests that create pools directly (not via setup_app)
+    /// Used by tests that create pools directly (not via `setup_app`)
     /// but still need table cleanup.
     pub fn set_pools(&mut self, pools: HashMap<String, DatabasePool>) {
         self.pools = Some(pools);

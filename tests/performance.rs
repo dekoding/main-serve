@@ -32,12 +32,17 @@ async fn test_static_file_serving_concurrent() {
 server:
   port: 0
 
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
 endpoints:
   - path: "/static/*"
     methods: ["get"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{root}"
+      storage: "local_assets"
       index: "index.html"
     auth: "none"
 "#;
@@ -49,7 +54,7 @@ endpoints:
         .await
         .expect("Failed to bind to TCP listener");
     let server_addr = listener.local_addr().expect("Failed to get local addr");
-    let server_url = format!("http://{}", server_addr);
+    let server_url = format!("http://{server_addr}");
 
     // Clone the app for spawning
     let app_clone = app.clone();
@@ -73,7 +78,7 @@ endpoints:
         let handle = tokio::spawn(async move {
             let client = reqwest::Client::new();
             let response = client
-                .get(format!("{}/static/index.html", url))
+                .get(format!("{url}/static/index.html"))
                 .send()
                 .await
                 .expect("Request failed");
@@ -87,8 +92,7 @@ endpoints:
             let body = response.text().await.expect("Failed to read body");
             assert!(
                 body.contains("Concurrent Test"),
-                "Request {i} body mismatch: {}",
-                body
+                "Request {i} body mismatch: {body}"
             );
         });
         handles.push(handle);
@@ -105,9 +109,7 @@ endpoints:
     // Verify we handled at least 1000 requests
     assert!(
         success_count == num_requests,
-        "Expected to handle {} concurrent connections, got {}",
-        num_requests,
-        success_count
+        "Expected to handle {num_requests} concurrent connections, got {success_count}"
     );
 
     // Shutdown the server by killing the task
@@ -132,12 +134,17 @@ async fn test_static_file_load_timing() {
 server:
   port: 0
 
+stores:
+  local_assets:
+    backend: native
+    root: "{root}"
+
 endpoints:
   - path: "/static/*"
     methods: ["get"]
-    action: "static"
+    action: "static_files"
     static_files:
-      root: "{root}"
+      storage: "local_assets"
       index: "index.html"
     auth: "none"
 "#;

@@ -8,7 +8,7 @@
 //! 2. SQL keyword injection
 //! 3. Function call abuse
 //! 4. Operator chaining
-//! 5. JSONPath parser bypass
+//! 5. `JSONPath` parser bypass
 //! 6. Context-aware validation gaps
 //!
 //! If any of these tests pass (i.e., malicious expressions are accepted),
@@ -20,7 +20,7 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use tower::ServiceExt;
 
-use crate::support::configs::crud_operations_configs::JSONB_EXPRESSIONS_CONFIG;
+use crate::support::configs::shared_configs::JSONB_EXPRESSIONS_CONFIG;
 use crate::support::db::enabled_backends;
 
 // =============================================================================
@@ -32,8 +32,7 @@ async fn seed_jsonb_posts(app: &axum::Router, posts: &[(&str, &str, &str)]) {
         let metadata_value: serde_json::Value =
             serde_json::from_str(metadata_json).unwrap_or_else(|e| {
                 panic!(
-                    "Failed to parse metadata JSON for post '{}': {}\nJSON input: {}",
-                    title, e, metadata_json
+                    "Failed to parse metadata JSON for post '{title}': {e}\nJSON input: {metadata_json}"
                 );
             });
 
@@ -55,8 +54,7 @@ async fn seed_jsonb_posts(app: &axum::Router, posts: &[(&str, &str, &str)]) {
         assert_eq!(
             response.status(),
             StatusCode::CREATED,
-            "Failed to seed post: '{}'",
-            title
+            "Failed to seed post: '{title}'"
         );
     }
 }
@@ -119,7 +117,7 @@ async fn test_sql_keyword_injection_in_sort() {
 
         seed_jsonb_posts(
             &app,
-            &[("Post 1", "Alice", r#"{}"#), ("Post 2", "Bob", r#"{}"#)],
+            &[("Post 1", "Alice", r"{}"), ("Post 2", "Bob", r"{}")],
         )
         .await;
 
@@ -158,7 +156,7 @@ async fn test_function_call_abuse_in_sort() {
 
         seed_jsonb_posts(
             &app,
-            &[("Post 1", "Alice", r#"{}"#), ("Post 2", "Bob", r#"{}"#)],
+            &[("Post 1", "Alice", r"{}"), ("Post 2", "Bob", r"{}")],
         )
         .await;
 
@@ -198,7 +196,7 @@ async fn test_operator_chaining_in_sort() {
 
         seed_jsonb_posts(
             &app,
-            &[("Post 1", "Alice", r#"{}"#), ("Post 2", "Bob", r#"{}"#)],
+            &[("Post 1", "Alice", r"{}"), ("Post 2", "Bob", r"{}")],
         )
         .await;
 
@@ -280,7 +278,7 @@ async fn test_whitespace_obfuscated_injection() {
 
         seed_jsonb_posts(
             &app,
-            &[("Post 1", "Alice", r#"{}"#), ("Post 2", "Bob", r#"{}"#)],
+            &[("Post 1", "Alice", r"{}"), ("Post 2", "Bob", r"{}")],
         )
         .await;
 
@@ -370,7 +368,7 @@ async fn test_context_keyword_injection() {
 
         seed_jsonb_posts(
             &app,
-            &[("Post 1", "Alice", r#"{}"#), ("Post 2", "Bob", r#"{}"#)],
+            &[("Post 1", "Alice", r"{}"), ("Post 2", "Bob", r"{}")],
         )
         .await;
 
@@ -409,7 +407,7 @@ async fn test_quote_imbalance_exploitation() {
 
         seed_jsonb_posts(
             &app,
-            &[("Post 1", "Alice", r#"{}"#), ("Post 2", "Bob", r#"{}"#)],
+            &[("Post 1", "Alice", r"{}"), ("Post 2", "Bob", r"{}")],
         )
         .await;
 
@@ -448,7 +446,7 @@ async fn test_nested_comment_injection() {
 
         seed_jsonb_posts(
             &app,
-            &[("Post 1", "Alice", r#"{}"#), ("Post 2", "Bob", r#"{}"#)],
+            &[("Post 1", "Alice", r"{}"), ("Post 2", "Bob", r"{}")],
         )
         .await;
 

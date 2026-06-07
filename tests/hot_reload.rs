@@ -198,9 +198,8 @@ endpoints:
 }
 
 #[tokio::test]
-async fn test_crud_needs_db_pool_across_backends() {
+async fn test_crud_without_db_pool_returns_error() {
     for backend in enabled_backends() {
-        // CRUD endpoints without DB pools return an internal error since no pool exists.
         let yaml = format!(
             r#"
 server:

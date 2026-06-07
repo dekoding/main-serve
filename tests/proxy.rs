@@ -64,7 +64,7 @@ endpoints:
     let config = load_yaml(yaml).unwrap();
     let proxy = config.endpoints[0].proxy.as_ref().unwrap();
     assert_eq!(proxy.upstream, "http://api.example.com");
-    assert_eq!(proxy.max_response_size, 5242880);
+    assert_eq!(proxy.max_response_size, 5_242_880);
     assert!(proxy.headers.contains_key("X-API-Key"));
     assert_eq!(proxy.headers.get("X-API-Key").unwrap(), "secret-key");
 }

@@ -158,7 +158,7 @@ endpoints:
 "#;
 
 /// Config for testing that reload adds a second endpoint.
-/// Contains two custom_response endpoints.
+/// Contains two `custom_response` endpoints.
 pub const HOT_RELOAD_RELOAD_TARGET: &str = r#"
 server:
   host: "127.0.0.1"

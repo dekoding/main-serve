@@ -316,7 +316,7 @@ endpoints:
 // Body logging
 // =========================================================================
 
-/// When log_request_body is enabled, the request body must still reach the
+/// When `log_request_body` is enabled, the request body must still reach the
 /// handler intact (the middleware buffers and replays it).
 #[tokio::test]
 async fn test_body_logging_preserves_request_body() {
@@ -388,7 +388,7 @@ endpoints:
     assert_eq!(items[0]["title"], "logged");
 }
 
-/// When log_response_body is enabled, the response body must still be
+/// When `log_response_body` is enabled, the response body must still be
 /// returned to the client intact.
 #[tokio::test]
 async fn test_body_logging_preserves_response_body() {

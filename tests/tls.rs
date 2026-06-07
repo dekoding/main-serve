@@ -140,7 +140,9 @@ endpoints:
     let config = load_config(&config_file).expect("load config");
     let tls_config = config.server.tls.clone().expect("tls config present");
 
-    let state = AppState::new(config, config_file.clone(), "test-token".to_string());
+    let state = AppState::new(config, config_file.clone(), "test-token".to_string())
+        .await
+        .unwrap();
     let config_guard = state.config.read().await;
     let app = build_router(&config_guard, state.clone()).await;
     drop(config_guard);

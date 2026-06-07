@@ -179,7 +179,7 @@ endpoints:
 // OAuth2 configs
 // =============================================================================
 
-/// OAuth2 without JWT config - should be rejected at config load time.
+/// `OAuth2` without JWT config - should be rejected at config load time.
 pub const OAUTH2_WITHOUT_JWT_CONFIG: &str = r#"
 server:
   port: 0
@@ -196,7 +196,7 @@ endpoints: []
 
 /// JWT auth via cookie fallback config.
 ///
-/// Tests that OAuth2 sets a custom cookie name and the JWT middleware
+/// Tests that `OAuth2` sets a custom cookie name and the JWT middleware
 /// also accepts the token from both cookies and Authorization headers.
 pub const JWT_COOKIE_FALLBACK_CONFIG: &str = r#"
 server:
@@ -226,7 +226,7 @@ endpoints:
 // Helper functions for OAuth2 configs with placeholders
 // =============================================================================
 
-/// Format the OAuth2 code flow config base with the given IdP URL.
+/// Format the `OAuth2` code flow config base with the given `IdP` URL.
 pub fn oauth2_code_flow_config(idp_url: &str) -> String {
     format!(
         r#"
@@ -263,11 +263,10 @@ endpoints:
       body: '{{"msg": "protected"}}'
     auth: "jwt"
 "#,
-        idp_url = idp_url,
     )
 }
 
-/// Format the OAuth2 token introspection config base with the given IdP URL.
+/// Format the `OAuth2` token introspection config base with the given `IdP` URL.
 pub fn oauth2_introspection_config(idp_url: &str) -> String {
     format!(
         r#"
@@ -281,7 +280,7 @@ auth:
     issuer: "test-issuer"
     audience: "test-audience"
   oauth2:
-    userinfo_url: "{}/userinfo"
+    userinfo_url: "{idp_url}/userinfo"
     client_id: "test-client"
     client_secret: "test-secret"
     redirect_url: "http://localhost:8080/_main-serve/oauth2/callback"
@@ -295,6 +294,5 @@ endpoints:
       body: '{{"data": "user-specific"}}'
     auth: "oauth2"
 "#,
-        idp_url,
     )
 }
