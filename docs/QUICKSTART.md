@@ -172,7 +172,7 @@ Add a static file endpoint to host a frontend:
 ```yaml
   - path: "/static/*"
     methods: ["get"]
-    action: "static"
+    action: "static_files"
     static_files:
       root: "./public"
       index: "index.html"

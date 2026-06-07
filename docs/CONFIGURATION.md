@@ -805,7 +805,7 @@ Serve files from a directory on disk, with optional file upload support, user sc
 ```yaml
 - path: "/static/*"
   methods: ["get"]
-  action: "static"
+  action: "static_files"
   static_files:
     root: "./public"
     index: "index.html"
