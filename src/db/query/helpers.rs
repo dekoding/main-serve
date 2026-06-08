@@ -1,4 +1,5 @@
 use crate::config::types::{ColumnConfig, DatabaseDriver};
+use crate::db::query::types::QueryParams;
 use crate::error::AppError;
 use crate::middleware::auth::extractor::RequestContext;
 use std::sync::LazyLock;
@@ -545,6 +546,40 @@ pub(crate) fn is_valid_sort_field(field: &str, columns: &[ColumnConfig]) -> bool
     } else {
         // Regular field
         column_exists(field, columns)
+    }
+}
+
+/// Extract pagination, sorting, and filter params from a query string map.
+///
+/// Reserved keys (`page`, `page_size`, `per_page`, `sort`, `order`) are treated
+/// as query parameters; all remaining keys are collected as filters.
+#[must_use]
+pub(crate) fn extract_query_params(qs: &std::collections::HashMap<String, String>) -> QueryParams {
+    let page = qs.get("page").and_then(|v| v.parse::<u64>().ok());
+    let page_size = qs
+        .get("page_size")
+        .or_else(|| qs.get("per_page"))
+        .and_then(|v| v.parse::<u64>().ok());
+    let sort = qs.get("sort").cloned();
+    let order = qs.get("order").and_then(|v| match v.as_str() {
+        "asc" | "ASC" => Some(crate::config::types::SortOrder::Asc),
+        "desc" | "DESC" => Some(crate::config::types::SortOrder::Desc),
+        _ => None,
+    });
+
+    let reserved = ["page", "page_size", "per_page", "sort", "order"];
+    let filters: std::collections::HashMap<String, String> = qs
+        .iter()
+        .filter(|(k, _)| !reserved.contains(&k.as_str()))
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+
+    QueryParams {
+        page,
+        page_size,
+        sort,
+        order,
+        filters,
     }
 }
 
