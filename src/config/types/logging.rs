@@ -1,5 +1,6 @@
-/// Logging level and output format.
 use serde::Deserialize;
+
+/// Logging level and output format configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct LoggingConfig {

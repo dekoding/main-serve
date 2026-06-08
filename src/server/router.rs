@@ -1,4 +1,3 @@
-use futures_util::future::FutureExt;
 use std::collections::HashMap;
 use tower_http::compression::CompressionLayer;
 
@@ -12,7 +11,6 @@ use axum::response::{IntoResponse, Response};
 use http::Extensions;
 use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
 
-use super::prefix_match::find_prefix_match;
 use super::reload::{handle_health, handle_reload};
 use super::state::AppState;
 use crate::config::AppConfig;
@@ -127,97 +125,15 @@ pub async fn build_router(config: &AppConfig, state: AppState) -> Router {
         if endpoint.action == EndpointAction::StaticFiles && path.ends_with("{*rest}") {
             let bare = path.trim_end_matches("{*rest}").trim_end_matches('/');
             if bare.is_empty() {
-                let mut combined_router = Router::new();
-                for method in &endpoint.methods {
-                    combined_router = add_endpoint_route(
-                        combined_router,
-                        "/",
-                        *method,
-                        endpoint,
-                        Some(endpoint_cors),
-                    );
-                }
-                if !endpoint.methods.contains(&ConfigHttpMethod::Options) {
-                    combined_router = add_endpoint_route(
-                        combined_router,
-                        "/",
-                        ConfigHttpMethod::Options,
-                        endpoint,
-                        Some(endpoint_cors),
-                    );
-                }
-                let combined_router = combined_router.layer(build_cors_layer(endpoint_cors));
-                router = router.merge(combined_router);
-
-                let with_slash = format!("{bare}/");
-                if !bare.is_empty() {
-                    let mut combined_router = Router::new();
-                    for method in &endpoint.methods {
-                        combined_router = add_endpoint_route(
-                            combined_router,
-                            &with_slash,
-                            *method,
-                            endpoint,
-                            Some(endpoint_cors),
-                        );
-                    }
-                    if !endpoint.methods.contains(&ConfigHttpMethod::Options) {
-                        combined_router = add_endpoint_route(
-                            combined_router,
-                            &with_slash,
-                            ConfigHttpMethod::Options,
-                            endpoint,
-                            Some(endpoint_cors),
-                        );
-                    }
-                    let combined_router = combined_router.layer(build_cors_layer(endpoint_cors));
-                    router = router.merge(combined_router);
-                }
+                router = register_static_bare_routes(router, "/", endpoint, endpoint_cors);
             } else {
-                let mut combined_router = Router::new();
-                for method in &endpoint.methods {
-                    combined_router = add_endpoint_route(
-                        combined_router,
-                        bare,
-                        *method,
-                        endpoint,
-                        Some(endpoint_cors),
-                    );
-                }
-                if !endpoint.methods.contains(&ConfigHttpMethod::Options) {
-                    combined_router = add_endpoint_route(
-                        combined_router,
-                        bare,
-                        ConfigHttpMethod::Options,
-                        endpoint,
-                        Some(endpoint_cors),
-                    );
-                }
-                let combined_router = combined_router.layer(build_cors_layer(endpoint_cors));
-                router = router.merge(combined_router);
-
-                let with_slash = format!("{bare}/");
-                let mut combined_router = Router::new();
-                for method in &endpoint.methods {
-                    combined_router = add_endpoint_route(
-                        combined_router,
-                        &with_slash,
-                        *method,
-                        endpoint,
-                        Some(endpoint_cors),
-                    );
-                }
-                if !endpoint.methods.contains(&ConfigHttpMethod::Options) {
-                    combined_router = add_endpoint_route(
-                        combined_router,
-                        &with_slash,
-                        ConfigHttpMethod::Options,
-                        endpoint,
-                        Some(endpoint_cors),
-                    );
-                }
-                let combined_router = combined_router.layer(build_cors_layer(endpoint_cors));
-                router = router.merge(combined_router);
+                router = register_static_bare_routes(router, bare, endpoint, endpoint_cors);
+                router = register_static_bare_routes(
+                    router,
+                    &format!("{bare}/"),
+                    endpoint,
+                    endpoint_cors,
+                );
             }
         }
     }
@@ -263,11 +179,32 @@ pub async fn build_router(config: &AppConfig, state: AppState) -> Router {
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
 }
 
-/// Look up an endpoint config by prefix-matching the path.
-/// Used by route handlers when method-specific lookup fails.
-async fn lookup_endpoint_by_prefix(state: &State<AppState>, path: &str) -> Option<EndpointConfig> {
-    let configs = state.endpoint_configs.read().await;
-    find_prefix_match(&configs, path, |_| true)
+/// Register static files routes for a bare path (with or without trailing slash).
+///
+/// Registers all configured HTTP methods plus OPTIONS (if not already present)
+/// and applies the endpoint's CORS configuration.
+fn register_static_bare_routes(
+    mut router: Router<AppState>,
+    path: &str,
+    endpoint: &EndpointConfig,
+    cors: &crate::config::types::CorsConfig,
+) -> Router<AppState> {
+    let mut combined_router = Router::new();
+    for method in &endpoint.methods {
+        combined_router = add_endpoint_route(combined_router, path, *method, endpoint, Some(cors));
+    }
+    if !endpoint.methods.contains(&ConfigHttpMethod::Options) {
+        combined_router = add_endpoint_route(
+            combined_router,
+            path,
+            ConfigHttpMethod::Options,
+            endpoint,
+            Some(cors),
+        );
+    }
+    let combined_router = combined_router.layer(build_cors_layer(cors));
+    router = router.merge(combined_router);
+    router
 }
 
 fn add_endpoint_route(
@@ -508,11 +445,6 @@ async fn handle_custom_response_route(
     let endpoint = state
         .get_endpoint_config_for_method(path_str, &method)
         .await
-        .or_else(|| {
-            lookup_endpoint_by_prefix(&state, path_str)
-                .now_or_never()
-                .flatten()
-        })
         .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
 
     Ok(handle_custom_response(endpoint).await.into_response())
@@ -536,11 +468,6 @@ async fn handle_crud_route(
     let endpoint = state
         .get_endpoint_config_for_method(path_str, &method)
         .await
-        .or_else(|| {
-            lookup_endpoint_by_prefix(&state, path_str)
-                .now_or_never()
-                .flatten()
-        })
         .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
 
     let json_body: Option<axum::Json<serde_json::Value>> = if headers
@@ -598,11 +525,6 @@ async fn handle_proxy_route(
     let endpoint = state
         .get_endpoint_config_for_method(path_str, &method)
         .await
-        .or_else(|| {
-            lookup_endpoint_by_prefix(&state, path_str)
-                .now_or_never()
-                .flatten()
-        })
         .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
 
     handle_proxy(method, uri, headers, body, endpoint).await
@@ -622,11 +544,6 @@ async fn handle_upload_route(
     let endpoint = state
         .get_endpoint_config_for_method(path_str, &method)
         .await
-        .or_else(|| {
-            lookup_endpoint_by_prefix(&state, path_str)
-                .now_or_never()
-                .flatten()
-        })
         .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
 
     handle_file_upload_route(multipart, state, uri, method, endpoint, headers).await
@@ -646,11 +563,6 @@ async fn handle_static_files_route(
     let endpoint = state
         .get_endpoint_config_for_method(path_str, &method)
         .await
-        .or_else(|| {
-            lookup_endpoint_by_prefix(&state, path_str)
-                .now_or_never()
-                .flatten()
-        })
         .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
 
     let response = handle_static_files(state, method, uri, endpoint, headers, Some(query)).await?;

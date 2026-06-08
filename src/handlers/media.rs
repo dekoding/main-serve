@@ -108,6 +108,7 @@ pub async fn handle_media_upload_route(
 }
 
 /// Core media handler logic.
+// collapsible_if suppressed: early returns improve readability for trash/sharing/resize dispatch.
 #[allow(clippy::collapsible_if)]
 pub async fn handle_media(
     state: &AppState,
@@ -402,6 +403,7 @@ async fn handle_media_get(
 }
 
 /// Handle media create (POST /).
+// These functions need access to pool, configs, headers, query params, and body.
 #[allow(clippy::too_many_arguments)]
 async fn handle_media_create(
     pool: &crate::db::pool::DatabasePool,
@@ -473,6 +475,8 @@ async fn handle_media_create(
 }
 
 /// Handle media update (PATCH /:id).
+// collapsible_if suppressed: early returns improve readability for ownership checks.
+// These functions need access to state, configs, headers, query params, and body.
 #[allow(clippy::collapsible_if)]
 #[allow(clippy::too_many_arguments)]
 async fn handle_media_update(
@@ -854,6 +858,7 @@ async fn handle_media_thumbnail(
 }
 
 /// Handle trash management routes.
+// These functions need access to state, configs, headers, query params, and storage.
 #[allow(clippy::too_many_arguments)]
 async fn handle_media_trash(
     state: &AppState,
@@ -968,6 +973,7 @@ async fn handle_media_trash_list(
     Ok((StatusCode::OK, axum::Json(rows)).into_response())
 }
 
+// These functions need access to state, configs, headers, query params, and storage.
 #[allow(clippy::too_many_arguments)]
 async fn handle_media_trash_restore(
     state: &AppState,
@@ -1041,6 +1047,7 @@ async fn handle_media_trash_restore(
         .into_response())
 }
 
+// These functions need access to configs and database pool.
 #[allow(clippy::too_many_arguments)]
 async fn handle_media_trash_empty(
     config: &MediaConfig,
@@ -1075,6 +1082,7 @@ async fn handle_media_trash_empty(
         .into_response())
 }
 
+// These functions need access to state, configs, headers, query params, and storage.
 #[allow(clippy::too_many_arguments)]
 async fn handle_media_trash_permanent_delete(
     state: &AppState,
@@ -1181,6 +1189,7 @@ async fn handle_media_share_get(
     }
 }
 
+// These functions need access to configs, state, storage, and database pool.
 #[allow(clippy::too_many_arguments)]
 async fn handle_media_delete(
     table_config: &crate::config::types::TableConfig,
@@ -1215,6 +1224,7 @@ async fn handle_media_delete(
     }
 }
 
+// collapsible_if suppressed: early return pattern would obscure the delete logic.
 #[allow(clippy::collapsible_if)]
 async fn delete_media_permanently(
     id: &str,
@@ -1257,6 +1267,7 @@ async fn delete_media_permanently(
         .into_response())
 }
 
+// These functions need access to state, configs, headers, query params, and storage.
 #[allow(clippy::too_many_arguments)]
 async fn handle_media_trash_delete(
     state: &AppState,

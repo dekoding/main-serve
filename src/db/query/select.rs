@@ -754,6 +754,7 @@ impl SelectBuilder {
 
     /// Render the final SQL string and return params.
     #[must_use]
+    #[allow(clippy::unwrap_used)] // write! on String is infallible
     pub fn build(self) -> BuiltQuery {
         let mut select = self.select_fields;
         for c in &self.computed {

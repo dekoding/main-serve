@@ -9,6 +9,7 @@ use crate::config::types::{DatabaseDriver, EndpointConfig, FileStoreConfig};
 use crate::db::query::builders::{
     build_delete, build_insert, build_select_list, build_select_one, build_update,
 };
+use crate::db::query::helpers::extract_query_params;
 use crate::db::query::types::QueryParams;
 use crate::error::AppError;
 use crate::middleware::auth::extractor::RequestContext;
@@ -30,12 +31,6 @@ pub async fn handle_file_store_route(
     let endpoint = state
         .get_endpoint_config_for_method(path_str, &method)
         .await
-        .or_else(|| {
-            use crate::server::prefix_match::{find_prefix_match, find_wildcard_match};
-            let configs = state.endpoint_configs.blocking_read();
-            find_prefix_match(&configs, path_str, |_| true)
-                .or_else(|| find_wildcard_match(&configs, path_str, |_| true))
-        })
         .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
 
     let body_value = if body.is_empty() {
@@ -163,6 +158,7 @@ pub async fn handle_file_store(
     }
 }
 
+// These functions need access to AppState, pool, configs, headers, and query params.
 #[allow(clippy::too_many_arguments)]
 async fn handle_file_store_list(
     state: &AppState,
@@ -174,49 +170,28 @@ async fn handle_file_store_list(
     endpoint: &EndpointConfig,
     headers: &axum::http::HeaderMap,
 ) -> Result<Response, AppError> {
-    let page = query_params
-        .get("page")
-        .and_then(|v| v.parse::<u64>().ok())
-        .unwrap_or(config.pagination.default_page_size);
+    let mut qp = extract_query_params(query_params);
 
-    let page_size = query_params
-        .get("page_size")
-        .or_else(|| query_params.get("per_page"))
-        .and_then(|v| v.parse::<u64>().ok())
-        .unwrap_or(config.pagination.default_page_size);
+    // Apply default pagination from config when not specified by client.
+    qp.page.get_or_insert(config.pagination.default_page_size);
+    qp.page_size
+        .get_or_insert(config.pagination.default_page_size);
 
-    let sort = query_params.get("sort").cloned().or_else(|| {
-        if !config.sorting.default_field.is_empty() {
-            Some(config.sorting.default_field.clone())
-        } else {
-            None
-        }
-    });
+    // Apply default sorting from config when not specified by client.
+    if qp.sort.is_none() && !config.sorting.default_field.is_empty() {
+        qp.sort = Some(config.sorting.default_field.clone());
+    }
+    if qp.order.is_none() {
+        qp.order = Some(config.sorting.default_order);
+    }
 
-    let order = Some(config.sorting.default_order);
-
-    let reserved = ["page", "page_size", "per_page", "sort", "order"];
-    let mut filters: HashMap<String, String> = query_params
-        .iter()
-        .filter(|(k, _)| !reserved.contains(&k.as_str()))
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
-
-    // Apply ownership filter for non-admin users
+    // Apply ownership filter for non-admin users.
     if config.ownership.as_ref().is_some_and(|o| !o.admin_override) {
-        filters.insert(
+        qp.filters.insert(
             "owner_id".to_string(),
             extract_user_id(state, endpoint, headers, query_params).await?,
         );
     }
-
-    let qp = QueryParams {
-        page: Some(page),
-        page_size: Some(page_size),
-        sort,
-        order,
-        filters,
-    };
 
     let built = build_select_list(
         &config.table,
@@ -240,6 +215,9 @@ async fn handle_file_store_list(
 
     // Apply field permissions to response rows
     let rows = apply_row_permissions(&rows, config).await?;
+
+    let page = qp.page.unwrap_or(config.pagination.default_page_size);
+    let page_size = qp.page_size.unwrap_or(config.pagination.default_page_size);
 
     let response = serde_json::json!({
         "data": rows,
@@ -326,6 +304,7 @@ async fn handle_file_store_get(
     }
 }
 
+// These functions need access to pool, configs, headers, query params, and body.
 #[allow(clippy::too_many_arguments)]
 async fn handle_file_store_create(
     pool: &crate::db::pool::DatabasePool,
@@ -403,6 +382,7 @@ async fn handle_file_store_create(
     }
 }
 
+// These functions need access to state, configs, headers, and query params for ownership checks.
 #[allow(clippy::too_many_arguments)]
 async fn handle_file_store_update(
     state: &AppState,
@@ -415,31 +395,9 @@ async fn handle_file_store_update(
     body: &serde_json::Value,
     query_params: &HashMap<String, String>,
 ) -> Result<Response, AppError> {
+    // Check ownership for non-admin users before update.
     if config.ownership.as_ref().is_some_and(|o| !o.admin_override) {
-        let user_id = extract_user_id(state, endpoint, headers, query_params).await?;
-        let pool = {
-            let pools = state.db_pools.read().await;
-            pools
-                .get(&config.database)
-                .ok_or_else(|| {
-                    AppError::Internal(format!("Database '{}' has no pool", config.database))
-                })?
-                .clone()
-        };
-
-        let owner_check = format!("SELECT owner_id FROM {} WHERE id = $1", config.table);
-        let row = pool.fetch_optional_json(&owner_check, &[id.into()]).await?;
-
-        if let Some(row) = row {
-            let owner_id = row.get("owner_id").and_then(|v| v.as_str());
-            if let Some(owner_id) = owner_id
-                && owner_id != user_id
-            {
-                return Err(AppError::Forbidden(
-                    "Cannot update file entry owned by another user".to_string(),
-                ));
-            }
-        }
+        check_file_store_ownership(state, config, id, endpoint, headers, query_params).await?;
     }
 
     let pool = {
@@ -490,6 +448,8 @@ async fn handle_file_store_update(
         .into_response())
 }
 
+// These functions need access to state, configs, headers, query params, and storage.
+// collapsible_if suppressed: early-return pattern would obscure trash logic.
 #[allow(clippy::too_many_arguments, clippy::collapsible_if)]
 async fn handle_file_store_delete(
     state: &AppState,

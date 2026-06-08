@@ -20,8 +20,7 @@ use crate::server::state::AppState;
 use crate::storage::Storage;
 
 /// Context for handling static file GET requests.
-pub struct StaticGetContext<'a> {
-    pub endpoint: &'a EndpointConfig,
+pub(crate) struct StaticGetContext<'a> {
     pub config: &'a StaticFilesConfig,
     pub relative: &'a str,
     pub root: &'a Path,
@@ -153,7 +152,6 @@ pub async fn handle_static_files(
             crate::handlers::static_files::serving::handle_static_get(
                 state,
                 StaticGetContext {
-                    endpoint: &endpoint,
                     config: static_config,
                     relative: &relative,
                     root: &root,

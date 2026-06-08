@@ -267,7 +267,7 @@ fn generate_upload_filename(
 /// When `is_upload` is true (file upload), generates a UUID-based filename
 /// to prevent overwrites and collisions. When false (GET requests), returns
 /// the sanitized name for path resolution.
-pub fn sanitize_filename(name: &str, is_upload: bool) -> Result<String, AppError> {
+pub(crate) fn sanitize_filename(name: &str, is_upload: bool) -> Result<String, AppError> {
     // Reject any path separators or traversal attempts.
     if name.contains('/') || name.contains('\\') || name.contains("..") {
         return Err(AppError::BadRequest("Invalid filename".to_string()));

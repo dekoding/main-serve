@@ -14,7 +14,7 @@ use percent_encoding::percent_decode_str;
 
 /// Metadata collected for a single directory entry.
 #[derive(Debug)]
-pub struct DirEntryInfo {
+pub(crate) struct DirEntryInfo {
     pub name: String,
     pub is_dir: bool,
     pub size: u64,
@@ -25,7 +25,8 @@ pub struct DirEntryInfo {
 }
 
 /// Generate an HTML directory listing for the given directory.
-pub async fn generate_directory_listing(
+#[allow(clippy::unwrap_used)] // writeln! on String is infallible
+pub(crate) async fn generate_directory_listing(
     storage: &dyn Storage,
     dir: &Path,
     request_path: &str,
@@ -127,7 +128,7 @@ pub async fn generate_directory_listing(
 
 /// Format a Unix mode into a `drwxrwxrwx`-style permission string.
 #[must_use]
-pub fn format_permissions(mode: u32, is_dir: bool) -> String {
+pub(crate) fn format_permissions(mode: u32, is_dir: bool) -> String {
     let mut s = String::with_capacity(10);
     s.push(if is_dir { 'd' } else { '-' });
     for shift in [6, 3, 0] {
@@ -141,7 +142,7 @@ pub fn format_permissions(mode: u32, is_dir: bool) -> String {
 
 /// Resolve a numeric uid to a username, falling back to the numeric string.
 #[must_use]
-pub fn resolve_username(uid: u32) -> String {
+pub(crate) fn resolve_username(uid: u32) -> String {
     nix::unistd::User::from_uid(nix::unistd::Uid::from_raw(uid))
         .ok()
         .flatten()
@@ -150,7 +151,7 @@ pub fn resolve_username(uid: u32) -> String {
 
 /// Resolve a numeric gid to a group name, falling back to the numeric string.
 #[must_use]
-pub fn resolve_group(gid: u32) -> String {
+pub(crate) fn resolve_group(gid: u32) -> String {
     nix::unistd::Group::from_gid(nix::unistd::Gid::from_raw(gid))
         .ok()
         .flatten()

@@ -13,11 +13,11 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 
-use crate::config::types::{EndpointConfig, SortOrder};
+use crate::config::types::EndpointConfig;
 use crate::db::query::builders::{
     build_delete, build_insert, build_select_list, build_select_one, build_update,
 };
-use crate::db::query::types::QueryParams;
+use crate::db::query::helpers::extract_query_params;
 use crate::error::AppError;
 use crate::middleware::auth::extractor::RequestContext;
 use crate::server::state::AppState;
@@ -174,36 +174,5 @@ pub async fn handle_crud(
                 .into_response())
         }
         _ => Err(AppError::BadRequest("Unsupported method".to_string())),
-    }
-}
-
-/// Extract pagination, sorting, and filter params from the query string.
-fn extract_query_params(qs: &HashMap<String, String>) -> QueryParams {
-    let page = qs.get("page").and_then(|v| v.parse::<u64>().ok());
-    let page_size = qs
-        .get("page_size")
-        .or_else(|| qs.get("per_page"))
-        .and_then(|v| v.parse::<u64>().ok());
-    let sort = qs.get("sort").cloned();
-    let order = qs.get("order").and_then(|v| match v.as_str() {
-        "asc" | "ASC" => Some(SortOrder::Asc),
-        "desc" | "DESC" => Some(SortOrder::Desc),
-        _ => None,
-    });
-
-    // Everything else that isn't a reserved key is treated as a filter.
-    let reserved = ["page", "page_size", "per_page", "sort", "order"];
-    let filters: HashMap<String, String> = qs
-        .iter()
-        .filter(|(k, _)| !reserved.contains(&k.as_str()))
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
-
-    QueryParams {
-        page,
-        page_size,
-        sort,
-        order,
-        filters,
     }
 }

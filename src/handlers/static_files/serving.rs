@@ -26,7 +26,7 @@ use crate::storage::Storage;
 ///
 /// Returns `AppError::Forbidden` if path traversal is detected.
 /// Returns `AppError::NotFound` if the file is not found.
-pub async fn handle_static_get(
+pub(crate) async fn handle_static_get(
     _state: State<AppState>,
     ctx: StaticGetContext<'_>,
 ) -> Result<Response, AppError> {
@@ -324,7 +324,7 @@ fn build_range_not_satisfiable_response(file_size: u64, cache_max_age: u64) -> R
 }
 
 /// Handle image resize if parameters are present.
-pub async fn handle_image_resize(
+pub(crate) async fn handle_image_resize(
     storage: &dyn Storage,
     path: &Path,
     query_params: Option<&HashMap<String, String>>,
@@ -413,7 +413,7 @@ pub async fn handle_image_resize(
 
 /// Check if a file path likely refers to an image based on its extension.
 #[must_use]
-pub fn is_image_path(path: &Path) -> bool {
+pub(crate) fn is_image_path(path: &Path) -> bool {
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
         let ext_lower = ext.to_lowercase();
         matches!(
