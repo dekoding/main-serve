@@ -14,7 +14,7 @@ use crate::error::AppError;
 ///
 /// Returns `AppError::Auth` if the header is malformed, the user is not found,
 /// or the password does not match.
-pub fn validate_basic_auth(
+pub(crate) fn validate_basic_auth(
     auth_header: &str,
     config: &BasicAuthConfig,
 ) -> Result<Option<String>, AppError> {
@@ -57,7 +57,7 @@ pub fn validate_basic_auth(
 
 /// Extract the Basic auth value from an Authorization header.
 #[must_use]
-pub fn extract_basic_auth(auth_header: &str) -> Option<&str> {
+pub(crate) fn extract_basic_auth(auth_header: &str) -> Option<&str> {
     if auth_header.starts_with("Basic ") {
         Some(auth_header)
     } else {

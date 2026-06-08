@@ -8,7 +8,6 @@ use axum::middleware::Next;
 use axum::{body::Body, http::Request, response::Response};
 
 use crate::error::AppError;
-use crate::middleware::auth::extractor::RequestContext;
 use crate::server::AppState;
 
 /// Routes that should skip authentication.
@@ -26,7 +25,7 @@ const SKIP_ROUTES: &[&str] = &[
 /// 2. Extracts endpoint config from router state
 /// 3. Validates credentials based on endpoint auth config
 /// 4. Checks role authorization
-/// 5. Inserts auth info and context into request extensions for handlers
+/// 5. Inserts auth info into request extensions for handlers
 pub async fn auth_middleware(
     state: axum::extract::State<AppState>,
     mut req: Request<Body>,
@@ -91,20 +90,7 @@ pub async fn auth_middleware(
 
     crate::middleware::auth::validate::check_roles(&auth_info, &required_roles)?;
 
-    let context = RequestContext {
-        user_id: Some(auth_info.subject.clone()),
-        user_role: auth_info.role.clone(),
-        headers: headers
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
-            .collect(),
-        method: req.method().to_string(),
-        path: path.clone(),
-        query_params: query_params.clone(),
-    };
-
     req.extensions_mut().insert(auth_info);
-    req.extensions_mut().insert(context);
 
     Ok(next.run(req).await)
 }
