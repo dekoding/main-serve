@@ -25,6 +25,7 @@ pub struct DirEntryInfo {
 }
 
 /// Generate an HTML directory listing for the given directory.
+#[allow(clippy::unwrap_used)] // writeln! on String is infallible
 pub async fn generate_directory_listing(
     storage: &dyn Storage,
     dir: &Path,

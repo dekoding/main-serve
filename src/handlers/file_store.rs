@@ -158,6 +158,7 @@ pub async fn handle_file_store(
     }
 }
 
+// These functions need access to AppState, pool, configs, headers, and query params.
 #[allow(clippy::too_many_arguments)]
 async fn handle_file_store_list(
     state: &AppState,
@@ -303,6 +304,7 @@ async fn handle_file_store_get(
     }
 }
 
+// These functions need access to pool, configs, headers, query params, and body.
 #[allow(clippy::too_many_arguments)]
 async fn handle_file_store_create(
     pool: &crate::db::pool::DatabasePool,
@@ -380,6 +382,7 @@ async fn handle_file_store_create(
     }
 }
 
+// These functions need access to state, configs, headers, and query params for ownership checks.
 #[allow(clippy::too_many_arguments)]
 async fn handle_file_store_update(
     state: &AppState,
@@ -445,6 +448,8 @@ async fn handle_file_store_update(
         .into_response())
 }
 
+// These functions need access to state, configs, headers, query params, and storage.
+// collapsible_if suppressed: early-return pattern would obscure trash logic.
 #[allow(clippy::too_many_arguments, clippy::collapsible_if)]
 async fn handle_file_store_delete(
     state: &AppState,

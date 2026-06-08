@@ -1,7 +1,3 @@
-/// Semantic validation rules for parsed configuration.
-///
-/// These rules go beyond serde's structural validation - they check referential
-/// integrity, logical consistency, and completeness.
 use super::types::{AppConfig, EndpointAction, StoreBackend, StoreConfig};
 use crate::error::AppError;
 
@@ -613,6 +609,7 @@ mod tests {
         }
     }
 
+    // Helper function to construct endpoint configs with all action variants.
     #[allow(clippy::too_many_arguments)]
     fn make_endpoint(
         path: &str,
