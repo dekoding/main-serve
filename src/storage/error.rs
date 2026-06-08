@@ -37,10 +37,6 @@ pub enum StorageError {
     #[error("Internal error: {0}")]
     Internal(String),
 
-    /// Invalid encoding (e.g., file is not valid UTF-8).
-    #[error("Invalid encoding: {0}")]
-    InvalidEncoding(String),
-
     /// Cloud service is unavailable or returning errors.
     #[error("Service unavailable: {0}")]
     ServiceUnavailable(String),
@@ -48,10 +44,6 @@ pub enum StorageError {
     /// Cloud authentication/authorization failure.
     #[error("Authentication failed: {0}")]
     Authentication(String),
-
-    /// Object already exists (cloud-specific conflict).
-    #[error("Object already exists: {0}")]
-    ObjectAlreadyExists(PathBuf),
 }
 
 impl From<StorageError> for crate::error::AppError {
@@ -79,16 +71,10 @@ impl From<StorageError> for crate::error::AppError {
                 crate::error::AppError::Config(format!("Invalid storage backend: {msg}"))
             }
             StorageError::Internal(msg) => crate::error::AppError::Internal(msg.clone()),
-            StorageError::InvalidEncoding(msg) => {
-                crate::error::AppError::BadRequest(format!("Invalid encoding: {msg}"))
-            }
             StorageError::ServiceUnavailable(msg) => {
                 crate::error::AppError::ServiceUnavailable(msg.clone())
             }
             StorageError::Authentication(msg) => crate::error::AppError::Auth(msg.clone()),
-            StorageError::ObjectAlreadyExists(path) => crate::error::AppError::FileOperation(
-                format!("Object already exists: {}", path.display()),
-            ),
         }
     }
 }
