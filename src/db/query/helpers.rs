@@ -583,6 +583,35 @@ pub(crate) fn extract_query_params(qs: &std::collections::HashMap<String, String
     }
 }
 
+/// Build a COUNT query for list pagination.
+pub(crate) fn build_select_list_count(
+    table_name: &str,
+    driver: DatabaseDriver,
+    query_params: &QueryParams,
+) -> Result<crate::db::query::types::BuiltQuery, AppError> {
+    let base_sql = format!("SELECT COUNT(*) as count FROM {}", table_name);
+    let mut where_clauses: Vec<String> = Vec::new();
+    let mut params: Vec<serde_json::Value> = Vec::new();
+    let mut param_idx = 1usize;
+
+    for (key, value) in &query_params.filters {
+        if ["page", "page_size", "per_page", "sort", "order"].contains(&key.as_str()) {
+            continue;
+        }
+        where_clauses.push(format!("{} = {}", key, placeholder(driver, param_idx)));
+        params.push(serde_json::Value::String(value.clone()));
+        param_idx += 1;
+    }
+
+    let sql = if where_clauses.is_empty() {
+        base_sql
+    } else {
+        format!("{} WHERE {}", base_sql, where_clauses.join(" AND "))
+    };
+
+    Ok(crate::db::query::types::BuiltQuery { sql, params })
+}
+
 /// Extract the base column name from a field string that may contain `JSONPath` or operators.
 /// Handles cases like:
 /// - `$.metadata.role` -> `metadata`

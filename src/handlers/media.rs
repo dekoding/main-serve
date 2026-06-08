@@ -12,9 +12,10 @@ use crate::config::types::{DatabaseDriver, EndpointConfig, MediaConfig};
 use crate::db::query::builders::{
     build_delete, build_insert, build_select_list, build_select_one, build_update,
 };
+use crate::db::query::helpers::build_select_list_count;
 use crate::db::query::types::QueryParams;
 use crate::error::AppError;
-use crate::handlers::static_files::upload::build_storage_path;
+use crate::handlers::static_files::upload::{build_storage_path, sanitize_filename};
 use crate::handlers::static_files::utils::mime_from_path;
 use crate::middleware::auth::extractor::{AuthInfo, RequestContext};
 use crate::server::state::AppState;
@@ -35,12 +36,6 @@ pub async fn handle_media_route(
     let endpoint = state
         .get_endpoint_config_for_method(path_str, &method)
         .await
-        .or_else(|| {
-            use crate::server::prefix_match::{find_prefix_match, find_wildcard_match};
-            let configs = state.endpoint_configs.blocking_read();
-            find_prefix_match(&configs, path_str, |_| true)
-                .or_else(|| find_wildcard_match(&configs, path_str, |_| true))
-        })
         .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
 
     let body_value = if body.is_empty() {
@@ -76,12 +71,6 @@ pub async fn handle_media_upload_route(
     let endpoint = state
         .get_endpoint_config_for_method(path_str, &method)
         .await
-        .or_else(|| {
-            use crate::server::prefix_match::{find_prefix_match, find_wildcard_match};
-            let configs = state.endpoint_configs.blocking_read();
-            find_prefix_match(&configs, path_str, |_| true)
-                .or_else(|| find_wildcard_match(&configs, path_str, |_| true))
-        })
         .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
 
     if method != axum::http::Method::POST
@@ -110,7 +99,7 @@ pub async fn handle_media_upload_route(
 /// Core media handler logic.
 // collapsible_if suppressed: early returns improve readability for trash/sharing/resize dispatch.
 #[allow(clippy::collapsible_if)]
-pub async fn handle_media(
+pub(crate) async fn handle_media(
     state: &AppState,
     method: axum::http::Method,
     uri: axum::http::Uri,
@@ -343,38 +332,6 @@ async fn handle_media_list(
     });
 
     Ok((StatusCode::OK, axum::Json(response)).into_response())
-}
-
-fn build_select_list_count(
-    table_name: &str,
-    driver: DatabaseDriver,
-    query_params: &QueryParams,
-) -> Result<crate::db::query::types::BuiltQuery, AppError> {
-    let base_sql = format!("SELECT COUNT(*) as count FROM {}", table_name);
-    let mut where_clauses: Vec<String> = Vec::new();
-    let mut params: Vec<serde_json::Value> = Vec::new();
-    let mut param_idx = 1usize;
-
-    for (key, value) in &query_params.filters {
-        if ["page", "page_size", "per_page", "sort", "order"].contains(&key.as_str()) {
-            continue;
-        }
-        where_clauses.push(format!(
-            "{} = {}",
-            key,
-            crate::db::query::helpers::placeholder(driver, param_idx)
-        ));
-        params.push(serde_json::Value::String(value.clone()));
-        param_idx += 1;
-    }
-
-    let sql = if where_clauses.is_empty() {
-        base_sql
-    } else {
-        format!("{} WHERE {}", base_sql, where_clauses.join(" AND "))
-    };
-
-    Ok(crate::db::query::types::BuiltQuery { sql, params })
 }
 
 /// Handle media get by ID.
@@ -1695,20 +1652,6 @@ async fn extract_auth_info(
         query_params,
     )
     .await
-}
-
-fn sanitize_filename(name: &str, _is_upload: bool) -> Result<String, AppError> {
-    if name.contains('/') || name.contains('\\') || name.contains("..") {
-        return Err(AppError::BadRequest("Invalid filename".to_string()));
-    }
-    let sanitized: String = name
-        .chars()
-        .filter(|c| !c.is_ascii_control() && *c != '\0')
-        .collect();
-    if sanitized.is_empty() {
-        return Err(AppError::BadRequest("Filename cannot be empty".to_string()));
-    }
-    Ok(sanitized.to_lowercase())
 }
 
 async fn get_db_context(

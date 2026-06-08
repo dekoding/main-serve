@@ -28,19 +28,13 @@ pub async fn handle_spa_host_route(
     let endpoint = state
         .get_endpoint_config_for_method(path_str, &method)
         .await
-        .or_else(|| {
-            use crate::server::prefix_match::{find_prefix_match, find_wildcard_match};
-            let configs = state.endpoint_configs.blocking_read();
-            find_prefix_match(&configs, path_str, |_| true)
-                .or_else(|| find_wildcard_match(&configs, path_str, |_| true))
-        })
         .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
 
     handle_spa_host(&state, method, uri, &endpoint, headers).await
 }
 
 /// Core SPA host handler logic.
-pub async fn handle_spa_host(
+pub(crate) async fn handle_spa_host(
     state: &AppState,
     method: axum::http::Method,
     uri: axum::http::Uri,
@@ -121,7 +115,7 @@ pub async fn handle_spa_host(
 }
 
 /// Handle HEAD requests - return headers only, no body.
-async fn handle_spa_head(
+pub(crate) async fn handle_spa_head(
     state: &AppState,
     uri: axum::http::Uri,
     config: &SpaHostConfig,
@@ -237,7 +231,6 @@ async fn serve_spa_file(
         .map_err(|_| AppError::NotFound(format!("File not found: {}", path.display())))?;
 
     let content_type = mime_from_path(path);
-    let _cache_control = get_cache_control(path, config.cache_max_age, &config.cache_rules);
 
     let contents = storage
         .read(path)
