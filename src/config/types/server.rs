@@ -1,5 +1,5 @@
-use std::fmt;
 use serde::Deserialize;
+use std::fmt;
 
 /// Server bind address, port, TLS, and runtime settings.
 #[derive(Debug, Clone, Deserialize)]
