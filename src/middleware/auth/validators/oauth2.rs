@@ -29,7 +29,7 @@ pub struct PendingOAuth2 {
 /// Returns `AppError::Config` if the userinfo URL is not set.
 /// Returns `AppError::Auth` if the userinfo request fails or the response
 /// is missing the `sub` claim.
-pub async fn validate_oauth2_token(
+pub(crate) async fn validate_oauth2_token(
     token: &str,
     config: &OAuth2Config,
 ) -> Result<(String, Option<String>), AppError> {
@@ -43,7 +43,7 @@ pub async fn validate_oauth2_token(
 }
 
 /// Fetch user information from the OIDC userinfo endpoint.
-pub async fn fetch_userinfo(
+pub(crate) async fn fetch_userinfo(
     userinfo_url: &str,
     access_token: &str,
 ) -> Result<(String, Option<String>), AppError> {
@@ -85,7 +85,7 @@ pub async fn fetch_userinfo(
 ///
 /// Returns `(code_verifier, code_challenge)`.
 #[must_use]
-pub fn generate_pkce_pair() -> (String, String) {
+pub(crate) fn generate_pkce_pair() -> (String, String) {
     // 96-character code verifier using UUID v4 hex values (within the 43-128 range).
     let verifier = format!(
         "{}{}{}",
@@ -103,12 +103,15 @@ pub fn generate_pkce_pair() -> (String, String) {
 }
 
 /// Remove expired pending states from the map.
-pub fn cleanup_expired(pending: &mut HashMap<String, PendingOAuth2>, ttl: std::time::Duration) {
+pub(crate) fn cleanup_expired(
+    pending: &mut HashMap<String, PendingOAuth2>,
+    ttl: std::time::Duration,
+) {
     pending.retain(|_, v| v.created_at.elapsed() < ttl);
 }
 
 /// Exchange an authorization code for tokens at the `IdP`'s token endpoint.
-pub async fn exchange_code(
+pub(crate) async fn exchange_code(
     config: &OAuth2Config,
     code: &str,
     code_verifier: &str,
@@ -149,7 +152,7 @@ pub async fn exchange_code(
 
 /// Extract a named cookie value from the request's Cookie header.
 #[must_use]
-pub fn extract_cookie(headers: &axum::http::HeaderMap, name: &str) -> Option<String> {
+pub(crate) fn extract_cookie(headers: &axum::http::HeaderMap, name: &str) -> Option<String> {
     let cookie_header = headers.get("cookie")?.to_str().ok()?;
     let prefix = format!("{name}=");
     for part in cookie_header.split(';') {

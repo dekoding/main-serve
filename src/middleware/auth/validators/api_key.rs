@@ -22,7 +22,7 @@ use crate::error::AppError;
 /// triggers the lint. Using `HashMap<String, String, RandomState>` explicitly
 /// in the signature would be verbose without adding safety.
 #[allow(clippy::implicit_hasher)] // public param is &HashMap<String, String> triggers lint
-pub fn validate_api_key(
+pub(crate) fn validate_api_key(
     headers: &HeaderMap,
     query_params: &HashMap<String, String>,
     config: &ApiKeyConfig,

@@ -11,7 +11,7 @@ use crate::error::AppError;
 
 /// Claims embedded in a JWT token.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Claims {
+pub(crate) struct Claims {
     /// Subject (user identifier).
     pub sub: String,
     /// Expiration time (UTC epoch seconds).
@@ -35,7 +35,7 @@ pub struct Claims {
 ///
 /// Returns `AppError::Auth` if the token is invalid, expired, or fails
 /// issuer/audience validation.
-pub fn validate_token(token: &str, config: &JwtConfig) -> Result<Claims, AppError> {
+pub(crate) fn validate_token(token: &str, config: &JwtConfig) -> Result<Claims, AppError> {
     let algorithm = map_algorithm(config.algorithm);
     let key = DecodingKey::from_secret(config.secret.as_bytes());
 
@@ -151,7 +151,7 @@ pub fn create_token(sub: &str, role: Option<&str>, config: &JwtConfig) -> Result
 
 /// Extract the Bearer token from an Authorization header value.
 #[must_use]
-pub fn extract_bearer_token(auth_header: &str) -> Option<&str> {
+pub(crate) fn extract_bearer_token(auth_header: &str) -> Option<&str> {
     auth_header.strip_prefix("Bearer ")
 }
 
