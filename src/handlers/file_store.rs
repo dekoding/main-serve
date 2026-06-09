@@ -9,8 +9,7 @@ use crate::config::types::{DatabaseDriver, EndpointConfig, FileStoreConfig};
 use crate::db::query::builders::{
     build_delete, build_insert, build_select_list, build_select_one, build_update,
 };
-use crate::db::query::helpers::extract_query_params;
-use crate::db::query::types::QueryParams;
+use crate::db::query::helpers::{build_select_list_count, extract_query_params};
 use crate::error::AppError;
 use crate::middleware::auth::extractor::RequestContext;
 use crate::server::state::AppState;
@@ -230,38 +229,6 @@ async fn handle_file_store_list(
     });
 
     Ok((StatusCode::OK, axum::Json(response)).into_response())
-}
-
-fn build_select_list_count(
-    table_name: &str,
-    driver: DatabaseDriver,
-    query_params: &QueryParams,
-) -> Result<crate::db::query::types::BuiltQuery, AppError> {
-    let base_sql = format!("SELECT COUNT(*) as count FROM {}", table_name);
-    let mut where_clauses: Vec<String> = Vec::new();
-    let mut params: Vec<serde_json::Value> = Vec::new();
-    let mut param_idx = 1usize;
-
-    for (key, value) in &query_params.filters {
-        if ["page", "page_size", "per_page", "sort", "order"].contains(&key.as_str()) {
-            continue;
-        }
-        where_clauses.push(format!(
-            "{} = {}",
-            key,
-            crate::db::query::helpers::placeholder(driver, param_idx)
-        ));
-        params.push(serde_json::Value::String(value.clone()));
-        param_idx += 1;
-    }
-
-    let sql = if where_clauses.is_empty() {
-        base_sql
-    } else {
-        format!("{} WHERE {}", base_sql, where_clauses.join(" AND "))
-    };
-
-    Ok(crate::db::query::types::BuiltQuery { sql, params })
 }
 
 async fn handle_file_store_get(
