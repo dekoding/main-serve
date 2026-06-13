@@ -109,7 +109,7 @@ hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["tokio", "server-auto"] }
 http = "1"
 http-body-util = "0.1"
-hmac = "0.12"
+hmac = "0.13"
 bytes = "1"
 percent-encoding = { version = "2.3.2", features = ["std"] }
 nix = { version = "0.31", features = ["user"] }
