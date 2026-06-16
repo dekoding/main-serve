@@ -1,6 +1,6 @@
 use crate::config::types::{ColumnType, CrudConfig, DatabaseDriver, TableConfig};
 use crate::db::query::helpers::{
-    coerce_pk_value, coerce_filter_value_by_type, find_pk_column, interpolate_value,
+    coerce_filter_value_by_type, coerce_pk_value, find_pk_column, interpolate_value,
     is_valid_identifier, placeholder, resolve_writable_fields,
 };
 use crate::db::query::select::SelectBuilder;
@@ -41,7 +41,7 @@ pub fn build_insert(
     let mut params: Vec<serde_json::Value> = Vec::new();
     let mut param_idx = 1usize;
 
-  // Auto-populate owner field if configured. Server always controls ownership.
+    // Auto-populate owner field if configured. Server always controls ownership.
     if let Some(ref owner_field) = owner_col
         && let Some(user_id) = &context.user_id
     {

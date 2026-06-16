@@ -236,7 +236,10 @@ pub async fn handle_register(
     // Fetch the newly created user to get their ID.
     let user_row = pool
         .fetch_optional_json(
-            &format!("SELECT id, email, role FROM {} WHERE email = {email_param}", register_config.table),
+            &format!(
+                "SELECT id, email, role FROM {} WHERE email = {email_param}",
+                register_config.table
+            ),
             &[body.email.clone().into()],
         )
         .await
@@ -264,7 +267,11 @@ pub async fn handle_register(
             .jwt
             .as_ref()
             .ok_or_else(|| AppError::Config("JWT is not configured".to_string()))?;
-        (jwt_config.secret.clone(), jwt_config.algorithm, jwt_config.issuer.clone())
+        (
+            jwt_config.secret.clone(),
+            jwt_config.algorithm,
+            jwt_config.issuer.clone(),
+        )
     };
 
     let jti = uuid::Uuid::new_v4().to_string();
@@ -378,7 +385,11 @@ pub async fn handle_login(
             .jwt
             .as_ref()
             .ok_or_else(|| AppError::Config("JWT is not configured".to_string()))?;
-        (jwt_config.secret.clone(), jwt_config.algorithm, jwt_config.issuer.clone())
+        (
+            jwt_config.secret.clone(),
+            jwt_config.algorithm,
+            jwt_config.issuer.clone(),
+        )
     };
 
     let jti = uuid::Uuid::new_v4().to_string();
@@ -392,7 +403,13 @@ pub async fn handle_login(
         revocation: None,
     };
 
-    let token = create_token(&user_id, role.as_deref(), &jwt_config, Some(&jti), Some(&email))?;
+    let token = create_token(
+        &user_id,
+        role.as_deref(),
+        &jwt_config,
+        Some(&jti),
+        Some(&email),
+    )?;
 
     Ok(Json(AuthResponse { token }))
 }

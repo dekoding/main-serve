@@ -220,7 +220,7 @@ mod tests {
     #[test]
     fn test_check_roles_empty_allows_all() {
         let auth_info = AuthInfo {
-                email: None,
+            email: None,
             subject: "user1".to_string(),
             role: Some("user".to_string()),
             token: None,
@@ -232,7 +232,7 @@ mod tests {
     #[test]
     fn test_check_roles_allows_matching_role() {
         let auth_info = AuthInfo {
-                email: None,
+            email: None,
             subject: "user1".to_string(),
             role: Some("admin".to_string()),
             token: None,
@@ -244,7 +244,7 @@ mod tests {
     #[test]
     fn test_check_roles_denies_non_matching_role() {
         let auth_info = AuthInfo {
-                email: None,
+            email: None,
             subject: "user1".to_string(),
             role: Some("guest".to_string()),
             token: None,
@@ -257,7 +257,7 @@ mod tests {
     #[test]
     fn test_check_roles_denies_no_role() {
         let auth_info = AuthInfo {
-                email: None,
+            email: None,
             subject: "user1".to_string(),
             role: None,
             token: None,
@@ -289,7 +289,7 @@ mod tests {
 
         // Admin should be allowed where editor is required (via inheritance).
         let auth_info = AuthInfo {
-                email: None,
+            email: None,
             subject: "user1".to_string(),
             role: Some("admin".to_string()),
             token: None,
@@ -315,7 +315,7 @@ mod tests {
 
         // Admin should be allowed where author is required (transitive).
         let auth_info = AuthInfo {
-                email: None,
+            email: None,
             subject: "user1".to_string(),
             role: Some("admin".to_string()),
             token: None,
@@ -334,7 +334,7 @@ mod tests {
 
         // Admin inherits editor, but endpoint requires "reader" (not inherited).
         let auth_info = AuthInfo {
-                email: None,
+            email: None,
             subject: "user1".to_string(),
             role: Some("admin".to_string()),
             token: None,
@@ -350,7 +350,7 @@ mod tests {
 
         // Role "editor" is not in the hierarchy at all, but is directly required.
         let auth_info = AuthInfo {
-                email: None,
+            email: None,
             subject: "user1".to_string(),
             role: Some("editor".to_string()),
             token: None,
