@@ -42,9 +42,16 @@ pub struct EndpointConfig {
     /// Authentication type (`"none"`, `"jwt"`, `"api_key"`, `"basic"`, `"oauth2"`).
     #[serde(default = "default_auth_none")]
     pub auth: String,
-    /// Roles required to access this endpoint (empty = any authenticated user).
+    /// Roles required to access this endpoint.
+    ///
+    /// Supports two formats:
+    /// - Flat list: `["admin", "editor"]` - same roles for all methods.
+    /// - Method-specific: `{ get: ["admin"], post: ["admin"], ... }` -
+    ///   different roles per HTTP method.
+    ///
+    /// Empty roles = any authenticated user.
     #[serde(default)]
-    pub roles: Vec<String>,
+    pub roles: RolesConfig,
     /// Per-endpoint CORS override.
     #[serde(default)]
     pub cors: Option<CorsConfig>,
@@ -68,6 +75,79 @@ pub enum HttpMethod {
     Delete,
     Options,
     Head,
+}
+
+/// Role assignment strategy for an endpoint.
+///
+/// Supports a flat list of roles (applied to all methods) or
+/// method-specific role assignments for fine-grained access control.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(untagged)]
+pub enum RolesConfig {
+    /// Flat list of roles applied to all HTTP methods.
+    Flat(Vec<String>),
+    /// Method-specific role assignments.
+    MethodSpecific(MethodSpecificRoles),
+}
+
+impl Default for RolesConfig {
+    fn default() -> Self {
+        Self::Flat(Vec::new())
+    }
+}
+
+/// Method-specific role configuration.
+///
+/// Each HTTP method can have its own list of required roles.
+/// Fields default to `None` (empty), which means the fallback
+/// `RolesConfig::Flat` is used when present.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MethodSpecificRoles {
+    /// Roles required for GET requests.
+    #[serde(default, rename = "get")]
+    pub get: Option<Vec<String>>,
+    /// Roles required for POST requests.
+    #[serde(default, rename = "post")]
+    pub post: Option<Vec<String>>,
+    /// Roles required for PUT requests.
+    #[serde(default, rename = "put")]
+    pub put: Option<Vec<String>>,
+    /// Roles required for PATCH requests.
+    #[serde(default, rename = "patch")]
+    pub patch: Option<Vec<String>>,
+    /// Roles required for DELETE requests.
+    #[serde(default, rename = "delete")]
+    pub delete: Option<Vec<String>>,
+    /// Roles required for HEAD requests.
+    #[serde(default, rename = "head")]
+    pub head: Option<Vec<String>>,
+    /// Roles required for OPTIONS requests.
+    #[serde(default, rename = "options")]
+    pub options: Option<Vec<String>>,
+}
+
+impl RolesConfig {
+    /// Resolve the required roles for a specific HTTP method.
+    ///
+    /// For `MethodSpecific`, returns the method-specific list if set,
+    /// otherwise falls back to the `Flat` variant. For `Flat`, always
+    /// returns the flat list.
+    #[must_use]
+    pub fn clone_for_method(&self, method: HttpMethod) -> Vec<String> {
+        match self {
+            Self::MethodSpecific(ms) => match method {
+                HttpMethod::Get => ms.get.clone().unwrap_or_default(),
+                HttpMethod::Post => ms.post.clone().unwrap_or_default(),
+                HttpMethod::Put => ms.put.clone().unwrap_or_default(),
+                HttpMethod::Patch => ms.patch.clone().unwrap_or_default(),
+                HttpMethod::Delete => ms.delete.clone().unwrap_or_default(),
+                HttpMethod::Head => ms.head.clone().unwrap_or_default(),
+                HttpMethod::Options => ms.options.clone().unwrap_or_default(),
+            },
+            Self::Flat(roles) => roles.clone(),
+        }
+    }
 }
 
 impl HttpMethod {
@@ -137,12 +217,23 @@ pub struct CrudConfig {
     pub sorting: SortingConfig,
     /// Optional static WHERE clause appended to all queries.
     pub where_clause: Option<String>,
+    /// Additional WHERE clause appended to DELETE queries, interpolated with request context (e.g. `"author_id = ${request.user.id}"`).
+    pub delete_where_clause: Option<String>,
+    /// Additional WHERE clause appended to UPDATE queries, interpolated with request context (e.g. `"author_id = ${request.user.id}"`).
+    pub update_where_clause: Option<String>,
     /// Join definitions for multi-table queries.
     #[serde(default)]
     pub joins: Vec<JoinConfig>,
     /// Virtual computed fields defined by SQL expressions.
     #[serde(default)]
     pub computed_fields: Vec<ComputedFieldConfig>,
+
+    /// Name of the column to auto-populate with the authenticated user's ID
+    /// during INSERT operations. Supports request context interpolation
+    /// (e.g. `"${request.user.id}"`). If the request body already contains
+    /// this field, the body value takes precedence.
+    #[serde(default)]
+    pub insert_owner: Option<String>,
 }
 
 impl Default for CrudConfig {
@@ -156,8 +247,11 @@ impl Default for CrudConfig {
             filtering: FilteringConfig::default(),
             sorting: SortingConfig::default(),
             where_clause: None,
+            delete_where_clause: None,
+            update_where_clause: None,
             joins: Vec::new(),
             computed_fields: Vec::new(),
+            insert_owner: None,
         }
     }
 }
@@ -1178,6 +1272,274 @@ impl Default for CustomResponseConfig {
             content_type: "application/json".to_string(),
             body: String::new(),
             headers: HashMap::new(),
+        }
+    }
+}
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_deserialize_flat_roles() {
+        let yaml = r#"roles: ["admin", "editor"]"#;
+        #[derive(Deserialize)]
+        struct Wrapper {
+            roles: RolesConfig,
+        }
+        let wrapper: Wrapper = serde_yaml::from_str(yaml).expect("should deserialize flat roles");
+        match &wrapper.roles {
+            RolesConfig::Flat(roles) => {
+                assert_eq!(roles, &["admin", "editor"]);
+            }
+            _ => panic!("expected Flat variant"),
+        }
+    }
+
+    #[test]
+    fn test_deserialize_method_specific_roles() {
+        let yaml = r#"
+roles:
+  get: ["admin", "editor"]
+  post: ["admin"]
+  put: ["admin"]
+  patch: ["admin"]
+  delete: ["admin"]
+  head: ["admin", "editor"]
+  options: []
+"#;
+        #[derive(Deserialize)]
+        struct Wrapper {
+            roles: RolesConfig,
+        }
+        let wrapper: Wrapper =
+            serde_yaml::from_str(yaml).expect("should deserialize method-specific roles");
+        match &wrapper.roles {
+            RolesConfig::MethodSpecific(ms) => {
+                assert_eq!(ms.get.as_ref().unwrap(), &["admin", "editor"]);
+                assert_eq!(ms.post.as_ref().unwrap(), &["admin"]);
+                assert_eq!(ms.put.as_ref().unwrap(), &["admin"]);
+                assert_eq!(ms.patch.as_ref().unwrap(), &["admin"]);
+                assert_eq!(ms.delete.as_ref().unwrap(), &["admin"]);
+                assert_eq!(ms.head.as_ref().unwrap(), &["admin", "editor"]);
+                assert!(ms.options.as_ref().unwrap().is_empty());
+            }
+            _ => panic!("expected MethodSpecific variant"),
+        }
+    }
+
+    #[test]
+    fn test_deserialize_partial_method_specific_roles() {
+        let yaml = r#"
+roles:
+  get: ["admin"]
+  delete: ["admin", "editor"]
+"#;
+        #[derive(Deserialize)]
+        struct Wrapper {
+            roles: RolesConfig,
+        }
+        let wrapper: Wrapper =
+            serde_yaml::from_str(yaml).expect("should deserialize partial roles");
+        match &wrapper.roles {
+            RolesConfig::MethodSpecific(ms) => {
+                assert_eq!(ms.get.as_ref().unwrap(), &["admin"]);
+                assert!(ms.post.is_none());
+                assert!(ms.put.is_none());
+                assert!(ms.patch.is_none());
+                assert_eq!(ms.delete.as_ref().unwrap(), &["admin", "editor"]);
+                assert!(ms.head.is_none());
+                assert!(ms.options.is_none());
+            }
+            _ => panic!("expected MethodSpecific variant"),
+        }
+    }
+
+    #[test]
+    fn test_deserialize_empty_roles() {
+        let yaml = r#"roles: []"#;
+        #[derive(Deserialize)]
+        struct Wrapper {
+            roles: RolesConfig,
+        }
+        let wrapper: Wrapper = serde_yaml::from_str(yaml).expect("should deserialize empty roles");
+        match &wrapper.roles {
+            RolesConfig::Flat(roles) => assert!(roles.is_empty()),
+            _ => panic!("expected Flat variant"),
+        }
+    }
+
+    #[test]
+    fn test_deserialize_default_roles() {
+        let yaml = r#""#;
+        #[derive(Deserialize)]
+        struct Wrapper {
+            #[serde(default)]
+            roles: RolesConfig,
+        }
+        let wrapper: Wrapper =
+            serde_yaml::from_str(yaml).expect("should deserialize default roles");
+        match &wrapper.roles {
+            RolesConfig::Flat(roles) => assert!(roles.is_empty()),
+            _ => panic!("expected Flat variant"),
+        }
+    }
+
+    #[test]
+    fn test_clone_for_method_flat_all_methods() {
+        let config = RolesConfig::Flat(vec!["admin".to_string(), "user".to_string()]);
+        assert_eq!(
+            config.clone_for_method(HttpMethod::Get),
+            vec!["admin", "user"]
+        );
+        assert_eq!(
+            config.clone_for_method(HttpMethod::Post),
+            vec!["admin", "user"]
+        );
+        assert_eq!(
+            config.clone_for_method(HttpMethod::Put),
+            vec!["admin", "user"]
+        );
+        assert_eq!(
+            config.clone_for_method(HttpMethod::Patch),
+            vec!["admin", "user"]
+        );
+        assert_eq!(
+            config.clone_for_method(HttpMethod::Delete),
+            vec!["admin", "user"]
+        );
+        assert_eq!(
+            config.clone_for_method(HttpMethod::Head),
+            vec!["admin", "user"]
+        );
+        assert_eq!(
+            config.clone_for_method(HttpMethod::Options),
+            vec!["admin", "user"]
+        );
+    }
+
+    #[test]
+    fn test_clone_for_method_specific_returns_method_roles() {
+        let ms = MethodSpecificRoles {
+            get: Some(vec!["admin".to_string()]),
+            post: Some(vec!["editor".to_string(), "admin".to_string()]),
+            put: None,
+            patch: None,
+            delete: Some(vec!["admin".to_string()]),
+            head: None,
+            options: Some(vec![]),
+        };
+        let config = RolesConfig::MethodSpecific(ms);
+        assert_eq!(config.clone_for_method(HttpMethod::Get), vec!["admin"]);
+        assert_eq!(
+            config.clone_for_method(HttpMethod::Post),
+            vec!["editor", "admin"]
+        );
+        assert!(config.clone_for_method(HttpMethod::Put).is_empty());
+        assert!(config.clone_for_method(HttpMethod::Patch).is_empty());
+        assert_eq!(config.clone_for_method(HttpMethod::Delete), vec!["admin"]);
+        assert!(config.clone_for_method(HttpMethod::Head).is_empty());
+        assert!(config.clone_for_method(HttpMethod::Options).is_empty());
+    }
+
+    #[test]
+    fn test_clone_for_method_flat_empty_allows_all() {
+        let config = RolesConfig::Flat(vec![]);
+        assert!(config.clone_for_method(HttpMethod::Get).is_empty());
+        assert!(config.clone_for_method(HttpMethod::Post).is_empty());
+    }
+
+    #[test]
+    fn test_default_roles_config_is_empty_flat() {
+        let config = RolesConfig::default();
+        assert!(matches!(config, RolesConfig::Flat(ref v) if v.is_empty()));
+    }
+
+    #[test]
+    fn test_default_method_specific_has_all_none() {
+        let ms = MethodSpecificRoles::default();
+        assert!(ms.get.is_none());
+        assert!(ms.post.is_none());
+        assert!(ms.put.is_none());
+        assert!(ms.patch.is_none());
+        assert!(ms.delete.is_none());
+        assert!(ms.head.is_none());
+        assert!(ms.options.is_none());
+    }
+
+    /// Test that an endpoint with flat roles deserializes correctly.
+    #[test]
+    fn test_endpoint_config_flat_roles_roundtrip() {
+        let yaml = r#"
+path: "/api/test"
+methods: ["get", "post"]
+action: "crud"
+auth: "jwt"
+roles: ["admin", "editor"]
+"#;
+        #[derive(Deserialize)]
+        #[allow(dead_code)]
+        struct Wrapper {
+            path: String,
+            methods: Vec<HttpMethod>,
+            action: EndpointAction,
+            #[serde(default)]
+            crud: Option<CrudConfig>,
+            #[serde(default = "default_auth_none")]
+            auth: String,
+            #[serde(default)]
+            roles: RolesConfig,
+        }
+        let wrapper: Wrapper = serde_yaml::from_str(yaml).expect("should deserialize endpoint");
+        match &wrapper.roles {
+            RolesConfig::Flat(roles) => {
+                assert_eq!(roles, &["admin", "editor"]);
+            }
+            _ => panic!("expected Flat variant"),
+        }
+        assert_eq!(wrapper.auth, "jwt");
+        assert_eq!(wrapper.methods.len(), 2);
+    }
+
+    /// Test that an endpoint with method-specific roles deserializes correctly.
+    #[test]
+    fn test_endpoint_config_method_specific_roles_roundtrip() {
+        let yaml = r#"
+path: "/api/test"
+methods: ["get", "post", "delete"]
+action: "crud"
+auth: "jwt"
+roles:
+  get: ["admin", "editor"]
+  post: ["admin"]
+  delete: ["admin"]
+"#;
+        #[derive(Deserialize)]
+        #[allow(dead_code)]
+        struct Wrapper {
+            path: String,
+            methods: Vec<HttpMethod>,
+            action: EndpointAction,
+            #[serde(default)]
+            crud: Option<CrudConfig>,
+            #[serde(default = "default_auth_none")]
+            auth: String,
+            #[serde(default)]
+            roles: RolesConfig,
+        }
+        let wrapper: Wrapper = serde_yaml::from_str(yaml).expect("should deserialize endpoint");
+        match &wrapper.roles {
+            RolesConfig::MethodSpecific(ms) => {
+                assert_eq!(ms.get.as_ref().unwrap(), &["admin", "editor"]);
+                assert_eq!(ms.post.as_ref().unwrap(), &["admin"]);
+                assert_eq!(ms.delete.as_ref().unwrap(), &["admin"]);
+                assert!(ms.patch.is_none());
+            }
+            _ => panic!("expected MethodSpecific variant"),
         }
     }
 }

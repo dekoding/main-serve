@@ -205,7 +205,7 @@ endpoints:
     auth: "jwt"
 
   ## Single-user operations - admin only.
-  - path: "/api/users/:id"
+  - path: "/api/users/{id}"
     methods: ["get", "put", "delete"]
     action: "crud"
     crud:

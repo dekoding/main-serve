@@ -296,3 +296,74 @@ endpoints:
 "#,
     )
 }
+
+// =============================================================================
+// Token revocation config
+// =============================================================================
+
+pub const JWT_WITH_REVOCATION_CONFIG: &str = r#"
+server:
+  port: 0
+
+auth:
+  jwt:
+    secret: "test-jwt-secret-key-long-enough"
+    algorithm: "HS256"
+    issuer: "test-issuer"
+    audience: "test-audience"
+    expiry: 3600
+    role_claim: "role"
+    revocation:
+      store: "in_memory"
+
+endpoints:
+  - path: "/api/private"
+    methods: ["get"]
+    action: "custom_response"
+    custom_response:
+      status: 200
+      body: '{"msg": "private"}'
+    auth: "jwt"
+"#;
+
+// =============================================================================
+// Registration config with database
+// =============================================================================
+
+pub fn register_config_with_db(template: &str) -> String {
+    let rendered = template
+        .replace("__DB_DRIVER__", "sqlite")
+        .replace("__DB_URL__", "sqlite::memory:")
+        .replace("__TABLE_NAME__", "users");
+    // Use a unique table name to avoid collisions
+    format!(
+        "{rendered}\n\ntables:\n  - name: \"users\"\n    database: \"main\"\n    columns:\n      - name: \"id\"\n        type: \"serial\"\n        primary_key: true\n      - name: \"email\"\n        type: \"text\"\n        unique: true\n        nullable: false\n      - name: \"password_hash\"\n        type: \"text\"\n        nullable: false\n      - name: \"role\"\n        type: \"text\"\n        default: \"'user'\"\n      - name: \"created_at\"\n        type: \"timestamptz\"\n        nullable: false\n        default: \"now()\"\n      - name: \"updated_at\"\n        type: \"timestamptz\"\n        nullable: false\n        default: \"now()\"\n"
+    )
+}
+
+pub const REGISTER_CONFIG_TEMPLATE: &str = r#"
+server:
+  port: 0
+
+auth:
+  jwt:
+    secret: "test-jwt-secret-key-long-enough"
+    algorithm: "HS256"
+    issuer: "main-serve"
+    expiry: 3600
+    role_claim: "role"
+  register:
+    enabled: true
+    table: "users"
+    database: "main"
+    default_role: "user"
+    password_hash: "argon2id"
+
+databases:
+  main:
+    driver: "__DB_DRIVER__"
+    url: "__DB_URL__"
+    auto_migrate: true
+
+endpoints: []
+"#;

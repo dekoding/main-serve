@@ -9,7 +9,7 @@
             "properties": {
                 "server": {
                     "$ref": "#/definitions/Server",
-                    "description": "Main Serve core server settings. These settings affect core HTTP server behavior"
+                    "description": "Main Serve core server settings. These settings affect core HTTP server behavior.\nIf not set, Main Serve will use the following defaults:\n- host: \"127.0.0.1\"\n- port: 8080\n- workers: 0\n- max_body_size: 10485760\n- keep_alive: 75\n- shutdown_timeout: 30"
                 },
                 "logging": {
                     "$ref": "#/definitions/Logging",
@@ -48,8 +48,7 @@
                 }
             },
             "required": [
-                "endpoints",
-                "server"
+                "endpoints"
             ],
             "title": "Main Serve"
         },
@@ -77,6 +76,10 @@
                 "oauth2": {
                     "$ref": "#/definitions/Oauth2",
                     "description": "OAuth2 / OpenID Connect authentication.\nSupports two modes:\n  1. Token introspection: validate externally-obtained Bearer tokens via userinfo_url. Endpoints use `auth: \"oauth2\"`.\n  2. Authorization code flow (with PKCE): Main Serve redirects users to the IdP for login, exchanges the code for tokens, fetches user info, mints a Main Serve JWT, and sets it as an HttpOnly cookie. This bridges OAuth2 into the existing JWT auth model. Requires auth.jwt to be configured alongside oauth2.\n\nCode flow endpoints (registered automatically when authorization_url is set):\n  GET /_main-serve/oauth2/authorize  - redirects to IdP\n  GET /_main-serve/oauth2/callback   - handles IdP callback"
+                },
+                "register": {
+                    "$ref": "#/definitions/RegisterConfig",
+                    "description": "User registration configuration.\nEnables self-service user registration with password-based auth."
                 }
             },
             "title": "Auth"
@@ -226,6 +229,10 @@
                     "type": "string",
                     "description": "Name of the claim that contains the user's role.",
                     "default": "role"
+                },
+                "revocation": {
+                    "$ref": "#/definitions/JwtRevocationConfig",
+                    "description": "Token revocation configuration. When set, JWTs with a `jti` claim are checked against the revocation store."
                 }
             },
             "required": [
@@ -314,6 +321,10 @@
                     "type": "integer",
                     "description": "Maximum number of pending OAuth2 authorization flows allowed simultaneously.\nLimits memory usage from concurrent or abandoned authorization flows.",
                     "default": 1000
+                },
+                "role_mapping": {
+                    "$ref": "#/definitions/RoleMappingConfig",
+                    "description": "OAuth2 role mapping configuration. When set, IdP roles/groups from the userinfo response are mapped to Main Serve roles."
                 }
             },
             "dependentRequired": {
@@ -614,9 +625,11 @@
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "The path for the endpoint.",
+                    "description": "The path for the endpoint. Supports OpenAPI-style {param} path parameters and * wildcard capture. Examples: /api/users, /api/users/{id}, /static/*",
                     "examples": [
-                        "/static"
+                        "/api/users",
+                        "/api/users/{id}",
+                        "/static/*"
                     ]
                 },
                 "methods": {
@@ -768,6 +781,24 @@
                     "type": [ "string", "null" ],
                     "description": "WHERE clause applied to all queries on this endpoint. Can be static (e.g. \"deleted_at IS NULL\") or dynamic with interpolation (e.g. \"author_id = ${request.user.id}\").",
                     "examples": [ "deleted_at IS NULL" ],
+                    "default": null
+                },
+                "update_where_clause": {
+                    "type": [ "string", "null" ],
+                    "description": "WHERE clause applied specifically to UPDATE queries. Can be static or dynamic with interpolation (e.g. \"author_id = ${request.user.id}\"). Combined with where_clause using AND.",
+                    "examples": [ "author_id = ${request.user.id}" ],
+                    "default": null
+                },
+                "delete_where_clause": {
+                    "type": [ "string", "null" ],
+                    "description": "WHERE clause applied specifically to DELETE queries. Can be static or dynamic with interpolation (e.g. \"author_id = ${request.user.id}\"). Combined with where_clause using AND.",
+                    "examples": [ "author_id = ${request.user.id}" ],
+                    "default": null
+                },
+                "insert_owner": {
+                    "type": [ "string", "null" ],
+                    "description": "Column name to automatically populate with the authenticated user's ID (${request.user.id}) on INSERT (POST) requests. If the column already has a value in the request body, that value takes precedence.",
+                    "examples": [ "author_id" ],
                     "default": null
                 },
                 "joins": {
@@ -1801,6 +1832,106 @@
             "required": [ "name", "max_width", "max_height", "resize_fit", "format" ],
             "title": "ImageStyle"
         },
+        "JwtRevocationConfig": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "store": {
+                    "description": "Token revocation store type: \"in_memory\" or \"database\".",
+                    "anyOf": [
+                        { "type": "string", "enum": [ "in_memory", "database" ] },
+                        { "$ref": "#/definitions/EnvVar" }
+                    ],
+                    "default": "in_memory"
+                },
+                "db_table": {
+                    "type": [ "string", "null" ],
+                    "description": "Database table name for revocation store (only when store is database)."
+                },
+                "cleanup_interval_secs": {
+                    "type": [ "integer", "null" ],
+                    "description": "Interval in seconds between cleanup runs for expired revocation entries. Only applicable for database store.",
+                    "default": 3600
+                }
+            },
+            "title": "JwtRevocationConfig"
+        },
+        "RoleMatchMode": {
+            "type": "string",
+            "description": "OAuth2 role mapping match mode.",
+            "enum": [ "exact", "contains" ],
+            "default": "exact",
+            "title": "RoleMatchMode"
+        },
+        "RoleMappingConfig": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "default_role": {
+                    "type": "string",
+                    "description": "Default Main Serve role when no IdP role maps.",
+                    "default": "user"
+                },
+                "role_claim": {
+                    "type": "string",
+                    "description": "Name of the claim in the userinfo response containing IdP roles/groups.",
+                    "default": "groups"
+                },
+                "role_map": {
+                    "type": "object",
+                    "description": "Mapping from IdP role/group values to Main Serve roles.",
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "default": {}
+                },
+                "match_mode": {
+                    "$ref": "#/definitions/RoleMatchMode",
+                    "description": "How to match IdP roles against the role_map keys."
+                }
+            },
+            "title": "RoleMappingConfig"
+        },
+        "RegisterConfig": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "Whether registration is enabled.",
+                    "default": false
+                },
+                "table": {
+                    "type": "string",
+                    "description": "Database table to create users in."
+                },
+                "database": {
+                    "type": "string",
+                    "description": "Named database to use."
+                },
+                "default_role": {
+                    "type": "string",
+                    "description": "Default role assigned to newly registered users.",
+                    "default": "user"
+                },
+                "password_hash": {
+                    "description": "Password hashing algorithm.",
+                    "anyOf": [
+                        { "type": "string", "enum": [ "argon2id" ] },
+                        { "$ref": "#/definitions/EnvVar" }
+                    ],
+                    "default": "argon2id"
+                }
+            },
+            "title": "RegisterConfig"
+        },
+        "PasswordHashAlgorithm": {
+            "type": "string",
+            "description": "Password hashing algorithm for user registration.",
+            "enum": [ "argon2id" ],
+            "default": "argon2id",
+            "title": "PasswordHashAlgorithm"
+        },
         "Logging": {
             "type": "object",
             "additionalProperties": false,
@@ -1887,7 +2018,7 @@
             "properties": {
                 "host": {
                     "type": "string",
-                    "description": "Bind address for the HTTP listener. Default: \"127.0.0.1\"",
+                    "description": "Bind address for the HTTP listener.",
                     "default": "\"127.0.0.1\""
                 },
                 "port": {

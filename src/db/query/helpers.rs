@@ -169,6 +169,8 @@ pub(crate) fn interpolate_value(
 pub(crate) fn resolve_single_key(key: &str, context: &RequestContext) -> Option<String> {
     if key == "request.user.id" {
         context.user_id.clone()
+    } else if key == "request.user.email" {
+        context.user_email.clone()
     } else if key == "request.user.role" {
         context.user_role.clone()
     } else if key == "request.method" {
@@ -1126,6 +1128,7 @@ mod tests {
     fn test_context() -> RequestContext {
         RequestContext {
             user_id: Some("user-42".to_string()),
+            user_email: None,
             user_role: Some("admin".to_string()),
             method: "GET".to_string(),
             path: "/api/posts".to_string(),

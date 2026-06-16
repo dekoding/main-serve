@@ -602,7 +602,8 @@ async fn test_auth_jwt_crud_read_any_role() {
         );
 
         // Valid token (any role) -> 200 for list endpoint
-        let token = create_token("reader1", Some("reader"), &jwt_config(&yaml)).unwrap();
+        let token =
+            create_token("reader1", Some("reader"), &jwt_config(&yaml), None, None).unwrap();
         let resp = app
             .clone()
             .oneshot(
@@ -617,7 +618,8 @@ async fn test_auth_jwt_crud_read_any_role() {
         assert_eq!(resp.status(), StatusCode::OK, "backend: {backend}");
 
         // Create an article with a non-admin token (list endpoint has no role restriction)
-        let token = create_token("writer1", Some("writer"), &jwt_config(&yaml)).unwrap();
+        let token =
+            create_token("writer1", Some("writer"), &jwt_config(&yaml), None, None).unwrap();
         let resp = app
             .clone()
             .oneshot(
@@ -652,7 +654,8 @@ async fn test_auth_jwt_crud_admin_only_endpoint() {
         let (app, _state) = test_db.setup_app(&yaml, "auth_admin.yaml").await;
 
         // First create an article via the list endpoint (no role restriction)
-        let admin_token = create_token("admin1", Some("admin"), &jwt_config(&yaml)).unwrap();
+        let admin_token =
+            create_token("admin1", Some("admin"), &jwt_config(&yaml), None, None).unwrap();
         let resp = app
             .clone()
             .oneshot(
@@ -687,7 +690,8 @@ async fn test_auth_jwt_crud_admin_only_endpoint() {
         let id = list["data"][0]["id"].as_i64().unwrap();
 
         // Non-admin token -> 403 on single-resource endpoint
-        let reader_token = create_token("reader1", Some("reader"), &jwt_config(&yaml)).unwrap();
+        let reader_token =
+            create_token("reader1", Some("reader"), &jwt_config(&yaml), None, None).unwrap();
         let resp = app
             .clone()
             .oneshot(
@@ -1047,7 +1051,8 @@ async fn test_combined_jwt_crud_full_lifecycle() {
         );
 
         // Create a user (JWT, any role)
-        let admin_token = create_token("admin1", Some("admin"), &jwt_config(&yaml)).unwrap();
+        let admin_token =
+            create_token("admin1", Some("admin"), &jwt_config(&yaml), None, None).unwrap();
         let resp = app
             .clone()
             .oneshot(
@@ -1087,7 +1092,8 @@ async fn test_combined_jwt_crud_full_lifecycle() {
         let user_id = list["data"][0]["id"].as_i64().unwrap();
 
         // List users (any JWT holder)
-        let viewer_token = create_token("viewer1", Some("viewer"), &jwt_config(&yaml)).unwrap();
+        let viewer_token =
+            create_token("viewer1", Some("viewer"), &jwt_config(&yaml), None, None).unwrap();
         let resp = app
             .clone()
             .oneshot(
@@ -1263,7 +1269,7 @@ async fn test_combined_where_clause_filters_inactive() {
         let (app, _dir, yaml) =
             setup_combined_app(&mut test_db, COMBINED_CONFIG, COMBINED_SITE_FILES).await;
 
-        let token = create_token("admin1", Some("admin"), &jwt_config(&yaml)).unwrap();
+        let token = create_token("admin1", Some("admin"), &jwt_config(&yaml), None, None).unwrap();
 
         // Create an active user
         let resp = app
@@ -1335,7 +1341,8 @@ async fn test_combined_cross_auth_isolation() {
             setup_combined_app(&mut test_db, COMBINED_CONFIG, COMBINED_SITE_FILES).await;
 
         // JWT token on api_key endpoint -> 401
-        let jwt_token = create_token("user1", Some("service"), &jwt_config(&yaml)).unwrap();
+        let jwt_token =
+            create_token("user1", Some("service"), &jwt_config(&yaml), None, None).unwrap();
         let resp = app
             .clone()
             .oneshot(
@@ -1547,8 +1554,9 @@ async fn test_oauth2_and_jwt_auth_modes_are_independent() {
         audience: "my-app".to_string(),
         expiry: 3600,
         role_claim: "role".to_string(),
+        revocation: None,
     };
-    let jwt = create_token("local-user", Some("user"), &jwt_cfg).unwrap();
+    let jwt = create_token("local-user", Some("user"), &jwt_cfg, None, None).unwrap();
 
     // JWT on oauth2 endpoint -> forwarded to /userinfo as Bearer -> mock accepts -> 200.
     let resp = app

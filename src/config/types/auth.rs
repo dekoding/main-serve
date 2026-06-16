@@ -3,6 +3,43 @@ use std::fmt;
 
 use serde::Deserialize;
 
+/// Password hashing algorithm for user registration.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PasswordHashAlgorithm {
+    #[default]
+    Argon2id,
+}
+
+/// User registration configuration.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct RegisterConfig {
+    /// Whether registration is enabled.
+    pub enabled: bool,
+    /// Database table to create users in.
+    pub table: String,
+    /// Named database to use.
+    pub database: String,
+    /// Default role assigned to newly registered users.
+    pub default_role: String,
+    /// Password hashing algorithm.
+    #[serde(default)]
+    pub password_hash: PasswordHashAlgorithm,
+}
+
+impl Default for RegisterConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            table: String::new(),
+            database: String::new(),
+            default_role: "user".to_string(),
+            password_hash: PasswordHashAlgorithm::Argon2id,
+        }
+    }
+}
+
 /// Top-level auth configuration - defines available auth providers.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -15,6 +52,41 @@ pub struct AuthConfig {
     pub basic: Option<BasicAuthConfig>,
     /// OAuth2/OIDC authentication configuration.
     pub oauth2: Option<OAuth2Config>,
+    /// User registration configuration.
+    #[serde(default)]
+    pub register: Option<RegisterConfig>,
+}
+
+/// Token revocation store type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RevocationStoreType {
+    InMemory,
+    Database,
+}
+
+/// Configuration for JWT token revocation.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct JwtRevocationConfig {
+    /// Store type: "in_memory" or "database".
+    pub store: RevocationStoreType,
+    /// Database table name for the revocation store (only when store is "database").
+    /// Defaults to "token_blacklist".
+    pub db_table: Option<String>,
+    /// Interval in seconds between cleanup runs for expired revocation entries.
+    /// Only applicable for "database" store.
+    pub cleanup_interval_secs: Option<u64>,
+}
+
+impl Default for JwtRevocationConfig {
+    fn default() -> Self {
+        Self {
+            store: RevocationStoreType::InMemory,
+            db_table: Some("token_blacklist".to_string()),
+            cleanup_interval_secs: Some(3600),
+        }
+    }
 }
 
 /// JWT authentication provider configuration.
@@ -33,6 +105,10 @@ pub struct JwtConfig {
     pub expiry: u64,
     /// Name of the JWT claim that contains the user's role.
     pub role_claim: String,
+    /// Token revocation configuration. When set, JWTs with a `jti` claim
+    /// are checked against the revocation store.
+    #[serde(default)]
+    pub revocation: Option<JwtRevocationConfig>,
 }
 
 impl Default for JwtConfig {
@@ -44,6 +120,7 @@ impl Default for JwtConfig {
             audience: String::new(),
             expiry: 3600,
             role_claim: "role".to_string(),
+            revocation: None,
         }
     }
 }
@@ -136,6 +213,48 @@ pub struct BasicAuthUser {
     pub role: Option<String>,
 }
 
+/// OAuth2 role mapping match mode.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RoleMatchMode {
+    #[default]
+    Exact,
+    Contains,
+}
+
+/// Configuration for mapping IdP roles/groups to Main Serve roles.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct RoleMappingConfig {
+    /// Default Main Serve role when no IdP role maps.
+    pub default_role: String,
+    /// Name of the claim in the userinfo response containing IdP roles/groups.
+    /// Defaults to "groups".
+    #[serde(default = "default_role_claim")]
+    pub role_claim: String,
+    /// Mapping from IdP role/group values to Main Serve roles.
+    #[serde(default)]
+    pub role_map: std::collections::HashMap<String, String>,
+    /// How to match IdP roles against the role_map keys.
+    #[serde(default)]
+    pub match_mode: RoleMatchMode,
+}
+
+fn default_role_claim() -> String {
+    "groups".to_string()
+}
+
+impl Default for RoleMappingConfig {
+    fn default() -> Self {
+        Self {
+            default_role: "user".to_string(),
+            role_claim: default_role_claim(),
+            role_map: std::collections::HashMap::new(),
+            match_mode: RoleMatchMode::default(),
+        }
+    }
+}
+
 /// OAuth2/OIDC authentication provider configuration.
 #[derive(Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -167,6 +286,10 @@ pub struct OAuth2Config {
     /// Maximum number of pending `OAuth2` authorization flows allowed simultaneously.
     #[serde(default = "default_max_pending_states")]
     pub max_pending_states: usize,
+    /// OAuth2 role mapping configuration. When set, IdP roles/groups from
+    /// the userinfo response are mapped to Main Serve roles.
+    #[serde(default)]
+    pub role_mapping: Option<RoleMappingConfig>,
 }
 
 fn default_state_ttl() -> u64 {
@@ -192,6 +315,7 @@ impl Default for OAuth2Config {
             cookie_name: "main_serve_token".to_string(),
             state_ttl: default_state_ttl(),
             max_pending_states: default_max_pending_states(),
+            role_mapping: None,
         }
     }
 }
@@ -205,6 +329,7 @@ impl fmt::Debug for JwtConfig {
             .field("audience", &self.audience)
             .field("expiry", &self.expiry)
             .field("role_claim", &self.role_claim)
+            .field("revocation", &self.revocation)
             .finish()
     }
 }
@@ -243,6 +368,7 @@ impl fmt::Debug for OAuth2Config {
             .field("cookie_name", &self.cookie_name)
             .field("state_ttl", &self.state_ttl)
             .field("max_pending_states", &self.max_pending_states)
+            .field("role_mapping", &self.role_mapping)
             .finish()
     }
 }

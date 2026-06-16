@@ -618,7 +618,7 @@ The core of Main Serve. Each entry in the `endpoints` list defines an HTTP route
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `path` | string | *(required)* | URL path pattern. Supports path parameters (`:id`) and wildcards (`*`). Examples: `/api/users`, `/api/users/:id`, `/static/*`. |
+| `path` | string | *(required)* | URL path pattern. Supports OpenAPI-style `{param}` path parameters and wildcards (`*`). Examples: `/api/users`, `/api/users/{id}`, `/static/*`. |
 | `methods` | list of enums | *(required)* | HTTP methods this endpoint responds to. Values: `get`, `post`, `put`, `patch`, `delete`. |
 | `action` | enum | *(required)* | What this endpoint does. One of: `crud`, `proxy`, `static`, `custom_response`. |
 | `auth` | string | `"none"` | Authentication method. Must be `"none"` or the name of a provider defined in the `auth` section: `"jwt"`, `"api_key"`, `"basic"`, `"oauth2"`. |
@@ -628,7 +628,7 @@ The core of Main Serve. Each entry in the `endpoints` list defines an HTTP route
 
 **Path parameters:**
 
-- `:name` - Captures a URL segment. In CRUD endpoints, `:id` is automatically used as the primary key for single-resource operations (GET, PUT, DELETE on `/api/users/:id`).
+- `{name}` - Captures a URL segment. In CRUD endpoints, `{id}` is automatically used as the primary key for single-resource operations (GET, PUT, DELETE on `/api/users/{id}`).
 - `*` - Matches any trailing path. Used for proxy endpoints (`/api/external/*`) and static file serving (`/static/*`).
 
 ### CRUD Endpoints
@@ -638,11 +638,11 @@ Automatically map HTTP methods to SQL operations on a defined table.
 | HTTP Method | SQL Operation | Description |
 |---|---|---|
 | GET (collection, e.g., `/api/users`) | SELECT | List records with pagination, filtering, sorting |
-| GET (single, e.g., `/api/users/:id`) | SELECT WHERE id = :id | Get one record by primary key |
+| GET (single, e.g., `/api/users/{id}`) | SELECT WHERE id = {id} | Get one record by primary key |
 | POST | INSERT | Create a new record |
-| PUT | UPDATE WHERE id = :id | Update an existing record |
-| PATCH | UPDATE WHERE id = :id | Partially update a record |
-| DELETE | DELETE WHERE id = :id | Delete a record |
+| PUT | UPDATE WHERE id = {id} | Update an existing record |
+| PATCH | UPDATE WHERE id = {id} | Partially update a record |
+| DELETE | DELETE WHERE id = {id} | Delete a record |
 
 ```yaml
 - path: "/api/users"

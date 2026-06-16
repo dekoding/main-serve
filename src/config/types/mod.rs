@@ -36,6 +36,32 @@ pub use server::*;
 pub use store::*;
 
 // =============================================================================
+// Role hierarchy
+// =============================================================================
+
+/// Role hierarchy configuration defining inheritance relationships between roles.
+///
+/// Each key is a role name, and its value is a list of parent roles it inherits
+/// from. A role transitively inherits all permissions of its parents, grandparents, etc.
+///
+/// Example:
+/// ```yaml
+/// role_hierarchy:
+///   admin:
+///     - editor
+///   editor:
+///     - author
+/// ```
+/// This means `admin` inherits from `editor` (and transitively from `author`),
+/// and `editor` inherits from `author`.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(transparent)]
+pub struct RoleHierarchy {
+    /// Role name -> list of parent roles it inherits from.
+    pub roles: HashMap<String, Vec<String>>,
+}
+
+// =============================================================================
 // Root config
 // =============================================================================
 
@@ -66,4 +92,8 @@ pub struct AppConfig {
     /// Named storage backends. Endpoints reference these by key.
     #[serde(default)]
     pub stores: HashMap<String, StoreConfig>,
+    /// Role inheritance hierarchy. A role inherits all permissions of its
+    /// listed parent roles transitively.
+    #[serde(default)]
+    pub role_hierarchy: Option<RoleHierarchy>,
 }

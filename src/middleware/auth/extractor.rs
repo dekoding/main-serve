@@ -12,8 +12,13 @@ use std::convert::Infallible;
 pub struct AuthInfo {
     /// The authenticated user's identifier (sub claim, username, key id, etc.).
     pub subject: String,
+    /// The user's email address, if available.
+    pub email: Option<String>,
     /// The user's role, if any.
     pub role: Option<String>,
+    /// The raw JWT token string, if this is a JWT authentication.
+    /// Used by the token revocation endpoint to revoke the current token.
+    pub token: Option<String>,
 }
 
 impl AuthInfo {
@@ -22,7 +27,9 @@ impl AuthInfo {
     pub fn anonymous() -> Self {
         Self {
             subject: String::new(),
+            email: None,
             role: None,
+            token: None,
         }
     }
 }
@@ -79,6 +86,8 @@ where
 pub struct RequestContext {
     /// The unique identifier of the authenticated user, if any.
     pub user_id: Option<String>,
+    /// The email address of the authenticated user, if any.
+    pub user_email: Option<String>,
     /// The role assigned to the authenticated user.
     pub user_role: Option<String>,
     /// A map of relevant request headers.
@@ -97,13 +106,40 @@ impl Default for RequestContext {
     }
 }
 
+/// User information used to construct a `RequestContext` with identity.
+///
+/// This is a lightweight type used primarily in tests and internal helpers
+/// to populate the user-specific fields of a `RequestContext`.
+#[derive(Debug, Clone)]
+pub struct UserInfo {
+    /// The unique identifier of the user.
+    pub id: String,
+    /// The role assigned to the user, if any.
+    pub role: Option<String>,
+}
+
 impl RequestContext {
     /// Creates a new, empty `RequestContext`.
     #[must_use]
     pub fn new() -> Self {
         Self {
             user_id: None,
+            user_email: None,
             user_role: None,
+            headers: std::collections::HashMap::new(),
+            method: String::new(),
+            path: String::new(),
+            query_params: std::collections::HashMap::new(),
+        }
+    }
+
+    /// Creates a `RequestContext` pre-populated with the given user information.
+    #[must_use]
+    pub fn new_with_user(user: UserInfo) -> Self {
+        Self {
+            user_id: Some(user.id),
+            user_email: None,
+            user_role: user.role,
             headers: std::collections::HashMap::new(),
             method: String::new(),
             path: String::new(),

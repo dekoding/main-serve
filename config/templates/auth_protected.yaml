@@ -174,7 +174,7 @@ endpoints:
     auth: "jwt"
 
   # Single-article operations - admin role only.
-  - path: "/api/articles/:id"
+  - path: "/api/articles/{id}"
     methods: ["get", "put", "delete"]
     action: "crud"
     crud:

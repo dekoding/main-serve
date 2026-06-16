@@ -80,7 +80,7 @@ endpoints:
     roles: ["admin"]
 
   # Protected: need API key to modify/delete
-  - path: "/api/todos/:id"
+  - path: "/api/todos/{id}"
     methods: ["get"]
     action: "crud"
     crud:
@@ -89,7 +89,7 @@ endpoints:
       fields: ["id", "title", "done", "created_at"]
     auth: "none"
 
-  - path: "/api/todos/:id"
+  - path: "/api/todos/{id}"
     methods: ["put", "delete"]
     action: "crud"
     crud:

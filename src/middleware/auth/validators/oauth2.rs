@@ -8,7 +8,7 @@ use sha2::Digest;
 use std::collections::HashMap;
 use std::time::Instant;
 
-use crate::config::types::OAuth2Config;
+use crate::config::types::{OAuth2Config, RoleMappingConfig, RoleMatchMode};
 use crate::error::AppError;
 
 /// Pending `OAuth2` authorization flow (stored between authorize and callback).
@@ -23,6 +23,8 @@ pub struct PendingOAuth2 {
 /// Validate an `OAuth2` access token by calling the userinfo endpoint.
 ///
 /// Returns the user's subject and optional role from the userinfo response.
+/// If `role_mapping` is provided, IdP roles/groups from the userinfo
+/// response are mapped to Main Serve roles.
 ///
 /// # Errors
 ///
@@ -32,6 +34,7 @@ pub struct PendingOAuth2 {
 pub(crate) async fn validate_oauth2_token(
     token: &str,
     config: &OAuth2Config,
+    role_mapping: Option<&RoleMappingConfig>,
 ) -> Result<(String, Option<String>), AppError> {
     if config.userinfo_url.is_empty() {
         return Err(AppError::Config(
@@ -39,13 +42,18 @@ pub(crate) async fn validate_oauth2_token(
         ));
     }
 
-    fetch_userinfo(&config.userinfo_url, token).await
+    fetch_userinfo(&config.userinfo_url, token, role_mapping).await
 }
 
 /// Fetch user information from the OIDC userinfo endpoint.
+///
+/// If `role_mapping` is provided, IdP roles/groups from the userinfo
+/// response are mapped to Main Serve roles using the configured mapping.
+/// Otherwise, falls back to the legacy `role` claim.
 pub(crate) async fn fetch_userinfo(
     userinfo_url: &str,
     access_token: &str,
+    role_mapping: Option<&RoleMappingConfig>,
 ) -> Result<(String, Option<String>), AppError> {
     let client = reqwest::Client::new();
     let response = client
@@ -73,12 +81,53 @@ pub(crate) async fn fetch_userinfo(
         .ok_or_else(|| AppError::Auth("OAuth2 userinfo response missing 'sub' claim".to_string()))?
         .to_string();
 
-    let role = userinfo
-        .get("role")
-        .and_then(|v| v.as_str())
-        .map(ToString::to_string);
+    let role = if let Some(mapping) = role_mapping {
+        let idp_roles = userinfo
+            .get(&mapping.role_claim)
+            .map(extract_role_values)
+            .unwrap_or_else(|| vec![String::new()]);
+
+        let mapped = idp_roles.iter().find_map(|idp_role| {
+            mapping
+                .role_map
+                .get(idp_role.as_str())
+                .cloned()
+                .or_else(|| {
+                    if mapping.match_mode == RoleMatchMode::Contains {
+                        mapping
+                            .role_map
+                            .iter()
+                            .find(|(k, _)| idp_role.contains(k.as_str()))
+                            .map(|(_, v)| v.clone())
+                    } else {
+                        None
+                    }
+                })
+        });
+
+        mapped.or(Some(mapping.default_role.clone()))
+    } else {
+        userinfo
+            .get("role")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string)
+    };
 
     Ok((sub, role))
+}
+
+/// Extract role/group values from a JSON value that may be a string,
+/// array of strings, or single string.
+fn extract_role_values(value: &serde_json::Value) -> Vec<String> {
+    match value {
+        serde_json::Value::Array(arr) => arr
+            .iter()
+            .filter_map(|v| v.as_str())
+            .map(ToString::to_string)
+            .collect(),
+        serde_json::Value::String(s) => vec![s.clone()],
+        _ => vec![],
+    }
 }
 
 /// Generate a PKCE code verifier and its S256 code challenge.
@@ -171,6 +220,7 @@ pub(crate) fn extract_cookie(headers: &axum::http::HeaderMap, name: &str) -> Opt
 mod tests {
     use super::*;
     use axum::http::{HeaderMap, HeaderValue};
+    use std::collections::HashMap;
 
     #[test]
     fn test_extract_cookie_found() {
@@ -308,5 +358,259 @@ mod tests {
         let (v2, c2) = generate_pkce_pair();
         assert_ne!(v1, v2, "Verifiers should be unique");
         assert_ne!(c1, c2, "Challenges should be unique");
+    }
+
+    #[test]
+    fn test_extract_role_values_from_array() {
+        let json = serde_json::json!(["admin-group", "editor-group", "viewer-group"]);
+        let result = extract_role_values(&json);
+        assert_eq!(
+            result,
+            vec![
+                "admin-group".to_string(),
+                "editor-group".to_string(),
+                "viewer-group".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn test_extract_role_values_from_single_string() {
+        let json = serde_json::json!("admin-group");
+        let result = extract_role_values(&json);
+        assert_eq!(result, vec!["admin-group".to_string()]);
+    }
+
+    #[test]
+    fn test_extract_role_values_from_null() {
+        let json = serde_json::Value::Null;
+        let result = extract_role_values(&json);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_extract_role_values_from_number() {
+        let json = serde_json::json!(42);
+        let result = extract_role_values(&json);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_extract_role_values_from_empty_array() {
+        let json = serde_json::json!([]);
+        let result = extract_role_values(&json);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_extract_role_values_from_mixed_array() {
+        let json = serde_json::json!(["admin", 42, "editor", null]);
+        let result = extract_role_values(&json);
+        assert_eq!(result, vec!["admin".to_string(), "editor".to_string()]);
+    }
+
+    #[test]
+    fn test_exact_match_role_mapping() {
+        let mut role_map = HashMap::new();
+        role_map.insert("admin-group".to_string(), "admin".to_string());
+        role_map.insert("editor-group".to_string(), "editor".to_string());
+        role_map.insert("viewer-group".to_string(), "user".to_string());
+
+        let mapping = RoleMappingConfig {
+            default_role: "user".to_string(),
+            role_claim: "groups".to_string(),
+            role_map,
+            match_mode: RoleMatchMode::Exact,
+        };
+
+        let userinfo = serde_json::json!({"sub": "user123", "groups": "admin-group"});
+
+        let idp_roles = userinfo
+            .get("groups")
+            .map(extract_role_values)
+            .unwrap_or_else(|| vec![String::new()]);
+
+        let mapped = idp_roles.iter().find_map(|idp_role| {
+            mapping
+                .role_map
+                .get(idp_role.as_str())
+                .cloned()
+                .or_else(|| {
+                    if mapping.match_mode == RoleMatchMode::Contains {
+                        mapping
+                            .role_map
+                            .iter()
+                            .find(|(k, _)| idp_role.contains(k.as_str()))
+                            .map(|(_, v)| v.clone())
+                    } else {
+                        None
+                    }
+                })
+        });
+
+        assert_eq!(mapped, Some("admin".to_string()));
+    }
+
+    #[test]
+    fn test_contains_match_role_mapping() {
+        let mut role_map = HashMap::new();
+        role_map.insert("admin".to_string(), "admin".to_string());
+        role_map.insert("editor".to_string(), "editor".to_string());
+
+        let mapping = RoleMappingConfig {
+            default_role: "user".to_string(),
+            role_claim: "groups".to_string(),
+            role_map,
+            match_mode: RoleMatchMode::Contains,
+        };
+
+        // The IdP role "super-admin-privileges" should contain "admin" key
+        let idp_roles = ["super-admin-privileges".to_string()];
+
+        let mapped = idp_roles.iter().find_map(|idp_role| {
+            mapping
+                .role_map
+                .get(idp_role.as_str())
+                .cloned()
+                .or_else(|| {
+                    if mapping.match_mode == RoleMatchMode::Contains {
+                        mapping
+                            .role_map
+                            .iter()
+                            .find(|(k, _)| idp_role.contains(k.as_str()))
+                            .map(|(_, v)| v.clone())
+                    } else {
+                        None
+                    }
+                })
+        });
+
+        assert_eq!(mapped, Some("admin".to_string()));
+    }
+
+    #[test]
+    fn test_role_mapping_falls_back_to_default() {
+        let mut role_map = HashMap::new();
+        role_map.insert("admin-group".to_string(), "admin".to_string());
+
+        let mapping = RoleMappingConfig {
+            default_role: "user".to_string(),
+            role_claim: "groups".to_string(),
+            role_map,
+            match_mode: RoleMatchMode::Exact,
+        };
+
+        // Unknown role should fall back to default
+        let idp_roles = ["unknown-group".to_string()];
+
+        let mapped = idp_roles.iter().find_map(|idp_role| {
+            mapping
+                .role_map
+                .get(idp_role.as_str())
+                .cloned()
+                .or_else(|| {
+                    if mapping.match_mode == RoleMatchMode::Contains {
+                        mapping
+                            .role_map
+                            .iter()
+                            .find(|(k, _)| idp_role.contains(k.as_str()))
+                            .map(|(_, v)| v.clone())
+                    } else {
+                        None
+                    }
+                })
+        });
+
+        assert_eq!(mapped, None);
+
+        // .or(Some(default_role)) should yield "user"
+        let final_role = mapped.or(Some(mapping.default_role.clone()));
+        assert_eq!(final_role, Some("user".to_string()));
+    }
+
+    #[test]
+    fn test_role_mapping_empty_idp_roles_uses_default() {
+        let mut role_map = HashMap::new();
+        role_map.insert("admin-group".to_string(), "admin".to_string());
+
+        let mapping = RoleMappingConfig {
+            default_role: "user".to_string(),
+            role_claim: "groups".to_string(),
+            role_map,
+            match_mode: RoleMatchMode::Exact,
+        };
+
+        // No groups claim at all - extract_role_values returns empty vec
+        let userinfo = serde_json::json!({"sub": "user123"});
+
+        let idp_roles = userinfo
+            .get("groups")
+            .map(extract_role_values)
+            .unwrap_or_else(|| vec![String::new()]);
+
+        let mapped = idp_roles.iter().find_map(|idp_role| {
+            mapping
+                .role_map
+                .get(idp_role.as_str())
+                .cloned()
+                .or_else(|| {
+                    if mapping.match_mode == RoleMatchMode::Contains {
+                        mapping
+                            .role_map
+                            .iter()
+                            .find(|(k, _)| idp_role.contains(k.as_str()))
+                            .map(|(_, v)| v.clone())
+                    } else {
+                        None
+                    }
+                })
+        });
+
+        // Empty string won't match any key, falls back to default
+        let final_role = mapped.or(Some(mapping.default_role.clone()));
+        assert_eq!(final_role, Some("user".to_string()));
+    }
+
+    #[test]
+    fn test_role_mapping_array_roles_exact_match() {
+        let mut role_map = HashMap::new();
+        role_map.insert("admin-group".to_string(), "admin".to_string());
+        role_map.insert("editor-group".to_string(), "editor".to_string());
+
+        let mapping = RoleMappingConfig {
+            default_role: "user".to_string(),
+            role_claim: "groups".to_string(),
+            role_map,
+            match_mode: RoleMatchMode::Exact,
+        };
+
+        let userinfo =
+            serde_json::json!({"sub": "user123", "groups": ["editor-group", "viewer-group"]});
+
+        let idp_roles = userinfo
+            .get("groups")
+            .map(extract_role_values)
+            .unwrap_or_else(|| vec![String::new()]);
+
+        // find_map returns the first match - "editor-group" matches "editor"
+        let mapped = idp_roles.iter().find_map(|idp_role| {
+            mapping
+                .role_map
+                .get(idp_role.as_str())
+                .cloned()
+                .or_else(|| {
+                    if mapping.match_mode == RoleMatchMode::Contains {
+                        mapping
+                            .role_map
+                            .iter()
+                            .find(|(k, _)| idp_role.contains(k.as_str()))
+                            .map(|(_, v)| v.clone())
+                    } else {
+                        None
+                    }
+                })
+        });
+
+        assert_eq!(mapped, Some("editor".to_string()));
     }
 }

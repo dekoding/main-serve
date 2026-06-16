@@ -1,7 +1,7 @@
 use crate::config::types::{ColumnType, CrudConfig, DatabaseDriver, TableConfig};
 use crate::db::query::helpers::{
-    coerce_pk_value, find_pk_column, interpolate_value, is_valid_identifier, placeholder,
-    resolve_writable_fields,
+    coerce_filter_value_by_type, coerce_pk_value, find_pk_column, interpolate_value,
+    is_valid_identifier, placeholder, resolve_writable_fields,
 };
 use crate::db::query::select::SelectBuilder;
 use crate::db::query::types::BuiltQuery;
@@ -32,12 +32,44 @@ pub fn build_insert(
         .ok_or_else(|| AppError::BadRequest("Request body must be a JSON object".to_string()))?;
 
     let writable = resolve_writable_fields(&crud.writable_fields, table_config);
+
+    // Check if we need to auto-populate the owner field.
+    let owner_col = crud.insert_owner.clone();
+
     let mut columns: Vec<String> = Vec::new();
     let mut placeholders: Vec<String> = Vec::new();
     let mut params: Vec<serde_json::Value> = Vec::new();
     let mut param_idx = 1usize;
 
+    // Auto-populate owner field if configured. Server always controls ownership.
+    if let Some(ref owner_field) = owner_col
+        && let Some(user_id) = &context.user_id
+    {
+        let owner_col_type = table_config
+            .columns
+            .iter()
+            .find(|c| c.name == *owner_field)
+            .map(|c| &c.column_type);
+
+        let coerced = match owner_col_type {
+            Some(ct) => coerce_filter_value_by_type(user_id, ct, driver),
+            None => serde_json::Value::String(user_id.to_string()),
+        };
+        columns.push(owner_field.clone());
+        let placeholder = placeholder(driver, param_idx);
+        placeholders.push(placeholder);
+        params.push(coerced);
+        param_idx += 1;
+    }
+
     for (key, value) in obj {
+        // Skip the owner field - it is auto-populated by insert_owner.
+        if let Some(ref owner_field) = owner_col
+            && key == owner_field
+        {
+            continue;
+        }
+
         if !writable.contains(key) {
             continue;
         }
@@ -103,6 +135,7 @@ pub fn build_insert(
 /// Returns `AppError::BadRequest` if the body is not a JSON object, contains
 /// invalid field names, or provides no writable fields.
 /// Returns `AppError::Internal` if the table has no primary key column.
+#[allow(clippy::too_many_arguments)]
 pub fn build_update(
     table_name: &str,
     table_config: &TableConfig,
@@ -111,6 +144,7 @@ pub fn build_update(
     body: &serde_json::Value,
     driver: DatabaseDriver,
     context: &RequestContext,
+    where_clause: &Option<String>,
 ) -> Result<BuiltQuery, AppError> {
     let obj = body
         .as_object()
@@ -152,7 +186,7 @@ pub fn build_update(
     let is_coercion_sentinel = pk_val
         .as_number()
         .is_some_and(|n| n.as_i64() == Some(i64::MIN));
-    let sql = if is_coercion_sentinel {
+    let mut sql = if is_coercion_sentinel {
         format!(
             "UPDATE {} SET {} WHERE 1 = 0",
             table_name,
@@ -171,6 +205,15 @@ pub fn build_update(
         params.push(pk_val);
     }
 
+    if let Some(wc) = where_clause {
+        let interpolated = interpolate_value(wc, context)?;
+        let wc_str = match interpolated {
+            serde_json::Value::String(s) => s,
+            other => other.to_string(),
+        };
+        sql = format!("{sql} AND {wc_str}");
+    }
+
     Ok(BuiltQuery { sql, params })
 }
 
@@ -184,6 +227,8 @@ pub fn build_delete(
     table_config: &TableConfig,
     pk_value: &str,
     driver: DatabaseDriver,
+    context: &RequestContext,
+    where_clause: &Option<String>,
 ) -> Result<BuiltQuery, AppError> {
     let pk_col = find_pk_column(table_config)?;
     let pk_val = coerce_pk_value(table_config, pk_value);
@@ -191,19 +236,44 @@ pub fn build_delete(
         .as_number()
         .is_some_and(|n| n.as_i64() == Some(i64::MIN));
 
-    let (sql, params) = if is_coercion_sentinel {
-        (format!("DELETE FROM {table_name} WHERE 1 = 0"), Vec::new())
-    } else {
-        let sql = format!(
-            "DELETE FROM {} WHERE {} = {}",
-            table_name,
-            pk_col,
-            placeholder(driver, 1)
-        );
-        (sql, vec![pk_val])
-    };
+    if is_coercion_sentinel {
+        let sql = if let Some(wc) = where_clause {
+            let interpolated = interpolate_value(wc, context)?;
+            let wc_str = match interpolated {
+                serde_json::Value::String(s) => s,
+                other => other.to_string(),
+            };
+            format!("DELETE FROM {table_name} WHERE 1 = 0 AND {wc_str}")
+        } else {
+            format!("DELETE FROM {table_name} WHERE 1 = 0")
+        };
+        return Ok(BuiltQuery {
+            sql,
+            params: Vec::new(),
+        });
+    }
 
-    Ok(BuiltQuery { sql, params })
+    let params: Vec<serde_json::Value> = vec![pk_val];
+    let mut base_sql = format!(
+        "DELETE FROM {} WHERE {} = {}",
+        table_name,
+        pk_col,
+        placeholder(driver, 1)
+    );
+
+    if let Some(wc) = where_clause {
+        let interpolated = interpolate_value(wc, context)?;
+        let wc_str = match interpolated {
+            serde_json::Value::String(s) => s,
+            other => other.to_string(),
+        };
+        base_sql = format!("{base_sql} AND {wc_str}");
+    }
+
+    Ok(BuiltQuery {
+        sql: base_sql,
+        params,
+    })
 }
 
 /// Build a SELECT query for listing records.
@@ -511,6 +581,7 @@ mod tests {
             &body,
             DatabaseDriver::Sqlite,
             &context,
+            &None,
         )
         .unwrap();
         assert_eq!(q.sql, "UPDATE posts SET title = ? WHERE id = ?");
@@ -523,9 +594,93 @@ mod tests {
     #[test]
     fn test_build_delete() {
         let table = test_table();
-        let q = build_delete("posts", &table, "42", DatabaseDriver::Sqlite).unwrap();
+        let context = RequestContext::new();
+        let q = build_delete(
+            "posts",
+            &table,
+            "42",
+            DatabaseDriver::Sqlite,
+            &context,
+            &None,
+        )
+        .unwrap();
         assert_eq!(q.sql, "DELETE FROM posts WHERE id = ?");
         assert_eq!(q.params, vec![serde_json::json!(42)]);
+    }
+
+    #[test]
+    fn test_build_delete_with_where_clause() {
+        let table = test_table();
+        let context = RequestContext::new();
+        let where_clause = Some("author = ${request.user.id}".to_string());
+        let q = build_delete(
+            "posts",
+            &table,
+            "42",
+            DatabaseDriver::Sqlite,
+            &context,
+            &where_clause,
+        )
+        .unwrap();
+        assert_eq!(
+            q.sql,
+            "DELETE FROM posts WHERE id = ? AND author = ${request.user.id}"
+        );
+        assert_eq!(q.params, vec![serde_json::json!(42)]);
+    }
+
+    #[test]
+    fn test_build_delete_with_interpolated_where_clause() {
+        use crate::middleware::auth::extractor::UserInfo;
+
+        let table = test_table();
+        let context = RequestContext::new_with_user(UserInfo {
+            id: "user-123".to_string(),
+            role: None,
+        });
+        let where_clause = Some("author = ${request.user.id}".to_string());
+        let q = build_delete(
+            "posts",
+            &table,
+            "42",
+            DatabaseDriver::Sqlite,
+            &context,
+            &where_clause,
+        )
+        .unwrap();
+        assert_eq!(
+            q.sql,
+            "DELETE FROM posts WHERE id = ? AND author = user-123"
+        );
+        assert_eq!(q.params, vec![serde_json::json!(42)]);
+    }
+
+    #[test]
+    fn test_build_update_with_where_clause() {
+        let table = test_table();
+        let crud = test_crud();
+        let body = serde_json::json!({"title": "Updated"});
+        let context = RequestContext::new();
+        let where_clause = Some("author = ${request.user.id}".to_string());
+        let q = build_update(
+            "posts",
+            &table,
+            &crud,
+            "42",
+            &body,
+            DatabaseDriver::Sqlite,
+            &context,
+            &where_clause,
+        )
+        .unwrap();
+        assert_eq!(
+            q.sql,
+            "UPDATE posts SET title = ? WHERE id = ? AND author = ${request.user.id}"
+        );
+        assert_eq!(
+            q.params,
+            vec![serde_json::json!("Updated"), serde_json::json!(42)]
+        );
     }
 
     #[test]

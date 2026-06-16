@@ -730,7 +730,7 @@ endpoints:
         allowed_fields: ["name"]
     auth: "none"
 
-  - path: "/api/authors/:id"
+  - path: "/api/authors/{id}"
     methods: ["get", "put", "delete"]
     action: "crud"
     crud:
@@ -759,7 +759,7 @@ endpoints:
         default_order: "asc"
     auth: "none"
 
-  - path: "/api/categories/:id"
+  - path: "/api/categories/{id}"
     methods: ["get", "put", "delete"]
     action: "crud"
     crud:
@@ -834,7 +834,7 @@ endpoints:
     auth: "api_key"
     roles: ["writer", "admin"]
 
-  - path: "/api/articles/:id"
+  - path: "/api/articles/{id}"
     methods: ["get"]
     action: "crud"
     crud:
@@ -853,7 +853,7 @@ endpoints:
         - "published_at"
     auth: "none"
 
-  - path: "/api/articles/:id"
+  - path: "/api/articles/{id}"
     methods: ["put"]
     action: "crud"
     crud:
@@ -869,7 +869,7 @@ endpoints:
     auth: "api_key"
     roles: ["writer", "admin"]
 
-  - path: "/api/articles/:id"
+  - path: "/api/articles/{id}"
     methods: ["delete"]
     action: "crud"
     crud:

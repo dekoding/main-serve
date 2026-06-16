@@ -179,11 +179,17 @@ pub async fn handle_oauth2_callback(
             "OAuth2 userinfo_url is required for the code flow".to_string(),
         ));
     } else {
-        fetch_userinfo(&oauth2.userinfo_url, access_token).await?
+        fetch_userinfo(
+            &oauth2.userinfo_url,
+            access_token,
+            oauth2.role_mapping.as_ref(),
+        )
+        .await?
     };
 
     // Mint a Main Serve JWT using the existing jwt config.
-    let jwt = create_token(&sub, role.as_deref(), jwt_config)?;
+    let jti = uuid::Uuid::new_v4().to_string();
+    let jwt = create_token(&sub, role.as_deref(), jwt_config, Some(&jti), None)?;
 
     // Collect values from config before dropping the read lock.
     let success_url = if oauth2.success_url.is_empty() {

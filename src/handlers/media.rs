@@ -516,6 +516,7 @@ async fn handle_media_update(
         &serde_json::Value::Object(body_map),
         driver,
         &RequestContext::default(),
+        &None,
     )?;
     let rows_affected = pool.execute_with_params(&built.sql, &built.params).await?;
 
@@ -1022,7 +1023,14 @@ async fn handle_media_trash_empty(
 
     for row in &rows {
         if let Some(id_val) = row.get("id").and_then(|v| v.as_str()) {
-            let built = build_delete(&config.table, table_config, id_val, driver)?;
+            let built = build_delete(
+                &config.table,
+                table_config,
+                id_val,
+                driver,
+                &RequestContext::default(),
+                &None,
+            )?;
             let _ = pool.execute_with_params(&built.sql, &built.params).await;
             deleted_count += 1;
         }
@@ -1084,7 +1092,14 @@ async fn handle_media_trash_permanent_delete(
         }
     }
 
-    let built = build_delete(&config.table, table_config, id, driver)?;
+    let built = build_delete(
+        &config.table,
+        table_config,
+        id,
+        driver,
+        &RequestContext::default(),
+        &None,
+    )?;
     let rows_affected = pool.execute_with_params(&built.sql, &built.params).await?;
 
     if rows_affected == 0 {
@@ -1207,7 +1222,14 @@ async fn delete_media_permanently(
         }
     }
 
-    let built = build_delete(&config.table, table_config, id, driver)?;
+    let built = build_delete(
+        &config.table,
+        table_config,
+        id,
+        driver,
+        &RequestContext::default(),
+        &None,
+    )?;
     let rows_affected = pool.execute_with_params(&built.sql, &built.params).await?;
 
     if rows_affected == 0 {
@@ -1645,11 +1667,12 @@ async fn extract_auth_info(
         return Ok(AuthInfo::default());
     }
     let auth_config = state.config.read().await.auth.clone();
-    crate::middleware::auth::validate::authenticate(
+    crate::middleware::auth::validate::authenticate::<crate::server::state::InMemoryRevocationStore>(
         &endpoint.auth,
         &auth_config,
         headers,
         query_params,
+        None,
     )
     .await
 }

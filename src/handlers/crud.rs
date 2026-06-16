@@ -142,7 +142,16 @@ pub async fn handle_crud(
             let body = body
                 .ok_or_else(|| AppError::BadRequest("Request body required".to_string()))?
                 .0;
-            let built = build_update(&crud.table, table_config, crud, pk, &body, driver, &context)?;
+            let built = build_update(
+                &crud.table,
+                table_config,
+                crud,
+                pk,
+                &body,
+                driver,
+                &context,
+                &crud.update_where_clause,
+            )?;
             let rows_affected = pool.execute_with_params(&built.sql, &built.params).await?;
             if rows_affected == 0 {
                 return Err(AppError::NotFound(format!(
@@ -159,7 +168,14 @@ pub async fn handle_crud(
 
         // DELETE /resources/{id} -> delete
         ("DELETE", Some(pk)) => {
-            let built = build_delete(&crud.table, table_config, pk, driver)?;
+            let built = build_delete(
+                &crud.table,
+                table_config,
+                pk,
+                driver,
+                &context,
+                &crud.delete_where_clause,
+            )?;
             let rows_affected = pool.execute_with_params(&built.sql, &built.params).await?;
             if rows_affected == 0 {
                 return Err(AppError::NotFound(format!(
