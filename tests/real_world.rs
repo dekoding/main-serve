@@ -602,7 +602,8 @@ async fn test_auth_jwt_crud_read_any_role() {
         );
 
         // Valid token (any role) -> 200 for list endpoint
-        let token = create_token("reader1", Some("reader"), &jwt_config(&yaml), None, None).unwrap();
+        let token =
+            create_token("reader1", Some("reader"), &jwt_config(&yaml), None, None).unwrap();
         let resp = app
             .clone()
             .oneshot(
@@ -617,7 +618,8 @@ async fn test_auth_jwt_crud_read_any_role() {
         assert_eq!(resp.status(), StatusCode::OK, "backend: {backend}");
 
         // Create an article with a non-admin token (list endpoint has no role restriction)
-        let token = create_token("writer1", Some("writer"), &jwt_config(&yaml), None, None).unwrap();
+        let token =
+            create_token("writer1", Some("writer"), &jwt_config(&yaml), None, None).unwrap();
         let resp = app
             .clone()
             .oneshot(
@@ -652,7 +654,8 @@ async fn test_auth_jwt_crud_admin_only_endpoint() {
         let (app, _state) = test_db.setup_app(&yaml, "auth_admin.yaml").await;
 
         // First create an article via the list endpoint (no role restriction)
-        let admin_token = create_token("admin1", Some("admin"), &jwt_config(&yaml), None, None).unwrap();
+        let admin_token =
+            create_token("admin1", Some("admin"), &jwt_config(&yaml), None, None).unwrap();
         let resp = app
             .clone()
             .oneshot(
@@ -1048,7 +1051,8 @@ async fn test_combined_jwt_crud_full_lifecycle() {
         );
 
         // Create a user (JWT, any role)
-        let admin_token = create_token("admin1", Some("admin"), &jwt_config(&yaml), None, None).unwrap();
+        let admin_token =
+            create_token("admin1", Some("admin"), &jwt_config(&yaml), None, None).unwrap();
         let resp = app
             .clone()
             .oneshot(
@@ -1337,7 +1341,8 @@ async fn test_combined_cross_auth_isolation() {
             setup_combined_app(&mut test_db, COMBINED_CONFIG, COMBINED_SITE_FILES).await;
 
         // JWT token on api_key endpoint -> 401
-        let jwt_token = create_token("user1", Some("service"), &jwt_config(&yaml), None, None).unwrap();
+        let jwt_token =
+            create_token("user1", Some("service"), &jwt_config(&yaml), None, None).unwrap();
         let resp = app
             .clone()
             .oneshot(

@@ -621,7 +621,14 @@ async fn test_oauth2_state_is_one_time_use() {
 async fn test_jwt_auth_via_cookie_fallback() {
     let (app, _f) = setup_server(JWT_COOKIE_FALLBACK_CONFIG).await;
 
-    let token = create_token("cookie-user", Some("admin"), &jwt_config(JWT_CONFIG), None, None).unwrap();
+    let token = create_token(
+        "cookie-user",
+        Some("admin"),
+        &jwt_config(JWT_CONFIG),
+        None,
+        None,
+    )
+    .unwrap();
 
     // Without any auth -> 401.
     let req = Request::builder()
@@ -788,7 +795,14 @@ async fn test_revoke_token_without_jti_fails() {
     let (app, _f) = setup_server(JWT_WITH_REVOCATION_CONFIG).await;
 
     // Create token without jti
-    let token = create_token("user1", None, &jwt_config(JWT_WITH_REVOCATION_CONFIG), None, None).unwrap();
+    let token = create_token(
+        "user1",
+        None,
+        &jwt_config(JWT_WITH_REVOCATION_CONFIG),
+        None,
+        None,
+    )
+    .unwrap();
 
     let req = Request::builder()
         .method("POST")
