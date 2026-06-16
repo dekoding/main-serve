@@ -16,6 +16,7 @@ use super::state::AppState;
 use crate::config::AppConfig;
 use crate::config::types::{EndpointAction, EndpointConfig, HttpMethod as ConfigHttpMethod};
 use crate::error::AppError;
+use crate::handlers::auth::{handle_login, handle_register, handle_revoke};
 use crate::handlers::crud::handle_crud;
 use crate::handlers::custom_response::handle_custom_response;
 use crate::handlers::file_store::handle_file_store_route;
@@ -36,7 +37,7 @@ use crate::middleware::rate_limit::rate_limit_middleware;
 pub async fn build_router(config: &AppConfig, state: AppState) -> Router {
     let mut endpoint_configs = std::collections::HashMap::new();
     for endpoint in &config.endpoints {
-        let mut path = endpoint.path.replace(":id", "{id}").replace('*', "{*rest}");
+        let mut path = endpoint.path.replace('*', "{*rest}");
         let static_catch_all_added =
             endpoint.action == EndpointAction::StaticFiles && !path.contains("{*rest}");
         if static_catch_all_added {
@@ -88,8 +89,31 @@ pub async fn build_router(config: &AppConfig, state: AppState) -> Router {
             );
     }
 
+    // Token revocation endpoint - only when JWT revocation is configured.
+    if config
+        .auth
+        .jwt
+        .as_ref()
+        .is_some_and(|j| j.revocation.is_some())
+    {
+        router = router.route(
+            "/_main-serve/auth/revoke",
+            axum::routing::post(handle_revoke),
+        );
+    }
+
+    // Registration and login endpoints - only when registration is enabled.
+    if config.auth.register.as_ref().is_some_and(|r| r.enabled) {
+        router = router
+            .route(
+                "/_main-serve/register",
+                axum::routing::post(handle_register),
+            )
+            .route("/_main-serve/login", axum::routing::post(handle_login));
+    }
+
     for endpoint in &config.endpoints {
-        let path_for_routes = endpoint.path.replace(":id", "{id}").replace('*', "{*rest}");
+        let path_for_routes = endpoint.path.replace('*', "{*rest}");
         let static_catch_all_added =
             endpoint.action == EndpointAction::StaticFiles && !path_for_routes.contains("{*rest}");
         let path = if static_catch_all_added {
@@ -489,6 +513,7 @@ async fn handle_crud_route(
     let auth_info = extensions.get::<AuthInfo>().cloned().unwrap_or_default();
     let context = RequestContext {
         user_id: auth_info.subject.clone().into(),
+        user_email: auth_info.email.clone(),
         user_role: auth_info.role,
         headers: headers
             .iter()

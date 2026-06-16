@@ -70,7 +70,12 @@ pub async fn auth_middleware(
 
     let required_roles = endpoint_config
         .as_ref()
-        .map(|e| e.roles.clone())
+        .and_then(|e| {
+            e.methods
+                .iter()
+                .find(|m| m.matches(req.method()))
+                .map(|m| e.roles.clone_for_method(*m))
+        })
         .unwrap_or_default();
 
     if auth_type == "none" {
@@ -80,15 +85,18 @@ pub async fn auth_middleware(
     let auth_config = auth_config
         .ok_or_else(|| AppError::Config("Auth required but no auth config provided".to_string()))?;
 
+    let revocation_store = state.0.revocation_store.get();
     let auth_info = crate::middleware::auth::validate::authenticate(
         &auth_type,
         &auth_config,
         &headers,
         &query_params,
+        revocation_store,
     )
     .await?;
 
-    crate::middleware::auth::validate::check_roles(&auth_info, &required_roles)?;
+    let role_inheritance = state.0.role_inheritance.read().await;
+    crate::middleware::auth::validate::check_roles(&auth_info, &required_roles, &role_inheritance)?;
 
     req.extensions_mut().insert(auth_info);
 

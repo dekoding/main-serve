@@ -126,7 +126,7 @@ endpoints:
     auth: "none"
 
   # Get / update / delete single post
-  - path: "/api/posts/:id"
+  - path: "/api/posts/{id}"
     methods: ["get", "put", "delete"]
     action: "crud"
     crud:

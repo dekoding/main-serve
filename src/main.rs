@@ -1,16 +1,20 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process;
-use std::{env, fmt};
+use std::sync::Arc;
+use std::{env, fmt, time::Duration};
 
 use clap::Parser;
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
 
 use main_serve::config::load_config;
-use main_serve::config::types::LogFormat;
+use main_serve::config::types::{LogFormat, RevocationStoreType};
 use main_serve::db::migration::run_migrations;
 use main_serve::db::pool::{close_pools, create_pools};
+use main_serve::server::state::{
+    DatabaseRevocationStore, InMemoryRevocationStore, RevocationStoreImpl,
+};
 use main_serve::server::{AppState, build_router, build_tls_acceptor};
 
 /// Main Serve - a high-performance, YAML-configured web server.
@@ -178,26 +182,95 @@ async fn async_main(cli: Cli, config: main_serve::config::AppConfig, config_path
         }
     };
 
-    // Create database pools and run migrations.
+    // Create database pools, run migrations, and set up revocation store.
     if !state.config.read().await.databases.is_empty() {
         let config_ref = state.config.read().await;
-        match create_pools(&config_ref.databases).await {
-            Ok(pools) => {
-                if let Err(e) =
-                    run_migrations(&config_ref.tables, &pools, &config_ref.databases).await
-                {
-                    tracing::error!("Migration failed: {e}");
-                    close_pools(&pools).await;
-                    process::exit(1);
-                }
-                drop(config_ref);
-                let mut pool_lock = state.db_pools.write().await;
-                *pool_lock = pools;
-            }
+        let databases = config_ref.databases.clone();
+        let tables = config_ref.tables.clone();
+        let revocation_config = config_ref
+            .auth
+            .jwt
+            .as_ref()
+            .and_then(|j| j.revocation.clone());
+        drop(config_ref);
+
+        // Create database pools.
+        let pools = match create_pools(&databases).await {
+            Ok(p) => p,
             Err(e) => {
                 tracing::error!("Failed to create database pools: {e}");
                 process::exit(1);
             }
+        };
+
+        // Create revocation tables and store if revocation is configured.
+        let revocation_store = if let Some(ref rev_config) = revocation_config {
+            let store_type = rev_config.store;
+            match store_type {
+                RevocationStoreType::InMemory => Some(RevocationStoreImpl::InMemory(Arc::new(
+                    InMemoryRevocationStore::default(),
+                ))),
+                RevocationStoreType::Database => {
+                    // Create the revocation table in all pools.
+                    if let Err(e) =
+                        main_serve::db::migration::create_revocation_tables(&pools).await
+                    {
+                        tracing::error!("Failed to create revocation table: {e}");
+                        close_pools(&pools).await;
+                        process::exit(1);
+                    }
+
+                    // Use the first available pool for the database revocation store.
+                    if let Some(pool) = pools.values().next().cloned() {
+                        let table_name = rev_config
+                            .db_table
+                            .clone()
+                            .unwrap_or_else(|| "token_blacklist".to_string());
+                        let db_store = DatabaseRevocationStore::new(pool, table_name);
+                        Some(RevocationStoreImpl::Database(Arc::new(db_store)))
+                    } else {
+                        tracing::warn!("No database pool available for revocation store");
+                        None
+                    }
+                }
+            }
+        } else {
+            None
+        };
+
+        // Run application migrations.
+        if let Err(e) = run_migrations(&tables, &pools, &databases).await {
+            tracing::error!("Migration failed: {e}");
+            close_pools(&pools).await;
+            process::exit(1);
+        }
+
+        // Set pools on state.
+        {
+            let mut pool_lock = state.db_pools.write().await;
+            *pool_lock = pools;
+        }
+
+        // Set revocation store on state (using OnceLock).
+        if let Some(store) = revocation_store {
+            state.set_revocation_store(store);
+        }
+
+        // Spawn a cleanup task for the revocation store (database variant only).
+        if let Some(ref rev_config) = revocation_config
+            && let Some(interval_secs) = rev_config.cleanup_interval_secs
+            && let Some(store) = state.revocation_store.get()
+        {
+            let store_clone = store.clone();
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
+                loop {
+                    interval.tick().await;
+                    if let Err(e) = store_clone.cleanup_expired().await {
+                        tracing::warn!("Revocation store cleanup failed: {e}");
+                    }
+                }
+            });
         }
     }
 

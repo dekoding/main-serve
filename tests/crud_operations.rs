@@ -331,7 +331,7 @@ endpoints:
       where_clause: "active = true"
     auth: "none"
 
-  - path: "/api/items/:id"
+  - path: "/api/items/{id}"
     methods: ["get"]
     action: "crud"
     crud:

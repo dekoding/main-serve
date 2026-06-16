@@ -1,7 +1,8 @@
 use std::collections::{HashMap, HashSet};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use crate::storage::{DirEntry, FileMetadata, Result, Storage, StorageError};
 
@@ -34,8 +35,8 @@ impl Default for MemoryStorage {
 #[async_trait::async_trait]
 impl Storage for MemoryStorage {
     async fn exists(&self, path: &Path) -> bool {
-        let data = self.data.read().unwrap();
-        let dirs = self.dirs.read().unwrap();
+        let data = self.data.read().await;
+        let dirs = self.dirs.read().await;
         data.contains_key(path)
             || dirs.contains(path)
             // A directory "exists" if any file path starts with it
@@ -43,15 +44,15 @@ impl Storage for MemoryStorage {
     }
 
     async fn is_file(&self, path: &Path) -> bool {
-        self.data.read().unwrap().contains_key(path)
+        self.data.read().await.contains_key(path)
     }
 
     async fn is_dir(&self, path: &Path) -> bool {
-        self.dirs.read().unwrap().contains(path)
+        self.dirs.read().await.contains(path)
     }
 
     async fn read(&self, path: &Path) -> Result<Vec<u8>> {
-        let data = self.data.read().unwrap();
+        let data = self.data.read().await;
         data.get(path)
             .cloned()
             .ok_or_else(|| StorageError::NotFound(path.to_path_buf()))
@@ -76,13 +77,13 @@ impl Storage for MemoryStorage {
     }
 
     async fn write(&self, path: &Path, contents: &[u8]) -> Result<()> {
-        let mut data = self.data.write().unwrap();
+        let mut data = self.data.write().await;
         data.insert(path.to_path_buf(), contents.to_vec());
         Ok(())
     }
 
     async fn append(&self, path: &Path, contents: &[u8]) -> Result<()> {
-        let mut data = self.data.write().unwrap();
+        let mut data = self.data.write().await;
         let mut existing = data.get(path).cloned().unwrap_or_default();
         existing.extend_from_slice(contents);
         data.insert(path.to_path_buf(), existing);
@@ -90,8 +91,8 @@ impl Storage for MemoryStorage {
     }
 
     async fn delete(&self, path: &Path) -> Result<()> {
-        let mut data = self.data.write().unwrap();
-        let mut dirs = self.dirs.write().unwrap();
+        let mut data = self.data.write().await;
+        let mut dirs = self.dirs.write().await;
 
         if data.remove(path).is_some() {
             return Ok(());
@@ -109,8 +110,8 @@ impl Storage for MemoryStorage {
     }
 
     async fn metadata(&self, path: &Path) -> Result<FileMetadata> {
-        let data = self.data.read().unwrap();
-        let dirs = self.dirs.read().unwrap();
+        let data = self.data.read().await;
+        let dirs = self.dirs.read().await;
 
         if let Some(contents) = data.get(path) {
             return Ok(FileMetadata::new(
@@ -138,8 +139,8 @@ impl Storage for MemoryStorage {
     }
 
     async fn list(&self, dir: &Path) -> Result<Vec<DirEntry>> {
-        let data = self.data.read().unwrap();
-        let dirs = self.dirs.read().unwrap();
+        let data = self.data.read().await;
+        let dirs = self.dirs.read().await;
 
         let mut entries = Vec::new();
 
@@ -193,7 +194,7 @@ impl Storage for MemoryStorage {
 
     async fn create_dir(&self, path: &Path) -> Result<()> {
         // Check if path already exists in dirs
-        if self.dirs.read().unwrap().contains(path) {
+        if self.dirs.read().await.contains(path) {
             return Err(StorageError::AlreadyExists(path.to_path_buf()));
         }
         // The root path "/" always implicitly exists.
@@ -202,20 +203,20 @@ impl Storage for MemoryStorage {
             && parent != Path::new("/")
         {
             let has_parent = {
-                let dirs = self.dirs.read().unwrap();
-                let data = self.data.read().unwrap();
+                let dirs = self.dirs.read().await;
+                let data = self.data.read().await;
                 dirs.contains(parent) || data.keys().any(|k| k.starts_with(parent) && k != parent)
             };
             if !has_parent {
                 return Err(StorageError::NotFound(parent.to_path_buf()));
             }
         }
-        self.dirs.write().unwrap().insert(path.to_path_buf());
+        self.dirs.write().await.insert(path.to_path_buf());
         Ok(())
     }
 
     async fn create_dir_all(&self, path: &Path) -> Result<()> {
-        let mut dirs = self.dirs.write().unwrap();
+        let mut dirs = self.dirs.write().await;
         let mut current = PathBuf::new();
 
         for component in path.components() {
@@ -229,8 +230,8 @@ impl Storage for MemoryStorage {
     }
 
     async fn remove_dir(&self, path: &Path) -> Result<()> {
-        let mut dirs = self.dirs.write().unwrap();
-        let data = self.data.read().unwrap();
+        let mut dirs = self.dirs.write().await;
+        let data = self.data.read().await;
 
         if !dirs.contains(path) {
             return Err(StorageError::NotFound(path.to_path_buf()));
@@ -250,8 +251,8 @@ impl Storage for MemoryStorage {
     }
 
     async fn remove_dir_all(&self, path: &Path) -> Result<()> {
-        let mut dirs = self.dirs.write().unwrap();
-        let mut data = self.data.write().unwrap();
+        let mut dirs = self.dirs.write().await;
+        let mut data = self.data.write().await;
 
         let prefix = format!("{}/", path.display());
 
@@ -266,8 +267,8 @@ impl Storage for MemoryStorage {
     }
 
     async fn rename(&self, from: &Path, to: &Path) -> Result<()> {
-        let mut data = self.data.write().unwrap();
-        let mut dirs = self.dirs.write().unwrap();
+        let mut data = self.data.write().await;
+        let mut dirs = self.dirs.write().await;
 
         if let Some(contents) = data.remove(from) {
             data.insert(to.to_path_buf(), contents);
@@ -284,16 +285,13 @@ impl Storage for MemoryStorage {
 
     async fn copy(&self, from: &Path, to: &Path) -> Result<()> {
         let contents = {
-            let data = self.data.read().unwrap();
+            let data = self.data.read().await;
             data.get(from)
                 .cloned()
                 .ok_or_else(|| StorageError::NotFound(from.to_path_buf()))?
         };
         // Read lock dropped above; now acquire write lock to insert
-        self.data
-            .write()
-            .unwrap()
-            .insert(to.to_path_buf(), contents);
+        self.data.write().await.insert(to.to_path_buf(), contents);
         Ok(())
     }
 
@@ -303,7 +301,7 @@ impl Storage for MemoryStorage {
     }
 
     async fn size(&self, path: &Path) -> Result<u64> {
-        let data = self.data.read().unwrap();
+        let data = self.data.read().await;
         data.get(path)
             .map(|v| v.len() as u64)
             .ok_or_else(|| StorageError::NotFound(path.to_path_buf()))

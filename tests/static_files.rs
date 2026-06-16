@@ -1140,7 +1140,7 @@ endpoints:
     body.extend_from_slice(b"\r\n");
     body.extend_from_slice(b"--boundary--");
 
-    let token = create_token("user-123", Some("user"), &jwt_config(&yaml)).unwrap();
+    let token = create_token("user-123", Some("user"), &jwt_config(&yaml), None, None).unwrap();
 
     let req = Request::builder()
         .method(Method::POST)
@@ -1218,7 +1218,7 @@ endpoints:
 
     let (app, _f) = support::setup_server(&yaml).await;
 
-    let token = create_token("user-123", Some("user"), &jwt_config(&yaml)).unwrap();
+    let token = create_token("user-123", Some("user"), &jwt_config(&yaml), None, None).unwrap();
 
     // Create multipart with no file field (empty multipart)
     let body = b"--boundary--".to_vec();
@@ -1298,7 +1298,7 @@ endpoints:
 
     let (app, _f) = support::setup_server(&yaml).await;
 
-    let token = create_token("user-123", Some("user"), &jwt_config(&yaml)).unwrap();
+    let token = create_token("user-123", Some("user"), &jwt_config(&yaml), None, None).unwrap();
 
     // Create a file larger than 1024 bytes
     let large_data = vec![0x41; 2048]; // 2KB of 'A' characters
@@ -1388,7 +1388,7 @@ endpoints:
 
     let (app, _f) = support::setup_server(&yaml).await;
 
-    let token = create_token("user-123", Some("user"), &jwt_config(&yaml)).unwrap();
+    let token = create_token("user-123", Some("user"), &jwt_config(&yaml), None, None).unwrap();
 
     // Create a file larger than 1024 bytes without content-length header
     let large_data = vec![0x41; 2048];
@@ -1468,7 +1468,7 @@ endpoints:
 
     let (app, _f) = support::setup_server(&yaml).await;
 
-    let token = create_token("user-123", Some("user"), &jwt_config(&yaml)).unwrap();
+    let token = create_token("user-123", Some("user"), &jwt_config(&yaml), None, None).unwrap();
 
     // Try to upload a file with disallowed extension
     let file_data = b"fake image content".to_vec();
@@ -1560,7 +1560,7 @@ endpoints:
 
     let (app, _f) = support::setup_server(&yaml).await;
 
-    let token = create_token("user-123", Some("user"), &jwt_config(&yaml)).unwrap();
+    let token = create_token("user-123", Some("user"), &jwt_config(&yaml), None, None).unwrap();
 
     // Try to upload a fake PNG (text file with .png extension)
     let fake_png_data = b"This is not a PNG file, just text!".to_vec();
@@ -1648,7 +1648,7 @@ endpoints:
 
     let (app, _f) = support::setup_server(&yaml).await;
 
-    let token = create_token("user-123", Some("user"), &jwt_config(&yaml)).unwrap();
+    let token = create_token("user-123", Some("user"), &jwt_config(&yaml), None, None).unwrap();
 
     let file_data = MINIMAL_PNG.to_vec();
 
@@ -1766,7 +1766,7 @@ endpoints:
 
     let (app, _f) = support::setup_server(&yaml).await;
 
-    let token = create_token("user-123", Some("user"), &jwt_config(&yaml)).unwrap();
+    let token = create_token("user-123", Some("user"), &jwt_config(&yaml), None, None).unwrap();
 
     let file_data = b"nested file content".to_vec();
 
@@ -1857,7 +1857,7 @@ endpoints:
 
     let (app, _f) = support::setup_server(&yaml).await;
 
-    let token = create_token("user-123", Some("user"), &jwt_config(&yaml)).unwrap();
+    let token = create_token("user-123", Some("user"), &jwt_config(&yaml), None, None).unwrap();
 
     // First upload - should succeed
     let file_data = MINIMAL_PNG.to_vec();
@@ -1971,7 +1971,7 @@ endpoints:
 
     let (app, _f) = support::setup_server(&yaml).await;
 
-    let token = create_token("user-123", Some("user"), &jwt_config(&yaml)).unwrap();
+    let token = create_token("user-123", Some("user"), &jwt_config(&yaml), None, None).unwrap();
 
     // First, upload a file
     let file_data = MINIMAL_PNG.to_vec();
@@ -2073,7 +2073,7 @@ endpoints:
     let (app, _f) = support::setup_server(&yaml).await;
 
     // User with "user" role tries to delete
-    let token = create_token("user-456", Some("user"), &jwt_config(&yaml)).unwrap();
+    let token = create_token("user-456", Some("user"), &jwt_config(&yaml), None, None).unwrap();
 
     let delete_req = Request::builder()
         .method(Method::DELETE)

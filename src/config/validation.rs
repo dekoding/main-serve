@@ -1,4 +1,6 @@
-use super::types::{AppConfig, EndpointAction, StoreBackend, StoreConfig};
+use std::collections::HashMap;
+
+use super::types::{AppConfig, EndpointAction, RoleHierarchy, StoreBackend, StoreConfig};
 use crate::error::AppError;
 
 /// Characters allowed in SQL expressions from config (join ON clauses,
@@ -28,6 +30,7 @@ pub fn validate_config(config: &AppConfig) -> Result<(), AppError> {
     validate_tables(config, &mut errors);
     validate_endpoints(config, &mut errors);
     validate_auth(config, &mut errors);
+    validate_role_hierarchy(&config.role_hierarchy, &mut errors);
 
     if errors.is_empty() {
         Ok(())
@@ -379,6 +382,29 @@ fn validate_auth(config: &AppConfig, errors: &mut Vec<String>) {
         errors.push("auth.jwt.secret must not be empty".to_string());
     }
 
+    // JWT revocation requires JWT to be configured (already implied but explicit)
+    if let Some(ref jwt) = config.auth.jwt
+        && let Some(ref revocation) = jwt.revocation
+    {
+        match revocation.store {
+            super::types::RevocationStoreType::InMemory => {}
+            super::types::RevocationStoreType::Database => {
+                if revocation.db_table.as_deref().is_none_or(str::is_empty) {
+                    errors.push(
+                        "auth.jwt.revocation.db_table must not be empty when store is database"
+                            .to_string(),
+                    );
+                }
+                if let Some(interval) = revocation.cleanup_interval_secs
+                    && interval == 0
+                {
+                    errors
+                        .push("auth.jwt.revocation.cleanup_interval_secs must be > 0".to_string());
+                }
+            }
+        }
+    }
+
     // API keys must have at least one key if configured
     if let Some(ref api_key) = config.auth.api_key
         && api_key.keys.is_empty()
@@ -413,7 +439,111 @@ fn validate_auth(config: &AppConfig, errors: &mut Vec<String>) {
                     .to_string(),
             );
         }
+        // OAuth2 role mapping validation
+        if let Some(ref mapping) = oauth2.role_mapping {
+            if mapping.role_map.is_empty() {
+                errors.push(
+                    "auth.oauth2.role_mapping.role_map must not be empty when role_mapping is configured"
+                        .to_string(),
+                );
+            }
+            if mapping.default_role.is_empty() {
+                errors.push("auth.oauth2.role_mapping.default_role must not be empty".to_string());
+            }
+        }
     }
+
+    // Registration validation
+    if let Some(ref register) = config.auth.register
+        && register.enabled
+    {
+        if register.table.is_empty() {
+            errors.push(
+                "auth.register.table must not be empty when registration is enabled".to_string(),
+            );
+        }
+        if register.database.is_empty() {
+            errors.push(
+                "auth.register.database must not be empty when registration is enabled".to_string(),
+            );
+        }
+        if register.default_role.is_empty() {
+            errors.push("auth.register.default_role must not be empty".to_string());
+        }
+    }
+}
+
+/// Validate role hierarchy configuration for structural correctness.
+///
+/// Checks for self-references and cycles (direct and transitive) in the
+/// role hierarchy DAG. A cycle would make transitive role resolution
+/// ambiguous.
+fn validate_role_hierarchy(role_hierarchy: &Option<RoleHierarchy>, errors: &mut Vec<String>) {
+    let Some(hierarchy) = role_hierarchy else {
+        return;
+    };
+
+    let roles = &hierarchy.roles;
+
+    // Check for self-loops (a role listing itself as a parent).
+    for (role, parents) in roles {
+        if parents.contains(role) {
+            errors.push(format!(
+                "role_hierarchy.{role}: role cannot list itself as a parent"
+            ));
+        }
+    }
+
+    // DFS-based cycle detection on the parent graph.
+    // State: 0 = unvisited, 1 = visiting (in current path), 2 = visited.
+    let mut state: HashMap<String, u8> = HashMap::new();
+    for role in roles.keys() {
+        state.insert(role.clone(), 0);
+    }
+
+    for role in roles.keys() {
+        if state[role] == 0
+            && let Some(cycle_path) = dfs_detect_cycle(role, roles, &mut state)
+        {
+            errors.push(format!("role_hierarchy: cycle detected: {cycle_path}"));
+        }
+    }
+}
+
+/// Perform a DFS from `role` through parent edges looking for cycles.
+///
+/// Returns `Some(path)` describing the cycle found, or `None` if no cycle
+/// exists through this node.
+fn dfs_detect_cycle(
+    role: &str,
+    roles: &HashMap<String, Vec<String>>,
+    state: &mut HashMap<String, u8>,
+) -> Option<String> {
+    state.insert(role.to_string(), 1); // visiting
+
+    if let Some(parents) = roles.get(role) {
+        for parent in parents {
+            let parent_state = state.get(parent).copied().unwrap_or(0);
+            match parent_state {
+                0 => {
+                    // Unvisited - recurse
+                    if let Some(cycle) = dfs_detect_cycle(parent, roles, state) {
+                        return Some(format!("{role} -> {parent} -> {cycle}"));
+                    }
+                }
+                1 => {
+                    // Still visiting - found a cycle
+                    return Some(format!("{role} -> {parent}"));
+                }
+                _ => {
+                    // Already fully processed or unknown - no cycle through this path
+                }
+            }
+        }
+    }
+
+    state.insert(role.to_string(), 2); // visited
+    None
 }
 
 /// Validate store configurations have required fields per backend type.
@@ -541,6 +671,8 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
+    use types::RolesConfig;
+
     fn make_native_store(root: Option<&str>) -> StoreConfig {
         StoreConfig {
             backend: StoreBackend::Native,
@@ -635,7 +767,7 @@ mod tests {
             file_store,
             custom_response,
             auth: "none".to_string(),
-            roles: Vec::new(),
+            roles: RolesConfig::Flat(Vec::new()),
             cors: None,
             rate_limit: None,
         }
@@ -1017,5 +1149,249 @@ mod tests {
         assert!(result.is_err());
         let msg = result.unwrap_err().to_string();
         assert!(msg.contains("nonexistent"));
+    }
+
+    #[test]
+    fn test_validate_jwt_revocation_in_memory() {
+        let mut config = types::AppConfig::default();
+        config.auth.jwt = Some(types::JwtConfig {
+            secret: "test-secret".to_string(),
+            algorithm: types::JwtAlgorithm::HS256,
+            issuer: "test".to_string(),
+            audience: String::new(),
+            expiry: 3600,
+            role_claim: "role".to_string(),
+            revocation: Some(types::JwtRevocationConfig {
+                store: types::RevocationStoreType::InMemory,
+                db_table: None,
+                cleanup_interval_secs: Some(3600),
+            }),
+        });
+        let result = validate_config(&config);
+        assert!(result.is_ok(), "in_memory revocation should be valid");
+    }
+
+    #[test]
+    fn test_validate_jwt_revocation_database_no_table() {
+        let mut config = types::AppConfig::default();
+        config.auth.jwt = Some(types::JwtConfig {
+            secret: "test-secret".to_string(),
+            algorithm: types::JwtAlgorithm::HS256,
+            issuer: "test".to_string(),
+            audience: String::new(),
+            expiry: 3600,
+            role_claim: "role".to_string(),
+            revocation: Some(types::JwtRevocationConfig {
+                store: types::RevocationStoreType::Database,
+                db_table: None,
+                cleanup_interval_secs: Some(3600),
+            }),
+        });
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("db_table must not be empty"),
+            "Expected db_table error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_validate_jwt_revocation_database_zero_interval() {
+        let mut config = types::AppConfig::default();
+        config.auth.jwt = Some(types::JwtConfig {
+            secret: "test-secret".to_string(),
+            algorithm: types::JwtAlgorithm::HS256,
+            issuer: "test".to_string(),
+            audience: String::new(),
+            expiry: 3600,
+            role_claim: "role".to_string(),
+            revocation: Some(types::JwtRevocationConfig {
+                store: types::RevocationStoreType::Database,
+                db_table: Some("token_blacklist".to_string()),
+                cleanup_interval_secs: Some(0),
+            }),
+        });
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("cleanup_interval_secs must be > 0"),
+            "Expected cleanup_interval error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_validate_role_mapping_empty_map() {
+        let mut config = types::AppConfig::default();
+        config.auth.oauth2 = Some(types::OAuth2Config {
+            provider: "test".to_string(),
+            authorization_url: "https://idp.example.com/authorize".to_string(),
+            token_url: "https://idp.example.com/token".to_string(),
+            userinfo_url: "https://idp.example.com/userinfo".to_string(),
+            client_id: "test-client".to_string(),
+            client_secret: "test-secret".to_string(),
+            scopes: vec!["openid".to_string()],
+            redirect_url: "http://localhost:8080/callback".to_string(),
+            success_url: "/".to_string(),
+            cookie_name: "token".to_string(),
+            state_ttl: 300,
+            max_pending_states: 1000,
+            role_mapping: Some(types::RoleMappingConfig {
+                default_role: "user".to_string(),
+                role_claim: "groups".to_string(),
+                role_map: std::collections::HashMap::new(),
+                match_mode: types::RoleMatchMode::Exact,
+            }),
+        });
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("role_map must not be empty"),
+            "Expected role_map error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_validate_role_mapping_empty_default_role() {
+        let mut config = types::AppConfig::default();
+        config.auth.oauth2 = Some(types::OAuth2Config {
+            provider: "test".to_string(),
+            authorization_url: "https://idp.example.com/authorize".to_string(),
+            token_url: "https://idp.example.com/token".to_string(),
+            userinfo_url: "https://idp.example.com/userinfo".to_string(),
+            client_id: "test-client".to_string(),
+            client_secret: "test-secret".to_string(),
+            scopes: vec!["openid".to_string()],
+            redirect_url: "http://localhost:8080/callback".to_string(),
+            success_url: "/".to_string(),
+            cookie_name: "token".to_string(),
+            state_ttl: 300,
+            max_pending_states: 1000,
+            role_mapping: Some(types::RoleMappingConfig {
+                default_role: String::new(),
+                role_claim: "groups".to_string(),
+                role_map: {
+                    let mut map = std::collections::HashMap::new();
+                    map.insert("admin-group".to_string(), "admin".to_string());
+                    map
+                },
+                match_mode: types::RoleMatchMode::Exact,
+            }),
+        });
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("default_role must not be empty"),
+            "Expected default_role error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_validate_register_disabled() {
+        let mut config = types::AppConfig::default();
+        config.auth.register = Some(types::RegisterConfig {
+            enabled: false,
+            table: String::new(),
+            database: String::new(),
+            default_role: String::new(),
+            password_hash: types::PasswordHashAlgorithm::Argon2id,
+        });
+        let result = validate_config(&config);
+        assert!(
+            result.is_ok(),
+            "disabled registration should be valid regardless of other fields"
+        );
+    }
+
+    #[test]
+    fn test_validate_register_enabled_no_table() {
+        let mut config = types::AppConfig::default();
+        config.auth.register = Some(types::RegisterConfig {
+            enabled: true,
+            table: String::new(),
+            database: "main".to_string(),
+            default_role: "user".to_string(),
+            password_hash: types::PasswordHashAlgorithm::Argon2id,
+        });
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("auth.register.table must not be empty"),
+            "Expected table error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_validate_register_enabled_no_database() {
+        let mut config = types::AppConfig::default();
+        config.auth.register = Some(types::RegisterConfig {
+            enabled: true,
+            table: "users".to_string(),
+            database: String::new(),
+            default_role: "user".to_string(),
+            password_hash: types::PasswordHashAlgorithm::Argon2id,
+        });
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("auth.register.database must not be empty"),
+            "Expected database error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_validate_register_enabled_no_default_role() {
+        let mut config = types::AppConfig::default();
+        config.auth.register = Some(types::RegisterConfig {
+            enabled: true,
+            table: "users".to_string(),
+            database: "main".to_string(),
+            default_role: String::new(),
+            password_hash: types::PasswordHashAlgorithm::Argon2id,
+        });
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("auth.register.default_role must not be empty"),
+            "Expected default_role error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_validate_register_enabled_valid() {
+        let mut config = types::AppConfig::default();
+        config.auth.register = Some(types::RegisterConfig {
+            enabled: true,
+            table: "users".to_string(),
+            database: "main".to_string(),
+            default_role: "user".to_string(),
+            password_hash: types::PasswordHashAlgorithm::Argon2id,
+        });
+        let result = validate_config(&config);
+        assert!(result.is_ok(), "valid registration config should pass");
+    }
+
+    #[test]
+    fn test_validate_register_enabled_all_errors() {
+        let mut config = types::AppConfig::default();
+        config.auth.register = Some(types::RegisterConfig {
+            enabled: true,
+            table: String::new(),
+            database: String::new(),
+            default_role: String::new(),
+            password_hash: types::PasswordHashAlgorithm::Argon2id,
+        });
+        let result = validate_config(&config);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("auth.register.table"));
+        assert!(msg.contains("auth.register.database"));
+        assert!(msg.contains("auth.register.default_role"));
     }
 }

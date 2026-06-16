@@ -8,6 +8,7 @@ use std::io::Write;
 
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
+use http_body_util::BodyExt;
 use tower::ServiceExt;
 
 use main_serve::config::load_config;
@@ -15,8 +16,8 @@ use main_serve::middleware::auth::validators::jwt::create_token;
 
 use support::configs::auth_configs::{
     API_KEY_CONFIG, API_KEY_CRUD_CONFIG, API_KEY_QUERY_CONFIG, JWT_CONFIG,
-    JWT_COOKIE_FALLBACK_CONFIG, JWT_CRUD_CONFIG, OAUTH2_WITHOUT_JWT_CONFIG,
-    oauth2_code_flow_config, oauth2_introspection_config,
+    JWT_COOKIE_FALLBACK_CONFIG, JWT_CRUD_CONFIG, JWT_WITH_REVOCATION_CONFIG,
+    OAUTH2_WITHOUT_JWT_CONFIG, oauth2_code_flow_config, oauth2_introspection_config,
 };
 use support::configs::shared_configs::MINIMAL_JSON_CONFIG;
 use support::db::{TestDatabase, enabled_backends};
@@ -71,7 +72,7 @@ async fn test_jwt_required_invalid_token() {
 async fn test_jwt_valid_token() {
     let (app, _f) = setup_server(JWT_CONFIG).await;
 
-    let token = create_token("user1", Some("viewer"), &jwt_config(JWT_CONFIG)).unwrap();
+    let token = create_token("user1", Some("viewer"), &jwt_config(JWT_CONFIG), None, None).unwrap();
 
     let req = Request::builder()
         .uri("/api/private")
@@ -87,7 +88,7 @@ async fn test_jwt_valid_token() {
 async fn test_jwt_role_required_correct_role() {
     let (app, _f) = setup_server(JWT_CONFIG).await;
 
-    let token = create_token("admin1", Some("admin"), &jwt_config(JWT_CONFIG)).unwrap();
+    let token = create_token("admin1", Some("admin"), &jwt_config(JWT_CONFIG), None, None).unwrap();
 
     let req = Request::builder()
         .uri("/api/admin")
@@ -103,7 +104,7 @@ async fn test_jwt_role_required_correct_role() {
 async fn test_jwt_role_required_wrong_role() {
     let (app, _f) = setup_server(JWT_CONFIG).await;
 
-    let token = create_token("user1", Some("viewer"), &jwt_config(JWT_CONFIG)).unwrap();
+    let token = create_token("user1", Some("viewer"), &jwt_config(JWT_CONFIG), None, None).unwrap();
 
     let req = Request::builder()
         .uri("/api/admin")
@@ -122,7 +123,7 @@ async fn test_jwt_role_required_wrong_role() {
 async fn test_jwt_role_required_no_role() {
     let (app, _f) = setup_server(JWT_CONFIG).await;
 
-    let token = create_token("user1", None, &jwt_config(JWT_CONFIG)).unwrap();
+    let token = create_token("user1", None, &jwt_config(JWT_CONFIG), None, None).unwrap();
 
     let req = Request::builder()
         .uri("/api/admin")
@@ -345,7 +346,7 @@ async fn test_jwt_auth_on_crud_endpoint_across_backends() {
             "backend: {backend}"
         );
 
-        let token = create_token("user1", None, &jwt_config(JWT_CONFIG)).unwrap();
+        let token = create_token("user1", None, &jwt_config(JWT_CONFIG), None, None).unwrap();
         let req = Request::builder()
             .uri("/api/items")
             .header("authorization", format!("Bearer {token}"))
@@ -620,7 +621,7 @@ async fn test_oauth2_state_is_one_time_use() {
 async fn test_jwt_auth_via_cookie_fallback() {
     let (app, _f) = setup_server(JWT_COOKIE_FALLBACK_CONFIG).await;
 
-    let token = create_token("cookie-user", Some("admin"), &jwt_config(JWT_CONFIG)).unwrap();
+    let token = create_token("cookie-user", Some("admin"), &jwt_config(JWT_CONFIG), None, None).unwrap();
 
     // Without any auth -> 401.
     let req = Request::builder()
@@ -748,4 +749,155 @@ async fn test_oauth2_token_introspection_on_endpoint() {
     );
 
     shutdown.send(()).ok();
+}
+
+// =============================================================================
+// Token Revocation
+// =============================================================================
+
+#[tokio::test]
+async fn test_revoke_endpoint_requires_auth() {
+    let (app, _f) = setup_server(JWT_WITH_REVOCATION_CONFIG).await;
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/_main-serve/auth/revoke")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn test_revoke_endpoint_without_revocation_config_404() {
+    let (app, _f) = setup_server(JWT_CONFIG).await;
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/_main-serve/auth/revoke")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_revoke_token_without_jti_fails() {
+    let (app, _f) = setup_server(JWT_WITH_REVOCATION_CONFIG).await;
+
+    // Create token without jti
+    let token = create_token("user1", None, &jwt_config(JWT_WITH_REVOCATION_CONFIG), None, None).unwrap();
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/_main-serve/auth/revoke")
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_revoke_token_with_jti_succeeds() {
+    let (app, _f) = setup_server(JWT_WITH_REVOCATION_CONFIG).await;
+
+    // Create token with jti
+    let token = create_token(
+        "user1",
+        None,
+        &jwt_config(JWT_WITH_REVOCATION_CONFIG),
+        Some("test-jti-revoke"),
+        None,
+    )
+    .unwrap();
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/_main-serve/auth/revoke")
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["message"], "Token revoked");
+}
+
+#[tokio::test]
+async fn test_revoke_then_validate_fails() {
+    let (app, _f) = setup_server(JWT_WITH_REVOCATION_CONFIG).await;
+
+    // Create token with jti
+    let token = create_token(
+        "user1",
+        None,
+        &jwt_config(JWT_WITH_REVOCATION_CONFIG),
+        Some("test-jti-chain"),
+        None,
+    )
+    .unwrap();
+
+    // Revoke the token
+    let req = Request::builder()
+        .method("POST")
+        .uri("/_main-serve/auth/revoke")
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+// =============================================================================
+// User Registration and Login
+// =============================================================================
+
+#[tokio::test]
+async fn test_register_endpoint_disabled_without_config() {
+    let (app, _f) = setup_server(JWT_CONFIG).await;
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/_main-serve/register")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::json!({
+                "email": "new@example.com",
+                "password": "password123"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_login_endpoint_disabled_without_config() {
+    let (app, _f) = setup_server(JWT_CONFIG).await;
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/_main-serve/login")
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::json!({
+                "email": "new@example.com",
+                "password": "password123"
+            })
+            .to_string(),
+        ))
+        .unwrap();
+
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }

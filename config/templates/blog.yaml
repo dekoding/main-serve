@@ -1,0 +1,331 @@
+# =============================================================================
+# Schema validation
+# =============================================================================
+# Validation helps ensure that your schema is configured properly. If you
+# cloned the Main Serve repository, there is a local copy of the schema that
+# you can use by removing one # from the line below:
+#
+# yaml-language-server: $schema=../main-serve.schema.json
+#
+# If you prefer to use the schema from the online repository, you can remove
+# one # from this line instead:
+#
+## yaml-language-server: $schema=https://raw.githubusercontent.com/dekoding/main-serve/refs/heads/main/config/main-serve.schema.json
+
+# =============================================================================
+# Quickstart
+# =============================================================================
+# You can use this configuration file as a template to get started.
+#
+# By default, Main Serve looks for configuration files in two places (in order
+# of priority):
+#
+#   * $HOME/.config/main-serve/config.yaml
+#   * /etc/main-serve/config.yaml
+#
+# It can also be explicitly loaded from any location:
+#   MAIN_SERVE_ADMIN_TOKEN=my-secret-token main-serve -c /path/to/config.yaml
+
+# =============================================================================
+# Blog - An example blog backend, complete with users and user comments
+# =============================================================================
+#
+# A typical headless blog backend, intended to work in conjunction with a
+# single-page app as a frontend.
+
+databases:
+  main:
+    driver: "sqlite"
+    url: "sqlite://blog.db?mode=rwc"
+    auto_migrate: true
+    allow_destructive: false
+
+tables:
+  - name: "users"
+    database: "main"
+    columns:
+      - name: "id"
+        type: "serial"
+        primary_key: true
+        nullable: false
+      - name: "email"
+        type: "varchar"
+        unique: true
+        nullable: false
+        indexed: true
+      - name: "password_hash"
+        type: "text"
+        nullable: false
+      - name: "role"
+        type: "varchar"
+        nullable: false
+        default: "'user'"
+      - name: "created_at"
+        type: "timestamptz"
+        nullable: false
+        default: "CURRENT_TIMESTAMP"
+      - name: "updated_at"
+        type: "timestamptz"
+        nullable: false
+        default: "CURRENT_TIMESTAMP"
+
+  - name: "posts"
+    database: "main"
+    columns:
+      - name: "id"
+        type: "serial"
+        primary_key: true
+        nullable: false
+      - name: "title"
+        type: "varchar"
+        nullable: false
+      - name: "slug"
+        type: "varchar"
+        unique: true
+        nullable: false
+        indexed: true
+      - name: "body"
+        type: "text"
+        nullable: false
+      - name: "excerpt"
+        type: "text"
+        nullable: true
+      - name: "author_id"
+        type: "bigint"
+        nullable: false
+        indexed: true
+      - name: "status"
+        type: "varchar"
+        nullable: false
+        default: "'draft'"
+      - name: "published_at"
+        type: "timestamptz"
+        nullable: true
+      - name: "created_at"
+        type: "timestamptz"
+        nullable: false
+        default: "CURRENT_TIMESTAMP"
+      - name: "updated_at"
+        type: "timestamptz"
+        nullable: false
+        default: "CURRENT_TIMESTAMP"
+      - name: "tags"
+        type: "jsonb"
+        nullable: true
+        default: "null"
+
+  - name: "comments"
+    database: "main"
+    columns:
+      - name: "id"
+        type: "serial"
+        primary_key: true
+        nullable: false
+      - name: "post_id"
+        type: "bigint"
+        nullable: false
+        indexed: true
+      - name: "author_id"
+        type: "bigint"
+        nullable: false
+        indexed: true
+      - name: "body"
+        type: "text"
+        nullable: false
+      - name: "status"
+        type: "varchar"
+        nullable: false
+        default: "'pending'"
+      - name: "created_at"
+        type: "timestamptz"
+        nullable: false
+        default: "CURRENT_TIMESTAMP"
+      - name: "updated_at"
+        type: "timestamptz"
+        nullable: false
+        default: "CURRENT_TIMESTAMP"
+
+auth:
+  jwt:
+    secret: "${JWT_SECRET:-blog-secret-change-me-in-production}"
+    algorithm: "HS256"
+    issuer: "main-serve-blog"
+    expiry: 3600
+    role_claim: "role"
+
+  register:
+    enabled: true
+    table: "users"
+    database: "main"
+    default_role: "user"
+    password_hash: "argon2id"
+
+endpoints:
+  - path: "/api/users"
+    methods: ["get", "post"]
+    action: "crud"
+    auth: "jwt"
+    roles: ["admin"]
+    crud:
+      table: "users"
+      database: "main"
+      fields: ["id", "email", "role", "created_at"]
+      writable_fields: ["email", "password_hash", "role"]
+      pagination:
+        enabled: true
+        default_page_size: 20
+        max_page_size: 100
+      filtering:
+        enabled: true
+        allowed_fields: ["email", "role", "created_at"]
+      sorting:
+        enabled: true
+        default_field: "created_at"
+        default_order: "desc"
+        allowed_fields: ["id", "email", "created_at"]
+
+  - path: "/api/users/{id}"
+    methods: ["get"]
+    action: "crud"
+    auth: "jwt"
+    roles: ["admin"]
+    crud:
+      table: "users"
+      database: "main"
+      fields: ["id", "email", "role", "created_at"]
+
+  - path: "/api/posts"
+    methods: ["get"]
+    action: "crud"
+    auth: "none"
+    crud:
+      table: "posts"
+      database: "main"
+      fields: ["id", "title", "slug", "author_id", "status", "published_at", "created_at", "excerpt", "tags"]
+      pagination:
+        enabled: true
+        default_page_size: 10
+        max_page_size: 50
+      filtering:
+        enabled: true
+        allowed_fields: ["status", "author_id", "created_at"]
+      sorting:
+        enabled: true
+        default_field: "published_at"
+        default_order: "desc"
+        allowed_fields: ["id", "title", "published_at", "created_at"]
+      where_clause: "status = 'published'"
+
+  - path: "/api/posts"
+    methods: ["post"]
+    action: "crud"
+    auth: "jwt"
+    roles: ["admin", "author"]
+    crud:
+      table: "posts"
+      database: "main"
+      fields: ["id", "title", "slug", "author_id", "status", "published_at", "created_at", "excerpt", "tags"]
+      writable_fields: ["title", "slug", "body", "excerpt", "status", "published_at", "tags"]
+      insert_owner: "author_id"
+
+  # --- Single post + update/delete (auth required) ---
+
+  - path: "/api/posts/{id}"
+    methods: ["get", "put", "delete"]
+    action: "crud"
+    auth: "jwt"
+    roles: ["admin", "author"]
+    crud:
+      table: "posts"
+      database: "main"
+      fields: ["id", "title", "slug", "body", "author_id", "status", "published_at", "created_at", "updated_at", "excerpt", "tags"]
+      writable_fields: ["title", "slug", "body", "excerpt", "status", "published_at", "tags"]
+      update_where_clause: "author_id = ${request.user.id}"
+      delete_where_clause: "author_id = ${request.user.id}"
+
+  - path: "/api/posts/drafts"
+    methods: ["get"]
+    action: "crud"
+    auth: "jwt"
+    roles: ["admin", "author"]
+    crud:
+      table: "posts"
+      database: "main"
+      fields: ["id", "title", "slug", "author_id", "status", "created_at"]
+      pagination:
+        enabled: true
+        default_page_size: 20
+      filtering:
+        enabled: true
+        allowed_fields: ["status", "author_id"]
+      sorting:
+        enabled: true
+        default_field: "created_at"
+        default_order: "desc"
+      where_clause: "status = 'draft'"
+
+  - path: "/api/comments"
+    methods: ["get"]
+    action: "crud"
+    auth: "none"
+    crud:
+      table: "comments"
+      database: "main"
+      fields: ["id", "post_id", "author_id", "body", "status", "created_at"]
+      pagination:
+        enabled: true
+        default_page_size: 20
+        max_page_size: 100
+      filtering:
+        enabled: true
+        allowed_fields: ["post_id", "author_id", "status", "created_at"]
+      sorting:
+        enabled: true
+        default_field: "created_at"
+        default_order: "asc"
+        allowed_fields: ["id", "created_at"]
+      where_clause: "status = 'approved'"
+
+  - path: "/api/comments"
+    methods: ["post", "put", "delete"]
+    action: "crud"
+    auth: "jwt"
+    roles: ["admin", "author", "user"]
+    crud:
+      table: "comments"
+      database: "main"
+      fields: ["id", "post_id", "author_id", "body", "status", "created_at", "updated_at"]
+      writable_fields: ["post_id", "body", "status"]
+      insert_owner: "author_id"
+      pagination:
+        enabled: true
+        default_page_size: 20
+        max_page_size: 100
+      filtering:
+        enabled: true
+        allowed_fields: ["post_id", "author_id", "status", "created_at"]
+      sorting:
+        enabled: true
+        default_field: "created_at"
+        default_order: "desc"
+        allowed_fields: ["id", "created_at", "post_id"]
+      where_clause: "author_id = ${request.user.id}"
+
+  - path: "/api/comments/{id}"
+    methods: ["get", "put", "delete"]
+    action: "crud"
+    auth: "jwt"
+    roles: ["admin", "author", "user"]
+    crud:
+      table: "comments"
+      database: "main"
+      fields: ["id", "post_id", "author_id", "body", "status", "created_at", "updated_at"]
+      writable_fields: ["body", "status"]
+
+  - path: "/api/info"
+    methods: ["get"]
+    action: "custom_response"
+    custom_response:
+      status: 200
+      content_type: "application/json"
+      body: '{"name": "Main Serve Blog", "version": "0.2.2"}'

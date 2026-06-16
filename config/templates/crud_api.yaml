@@ -202,7 +202,7 @@ endpoints:
     auth: "none"
 
   ## Get / update / delete a single author.
-  - path: "/api/authors/:id"
+  - path: "/api/authors/{id}"
     methods: ["get", "put", "delete"]
     action: "crud"
     crud:
@@ -235,7 +235,7 @@ endpoints:
     auth: "none"
 
   ## Get / update / delete a single category.
-  - path: "/api/categories/:id"
+  - path: "/api/categories/{id}"
     methods: ["get", "put", "delete"]
     action: "crud"
     crud:
@@ -322,7 +322,7 @@ endpoints:
 
   ## Get a single article by ID (all fields, no joins - use the list
   ## endpoint for enriched data).
-  - path: "/api/articles/:id"
+  - path: "/api/articles/{id}"
     methods: ["get"]
     action: "crud"
     crud:
@@ -342,7 +342,7 @@ endpoints:
     auth: "none"
 
   ## Update an article.
-  - path: "/api/articles/:id"
+  - path: "/api/articles/{id}"
     methods: ["put"]
     action: "crud"
     crud:
@@ -359,7 +359,7 @@ endpoints:
     roles: ["writer", "admin"]
 
   ## Delete an article (admin only).
-  - path: "/api/articles/:id"
+  - path: "/api/articles/{id}"
     methods: ["delete"]
     action: "crud"
     crud:

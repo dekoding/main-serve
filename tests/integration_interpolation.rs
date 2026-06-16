@@ -148,6 +148,7 @@ async fn test_interpolation_in_update_body() {
         &body,
         DatabaseDriver::Sqlite,
         &context,
+        &None,
     )
     .unwrap();
 

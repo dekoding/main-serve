@@ -68,11 +68,12 @@ pub async fn extract_auth_info(
         return Ok(AuthInfo::default());
     }
     let auth_config = state.config.read().await.auth.clone();
-    crate::middleware::auth::validate::authenticate(
+    crate::middleware::auth::validate::authenticate::<crate::server::state::InMemoryRevocationStore>(
         &endpoint.auth,
         &auth_config,
         headers,
         query_params,
+        None,
     )
     .await
 }

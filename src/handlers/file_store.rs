@@ -398,6 +398,7 @@ async fn handle_file_store_update(
         &serde_json::Value::Object(body_map),
         driver,
         &RequestContext::default(),
+        &None,
     )?;
     let rows_affected = pool.execute_with_params(&built.sql, &built.params).await?;
 
@@ -507,7 +508,14 @@ async fn handle_file_store_delete(
             }
         }
 
-        let built = build_delete(&config.table, table_config, id, driver)?;
+        let built = build_delete(
+            &config.table,
+            table_config,
+            id,
+            driver,
+            &RequestContext::default(),
+            &None,
+        )?;
         let rows_affected = pool.execute_with_params(&built.sql, &built.params).await?;
 
         if rows_affected == 0 {
@@ -571,12 +579,9 @@ async fn extract_user_id(
         return Ok(String::new());
     }
     let auth_config = state.config.read().await.auth.clone();
-    let auth_info = crate::middleware::auth::validate::authenticate(
-        &endpoint.auth,
-        &auth_config,
-        headers,
-        query_params,
-    )
+    let auth_info = crate::middleware::auth::validate::authenticate::<
+        crate::server::state::InMemoryRevocationStore,
+    >(&endpoint.auth, &auth_config, headers, query_params, None)
     .await?;
     Ok(auth_info.subject)
 }

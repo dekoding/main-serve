@@ -393,6 +393,27 @@ auth:
     # Default: "role"
     role_claim: "role"
 
+    # Token revocation configuration. When set, JWTs with a `jti` claim
+    # are checked against the revocation store before being accepted.
+    # Type: object (optional)
+    # Omit or set revocation: null to disable token revocation.
+    revocation:
+      # Store type: "in_memory" or "database".
+      # Type: enum (string)
+      # Default: "in_memory"
+      store: "in_memory"
+
+      # Database table name for the revocation store (only when store is "database").
+      # Type: string (optional)
+      # Default: "token_blacklist"
+      db_table: "token_blacklist"
+
+      # Interval in seconds between cleanup runs for expired revocation entries.
+      # Only applicable for "database" store.
+      # Type: integer (optional)
+      # Default: 3600
+      cleanup_interval_secs: 3600
+
   # API key authentication.
   api_key:
     # Where to look for the API key: "header" or "query".
@@ -514,6 +535,66 @@ auth:
     # Default: 1000
     max_pending_states: 1000
 
+    # OAuth2 role mapping configuration. When set, IdP roles/groups from
+    # the userinfo response are mapped to Main Serve roles.
+    # Type: object (optional)
+    role_mapping:
+      # Default Main Serve role when no IdP role maps.
+      # Type: string
+      # Default: "user"
+      default_role: "user"
+
+      # Name of the claim in the userinfo response containing IdP roles/groups.
+      # Type: string
+      # Default: "groups"
+      role_claim: "groups"
+
+      # Mapping from IdP role/group values to Main Serve roles.
+      # Type: map of string to string
+      # Example:
+      #   "admin-group": "admin"
+      #   "editor-group": "editor"
+      #   "viewer-group": "user"
+      role_map:
+        "admin-group": "admin"
+        "editor-group": "editor"
+        "viewer-group": "user"
+
+      # How to match IdP roles against the role_map keys.
+      # Type: enum (string)
+      # Default: "exact"
+      match_mode: "exact"
+
+  # User registration configuration.
+  # Enables self-service user registration with password-based auth.
+  # Type: object (optional)
+  # Omit or set register: null to disable registration.
+  register:
+    # Whether registration is enabled.
+    # Type: boolean
+    # Default: false
+    enabled: true
+
+    # Database table to create users in.
+    # Type: string
+    # Required when enabled.
+    table: "users"
+
+    # Named database to use.
+    # Type: string
+    # Required when enabled.
+    database: "main"
+
+    # Default role assigned to newly registered users.
+    # Type: string
+    # Default: "user"
+    default_role: "user"
+
+    # Password hashing algorithm.
+    # Type: enum (string)
+    # Default: "argon2id"
+    password_hash: "argon2id"
+
 # -----------------------------------------------------------------------------
 # STORAGE BACKENDS
 # Named storage backends. Endpoints that need file storage reference these by key.
@@ -598,7 +679,7 @@ stores:
 # The core of Main Serve: define API routes, file serving, media management, etc.
 #
 # Each endpoint entry has these top-level fields:
-#   - path: URL path pattern. Supports :param (e.g. /users/:id) for single-segment
+#   - path: URL path pattern. Supports {param} (e.g. /users/{id}) for single-segment
 #     path parameters, and /* (e.g. /assets/*) for trailing wildcard capture.
 #   - methods: list of HTTP methods this endpoint responds to.
 #   - action: the endpoint's behavior type (see action enum below).
@@ -736,6 +817,34 @@ endpoints:
       # Default: null (no filter)
       where_clause: null
 
+      # WHERE clause applied specifically to UPDATE queries on this endpoint.
+      #   Can be static (e.g. "status = 'published'") or dynamic
+      #   with interpolation (e.g. "author_id = ${request.user.id}").
+      #   This is combined with the global where_clause using AND.
+      # Type: string
+      # Example: "author_id = ${request.user.id}"
+      # Default: null (no additional filter)
+      update_where_clause: null
+
+      # WHERE clause applied specifically to DELETE queries on this endpoint.
+      #   Can be static (e.g. "status = 'draft'") or dynamic
+      #   with interpolation (e.g. "author_id = ${request.user.id}").
+      #   This is combined with the global where_clause using AND.
+      # Type: string
+      # Example: "author_id = ${request.user.id}"
+      # Default: null (no additional filter)
+      delete_where_clause: null
+
+      # Column to automatically populate with the authenticated user's ID
+      # on INSERT (POST) requests. The value of ${request.user.id} is used.
+      # This is applied before the INSERT statement is executed.
+      # If the column already has a value in the request body, that value
+      # takes precedence.
+      # Type: string
+      # Example: "author_id"
+      # Default: null (no automatic owner assignment)
+      insert_owner: null
+
       # Joins with other tables.
       # Type: list of objects (optional)
       # Each object has: table, on, join_type, fields
@@ -776,7 +885,7 @@ endpoints:
 
 
   # ---- CRUD Endpoint with path parameter (single resource) ----
-  - path: "/api/users/:id"
+  - path: "/api/users/{id}"
     # HTTP methods this endpoint responds to.
     # Type: list of strings (GET, POST, PUT, PATCH, DELETE)
     # Required.
@@ -1216,8 +1325,8 @@ endpoints:
 
         # Whether to expose trash management endpoints:
         #   GET    /_main-serve/media/trash       - list trashed files
-        #   POST   /_main-serve/media/trash/:id/restore  - restore a file
-        #   DELETE /_main-serve/media/trash/:id   - permanently delete
+        #   POST   /_main-serve/media/trash/{id}/restore  - restore a file
+        #   DELETE /_main-serve/media/trash/{id}   - permanently delete
         #   DELETE /_main-serve/media/trash       - empty trash
         # Type: boolean
         # Default: true

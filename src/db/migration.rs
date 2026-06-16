@@ -22,6 +22,55 @@ use crate::config::types::{
 use crate::db::pool::DatabasePool;
 use crate::error::AppError;
 
+/// Create the JWT token revocation table if it does not exist.
+///
+/// The table has columns:
+///   - `jti` varchar(255) PRIMARY KEY
+///   - `revoked_at` timestamptz NOT NULL
+///   - `expires_at` timestamptz NOT NULL
+///
+/// # Errors
+///
+/// Returns `AppError::Database` if the CREATE TABLE statement fails.
+pub async fn create_revocation_tables(
+    pools: &HashMap<String, DatabasePool>,
+) -> Result<(), AppError> {
+    let sql = match pools.values().next().map(|p| p.driver()) {
+        Some(DatabaseDriver::Sqlite) => {
+            "CREATE TABLE IF NOT EXISTS \"token_blacklist\" (\
+             \"jti\" TEXT PRIMARY KEY NOT NULL, \
+             \"revoked_at\" TEXT NOT NULL, \
+             \"expires_at\" TEXT NOT NULL)"
+        }
+        Some(DatabaseDriver::Postgres) => {
+            "CREATE TABLE IF NOT EXISTS \"token_blacklist\" (\
+             \"jti\" VARCHAR(255) PRIMARY KEY NOT NULL, \
+             \"revoked_at\" TIMESTAMPTZ NOT NULL, \
+             \"expires_at\" TIMESTAMPTZ NOT NULL)"
+        }
+        Some(DatabaseDriver::Mysql) => {
+            "CREATE TABLE IF NOT EXISTS `token_blacklist` (\
+             `jti` VARCHAR(255) PRIMARY KEY NOT NULL, \
+             `revoked_at` DATETIME NOT NULL, \
+             `expires_at` DATETIME NOT NULL)"
+        }
+        None => return Ok(()),
+    };
+
+    // Create the table in all pools (should be the same database).
+    for (name, pool) in pools {
+        tracing::debug!("Ensuring revocation table exists in database '{name}'");
+        tracing::debug!("Revocation table DDL: {sql}");
+        pool.execute_raw(sql).await.map_err(|e| {
+            AppError::Config(format!(
+                "Failed to create revocation table in database '{name}': {e}"
+            ))
+        })?;
+    }
+
+    Ok(())
+}
+
 /// Run auto-migrations for all tables that belong to databases with `auto_migrate: true`.
 ///
 /// For each table the function checks whether it already exists in the database.
@@ -480,7 +529,7 @@ fn index_name(table_name: &str, column_name: &str) -> String {
 
 /// Quote an object name (table or index) for the current driver.
 #[must_use]
-fn quote_object_name(name: &str, driver: DatabaseDriver) -> String {
+pub fn quote_object_name(name: &str, driver: DatabaseDriver) -> String {
     match driver {
         DatabaseDriver::Mysql => format!("`{name}`"),
         DatabaseDriver::Sqlite | DatabaseDriver::Postgres => format!("\"{name}\""),
