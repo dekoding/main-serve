@@ -62,7 +62,7 @@ async-trait = "0.1"
 # HTTP framework
 axum = { version = "0.8", features = ["macros", "multipart"] }
 tower = { version = "0.5", features = ["util"] }
-tower-http = { version = "0.6", features = ["cors", "compression-gzip", "trace", "fs", "request-id", "util", "set-header"] }
+tower-http = { version = "0.7", features = ["cors", "compression-gzip", "trace", "fs", "request-id", "util", "set-header"] }
 
 # Serialization
 quick-xml = { version = "0.40", features = ["serialize"] }
