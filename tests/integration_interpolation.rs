@@ -85,7 +85,6 @@ async fn test_interpolation_in_where_clause() {
     };
 
     let q = build_select_list(
-        "posts",
         &table,
         &crud,
         &QueryParams::default(),
@@ -112,15 +111,7 @@ async fn test_interpolation_in_insert_body() {
         "author_name": "Admin"
     });
 
-    let q = build_insert(
-        "posts",
-        &table,
-        &crud,
-        &body,
-        DatabaseDriver::Sqlite,
-        &context,
-    )
-    .unwrap();
+    let q = build_insert(&table, &crud, &body, DatabaseDriver::Sqlite, &context).unwrap();
 
     // Note: Sqlite/Mysql order might vary due to BTreeMap in serde_json
     // But we check if "456" is in params.
@@ -141,7 +132,6 @@ async fn test_interpolation_in_update_body() {
     });
 
     let q = build_update(
-        "posts",
         &table,
         &crud,
         "1",
@@ -167,15 +157,7 @@ async fn test_interpolation_with_default_value() {
         "author_name": "${request.user.name:-Anonymous}"
     });
 
-    let q = build_insert(
-        "posts",
-        &table,
-        &crud,
-        &body,
-        DatabaseDriver::Sqlite,
-        &context,
-    )
-    .unwrap();
+    let q = build_insert(&table, &crud, &body, DatabaseDriver::Sqlite, &context).unwrap();
 
     assert!(q.params.contains(&serde_json::json!("Anonymous")));
 }

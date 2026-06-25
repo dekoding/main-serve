@@ -81,7 +81,6 @@ pub async fn handle_file_store(
                     &pool,
                     config,
                     &table_config,
-                    driver,
                     &query_params,
                     endpoint,
                     &headers,
@@ -89,9 +88,7 @@ pub async fn handle_file_store(
                 .await
             } else {
                 match extract_file_id(&path) {
-                    Some(id) => {
-                        handle_file_store_get(&pool, config, &table_config, driver, &id).await
-                    }
+                    Some(id) => handle_file_store_get(&pool, config, &table_config, &id).await,
                     None => Err(AppError::BadRequest("File ID required".to_string())),
                 }
             }
@@ -102,7 +99,6 @@ pub async fn handle_file_store(
                     &pool,
                     config,
                     &table_config,
-                    driver,
                     endpoint,
                     &headers,
                     body,
@@ -143,7 +139,6 @@ pub async fn handle_file_store(
                     endpoint,
                     &pool,
                     &table_config,
-                    driver,
                     &headers,
                     &query_params,
                 )
@@ -164,11 +159,11 @@ async fn handle_file_store_list(
     pool: &crate::db::pool::DatabasePool,
     config: &FileStoreConfig,
     table_config: &crate::config::types::TableConfig,
-    driver: DatabaseDriver,
     query_params: &HashMap<String, String>,
     endpoint: &EndpointConfig,
     headers: &axum::http::HeaderMap,
 ) -> Result<Response, AppError> {
+    let driver = pool.driver();
     let mut qp = extract_query_params(query_params);
 
     // Apply default pagination from config when not specified by client.
@@ -193,7 +188,6 @@ async fn handle_file_store_list(
     }
 
     let built = build_select_list(
-        &config.table,
         table_config,
         &crate::config::types::CrudConfig::default(),
         &qp,
@@ -235,11 +229,10 @@ async fn handle_file_store_get(
     pool: &crate::db::pool::DatabasePool,
     config: &FileStoreConfig,
     table_config: &crate::config::types::TableConfig,
-    driver: DatabaseDriver,
     id: &str,
 ) -> Result<Response, AppError> {
+    let driver = pool.driver();
     let built = build_select_one(
-        &config.table,
         table_config,
         &crate::config::types::CrudConfig::default(),
         id,
@@ -277,13 +270,13 @@ async fn handle_file_store_create(
     pool: &crate::db::pool::DatabasePool,
     config: &FileStoreConfig,
     table_config: &crate::config::types::TableConfig,
-    driver: DatabaseDriver,
     endpoint: &EndpointConfig,
     headers: &axum::http::HeaderMap,
     body: &serde_json::Value,
     state: &AppState,
     query_params: &HashMap<String, String>,
 ) -> Result<Response, AppError> {
+    let driver = pool.driver();
     let user_id = extract_user_id(state, endpoint, headers, query_params).await?;
 
     let writable_columns = table_config
@@ -324,7 +317,6 @@ async fn handle_file_store_create(
 
     let json_body = serde_json::Value::Object(body_map);
     let built = build_insert(
-        &config.table,
         table_config,
         &crate::config::types::CrudConfig::default(),
         &json_body,
@@ -391,7 +383,6 @@ async fn handle_file_store_update(
     );
 
     let built = build_update(
-        &config.table,
         table_config,
         &crate::config::types::CrudConfig::default(),
         id,
@@ -427,7 +418,6 @@ async fn handle_file_store_delete(
     endpoint: &EndpointConfig,
     pool: &crate::db::pool::DatabasePool,
     table_config: &crate::config::types::TableConfig,
-    driver: DatabaseDriver,
     headers: &axum::http::HeaderMap,
     query_params: &HashMap<String, String>,
 ) -> Result<Response, AppError> {
@@ -509,10 +499,9 @@ async fn handle_file_store_delete(
         }
 
         let built = build_delete(
-            &config.table,
             table_config,
             id,
-            driver,
+            pool.driver(),
             &RequestContext::default(),
             &None,
         )?;

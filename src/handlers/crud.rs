@@ -71,14 +71,13 @@ pub async fn handle_crud(
         // GET /resources -> list
         ("GET", None) => {
             let qp = extract_query_params(&query_string);
-            let built =
-                match build_select_list(&crud.table, table_config, crud, &qp, driver, &context) {
-                    Ok(q) => q,
-                    Err(e) => {
-                        tracing::error!("build_select_list failed: {:?}", e);
-                        return Err(e);
-                    }
-                };
+            let built = match build_select_list(table_config, crud, &qp, driver, &context) {
+                Ok(q) => q,
+                Err(e) => {
+                    tracing::error!("build_select_list failed: {:?}", e);
+                    return Err(e);
+                }
+            };
 
             let rows = match pool.fetch_all_json(&built.sql, &built.params).await {
                 Ok(r) => r,
@@ -97,7 +96,7 @@ pub async fn handle_crud(
 
         // GET /resources/{id} -> get one
         ("GET", Some(pk)) => {
-            let built = build_select_one(&crud.table, table_config, crud, pk, driver, &context)?;
+            let built = build_select_one(table_config, crud, pk, driver, &context)?;
             match pool.fetch_optional_json(&built.sql, &built.params).await? {
                 Some(row) => Ok((StatusCode::OK, Json(row)).into_response()),
                 None => Err(AppError::NotFound(format!(
@@ -112,8 +111,7 @@ pub async fn handle_crud(
             let body = body
                 .ok_or_else(|| AppError::BadRequest("Request body required".to_string()))?
                 .0;
-            let built = match build_insert(&crud.table, table_config, crud, &body, driver, &context)
-            {
+            let built = match build_insert(table_config, crud, &body, driver, &context) {
                 Ok(q) => q,
                 Err(e) => {
                     return Err(e);
@@ -143,7 +141,6 @@ pub async fn handle_crud(
                 .ok_or_else(|| AppError::BadRequest("Request body required".to_string()))?
                 .0;
             let built = build_update(
-                &crud.table,
                 table_config,
                 crud,
                 pk,
@@ -169,7 +166,6 @@ pub async fn handle_crud(
         // DELETE /resources/{id} -> delete
         ("DELETE", Some(pk)) => {
             let built = build_delete(
-                &crud.table,
                 table_config,
                 pk,
                 driver,
