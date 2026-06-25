@@ -588,14 +588,7 @@ mod tests {
     fn test_build_delete() {
         let table = test_table();
         let context = RequestContext::new();
-        let q = build_delete(
-            &table,
-            "42",
-            DatabaseDriver::Sqlite,
-            &context,
-            &None,
-        )
-        .unwrap();
+        let q = build_delete(&table, "42", DatabaseDriver::Sqlite, &context, &None).unwrap();
         assert_eq!(q.sql, "DELETE FROM posts WHERE id = ?");
         assert_eq!(q.params, vec![serde_json::json!(42)]);
     }

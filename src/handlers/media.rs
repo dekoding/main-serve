@@ -135,7 +135,6 @@ pub(crate) async fn handle_media(
             &root,
             &pool,
             &table_config,
-            driver,
             endpoint,
             &headers,
             &query_params,
@@ -187,10 +186,10 @@ pub(crate) async fn handle_media(
     match method {
         axum::http::Method::GET => {
             if path.is_empty() || path == "/" || path == config.table {
-                handle_media_list(&pool, config, &table_config, driver, &query_params).await
+                handle_media_list(&pool, config, &table_config, &query_params).await
             } else {
                 match extract_media_id(&path) {
-                    Some(id) => handle_media_get(&pool, &table_config, driver, &id).await,
+                    Some(id) => handle_media_get(&pool, &table_config, &id).await,
                     None => Err(AppError::BadRequest("Media ID required".to_string())),
                 }
             }
@@ -200,7 +199,6 @@ pub(crate) async fn handle_media(
                 handle_media_create(
                     &pool,
                     &table_config,
-                    driver,
                     endpoint,
                     &headers,
                     body,
@@ -241,7 +239,6 @@ pub(crate) async fn handle_media(
                     &*storage,
                     &root,
                     &pool,
-                    driver,
                     endpoint,
                     &headers,
                     &query_params,
@@ -261,9 +258,9 @@ async fn handle_media_list(
     pool: &crate::db::pool::DatabasePool,
     config: &MediaConfig,
     table_config: &crate::config::types::TableConfig,
-    driver: DatabaseDriver,
     query_params: &HashMap<String, String>,
 ) -> Result<Response, AppError> {
+    let driver = pool.driver();
     let page = query_params
         .get("page")
         .and_then(|v| v.parse::<u64>().ok())
@@ -336,9 +333,9 @@ async fn handle_media_list(
 async fn handle_media_get(
     pool: &crate::db::pool::DatabasePool,
     table_config: &crate::config::types::TableConfig,
-    driver: DatabaseDriver,
     id: &str,
 ) -> Result<Response, AppError> {
+    let driver = pool.driver();
     let built = build_select_one(
         table_config,
         &crate::config::types::CrudConfig::default(),
@@ -361,13 +358,13 @@ async fn handle_media_get(
 async fn handle_media_create(
     pool: &crate::db::pool::DatabasePool,
     table_config: &crate::config::types::TableConfig,
-    driver: DatabaseDriver,
     endpoint: &EndpointConfig,
     headers: &axum::http::HeaderMap,
     body: &serde_json::Value,
     state: &AppState,
     query_params: &HashMap<String, String>,
 ) -> Result<Response, AppError> {
+    let driver = pool.driver();
     let user_id = extract_user_id(state, endpoint, headers, query_params).await?;
 
     let writable_columns = table_config
@@ -820,7 +817,6 @@ async fn handle_media_trash(
     root: &Path,
     pool: &crate::db::pool::DatabasePool,
     table_config: &crate::config::types::TableConfig,
-    driver: DatabaseDriver,
     endpoint: &EndpointConfig,
     headers: &axum::http::HeaderMap,
     query_params: &HashMap<String, String>,
@@ -837,13 +833,11 @@ async fn handle_media_trash(
     }
 
     match method {
-        axum::http::Method::GET => {
-            handle_media_trash_list(pool, table_config, driver).await
-        }
+        axum::http::Method::GET => handle_media_trash_list(pool, table_config).await,
         axum::http::Method::DELETE
             if path == "/_main-serve/media/trash" || path == "/_main-serve/media/trash/" =>
         {
-            handle_media_trash_empty(config, pool, table_config, driver).await
+            handle_media_trash_empty(config, pool, table_config).await
         }
         axum::http::Method::POST => {
             if let Some(id) = path
@@ -878,7 +872,6 @@ async fn handle_media_trash(
                     root,
                     pool,
                     table_config,
-                    driver,
                     endpoint,
                     headers,
                     query_params,
@@ -899,7 +892,6 @@ async fn handle_media_trash(
 async fn handle_media_trash_list(
     pool: &crate::db::pool::DatabasePool,
     table_config: &crate::config::types::TableConfig,
-    driver: DatabaseDriver,
 ) -> Result<Response, AppError> {
     let qp = QueryParams {
         page: None,
@@ -913,7 +905,7 @@ async fn handle_media_trash_list(
         table_config,
         &crate::config::types::CrudConfig::default(),
         &qp,
-        driver,
+        pool.driver(),
         &RequestContext::default(),
     )?;
     let sql = format!("{} WHERE trashed_at IS NOT NULL", built.sql);
@@ -1002,7 +994,6 @@ async fn handle_media_trash_empty(
     config: &MediaConfig,
     pool: &crate::db::pool::DatabasePool,
     table_config: &crate::config::types::TableConfig,
-    driver: DatabaseDriver,
 ) -> Result<Response, AppError> {
     let sql = format!(
         "SELECT id FROM {} WHERE trashed_at IS NOT NULL",
@@ -1017,7 +1008,7 @@ async fn handle_media_trash_empty(
             let built = build_delete(
                 table_config,
                 id_val,
-                driver,
+                pool.driver(),
                 &RequestContext::default(),
                 &None,
             )?;
@@ -1047,7 +1038,6 @@ async fn handle_media_trash_permanent_delete(
     root: &Path,
     pool: &crate::db::pool::DatabasePool,
     table_config: &crate::config::types::TableConfig,
-    driver: DatabaseDriver,
     endpoint: &EndpointConfig,
     headers: &axum::http::HeaderMap,
     query_params: &HashMap<String, String>,
@@ -1085,7 +1075,7 @@ async fn handle_media_trash_permanent_delete(
     let built = build_delete(
         table_config,
         id,
-        driver,
+        pool.driver(),
         &RequestContext::default(),
         &None,
     )?;
@@ -1160,10 +1150,9 @@ async fn handle_media_delete(
     storage: &dyn Storage,
     root: &Path,
     pool: &crate::db::pool::DatabasePool,
-    driver: DatabaseDriver,
     endpoint: &EndpointConfig,
-    __headers: &axum::http::HeaderMap,
-    _query_params: &HashMap<String, String>,
+    headers: &axum::http::HeaderMap,
+    query_params: &HashMap<String, String>,
 ) -> Result<Response, AppError> {
     let trash_enabled = config.trash.as_ref().is_some_and(|t| t.enabled);
 
@@ -1176,12 +1165,12 @@ async fn handle_media_delete(
             root,
             pool,
             endpoint,
-            __headers,
-            _query_params,
+            headers,
+            query_params,
         )
         .await
     } else {
-        delete_media_permanently(id, config, storage, root, pool, table_config, driver).await
+        delete_media_permanently(id, config, storage, root, pool, table_config).await
     }
 }
 
@@ -1194,8 +1183,8 @@ async fn delete_media_permanently(
     root: &Path,
     pool: &crate::db::pool::DatabasePool,
     table_config: &crate::config::types::TableConfig,
-    driver: DatabaseDriver,
 ) -> Result<Response, AppError> {
+    let driver = pool.driver();
     let path_check = format!("SELECT file_path FROM {} WHERE id = $1", config.table);
     let row = pool.fetch_optional_json(&path_check, &[id.into()]).await?;
 
@@ -1211,13 +1200,7 @@ async fn delete_media_permanently(
         }
     }
 
-    let built = build_delete(
-        table_config,
-        id,
-        driver,
-        &RequestContext::default(),
-        &None,
-    )?;
+    let built = build_delete(table_config, id, driver, &RequestContext::default(), &None)?;
     let rows_affected = pool.execute_with_params(&built.sql, &built.params).await?;
 
     if rows_affected == 0 {

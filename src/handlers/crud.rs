@@ -71,14 +71,13 @@ pub async fn handle_crud(
         // GET /resources -> list
         ("GET", None) => {
             let qp = extract_query_params(&query_string);
-            let built =
-                match build_select_list(table_config, crud, &qp, driver, &context) {
-                    Ok(q) => q,
-                    Err(e) => {
-                        tracing::error!("build_select_list failed: {:?}", e);
-                        return Err(e);
-                    }
-                };
+            let built = match build_select_list(table_config, crud, &qp, driver, &context) {
+                Ok(q) => q,
+                Err(e) => {
+                    tracing::error!("build_select_list failed: {:?}", e);
+                    return Err(e);
+                }
+            };
 
             let rows = match pool.fetch_all_json(&built.sql, &built.params).await {
                 Ok(r) => r,
@@ -112,8 +111,7 @@ pub async fn handle_crud(
             let body = body
                 .ok_or_else(|| AppError::BadRequest("Request body required".to_string()))?
                 .0;
-            let built = match build_insert(table_config, crud, &body, driver, &context)
-            {
+            let built = match build_insert(table_config, crud, &body, driver, &context) {
                 Ok(q) => q,
                 Err(e) => {
                     return Err(e);
