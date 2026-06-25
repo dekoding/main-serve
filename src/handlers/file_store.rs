@@ -193,7 +193,6 @@ async fn handle_file_store_list(
     }
 
     let built = build_select_list(
-        &config.table,
         table_config,
         &crate::config::types::CrudConfig::default(),
         &qp,
@@ -239,7 +238,6 @@ async fn handle_file_store_get(
     id: &str,
 ) -> Result<Response, AppError> {
     let built = build_select_one(
-        &config.table,
         table_config,
         &crate::config::types::CrudConfig::default(),
         id,
@@ -324,7 +322,6 @@ async fn handle_file_store_create(
 
     let json_body = serde_json::Value::Object(body_map);
     let built = build_insert(
-        &config.table,
         table_config,
         &crate::config::types::CrudConfig::default(),
         &json_body,
@@ -391,7 +388,6 @@ async fn handle_file_store_update(
     );
 
     let built = build_update(
-        &config.table,
         table_config,
         &crate::config::types::CrudConfig::default(),
         id,
@@ -509,7 +505,6 @@ async fn handle_file_store_delete(
         }
 
         let built = build_delete(
-            &config.table,
             table_config,
             id,
             driver,

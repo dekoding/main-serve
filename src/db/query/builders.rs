@@ -20,13 +20,13 @@ use crate::middleware::auth::extractor::RequestContext;
 /// invalid field names, or provides no writable fields.
 /// Returns `AppError::Internal` if the table has no primary key column.
 pub fn build_insert(
-    table_name: &str,
     table_config: &TableConfig,
     crud: &CrudConfig,
     body: &serde_json::Value,
     driver: DatabaseDriver,
     context: &RequestContext,
 ) -> Result<BuiltQuery, AppError> {
+    let table_name = &table_config.name;
     let obj = body
         .as_object()
         .ok_or_else(|| AppError::BadRequest("Request body must be a JSON object".to_string()))?;
@@ -137,7 +137,6 @@ pub fn build_insert(
 /// Returns `AppError::Internal` if the table has no primary key column.
 #[allow(clippy::too_many_arguments)]
 pub fn build_update(
-    table_name: &str,
     table_config: &TableConfig,
     crud: &CrudConfig,
     pk_value: &str,
@@ -146,6 +145,7 @@ pub fn build_update(
     context: &RequestContext,
     where_clause: &Option<String>,
 ) -> Result<BuiltQuery, AppError> {
+    let table_name = &table_config.name;
     let obj = body
         .as_object()
         .ok_or_else(|| AppError::BadRequest("Request body must be a JSON object".to_string()))?;
@@ -223,13 +223,13 @@ pub fn build_update(
 ///
 /// Returns `AppError::Internal` if the table has no primary key column.
 pub fn build_delete(
-    table_name: &str,
     table_config: &TableConfig,
     pk_value: &str,
     driver: DatabaseDriver,
     context: &RequestContext,
     where_clause: &Option<String>,
 ) -> Result<BuiltQuery, AppError> {
+    let table_name = &table_config.name;
     let pk_col = find_pk_column(table_config)?;
     let pk_val = coerce_pk_value(table_config, pk_value);
     let is_coercion_sentinel = pk_val
@@ -282,13 +282,13 @@ pub fn build_delete(
 ///
 /// Returns `AppError::BadRequest` if filter or sort fields are invalid or disallowed.
 pub fn build_select_list(
-    table_name: &str,
     table_config: &TableConfig,
     crud: &CrudConfig,
     query_params: &crate::db::query::types::QueryParams,
     driver: DatabaseDriver,
     context: &RequestContext,
 ) -> Result<BuiltQuery, AppError> {
+    let table_name = &table_config.name;
     use crate::db::query::helpers::resolve_fields;
 
     let fields = resolve_fields(&crud.fields, table_config);
@@ -297,7 +297,7 @@ pub fn build_select_list(
     sb.apply_joins(crud);
     sb.apply_computed_fields(crud);
     sb.apply_where_clause(crud, context)?;
-    sb.apply_filters(crud, &query_params.filters, table_config, context)?;
+    sb.apply_filters(crud, &query_params.filters, table_config)?;
     sb.apply_sorting(crud, table_config, query_params)?;
     sb.apply_pagination(crud, query_params);
 
@@ -310,13 +310,13 @@ pub fn build_select_list(
 ///
 /// Returns `AppError::Internal` if the table has no primary key column.
 pub fn build_select_one(
-    table_name: &str,
     table_config: &TableConfig,
     crud: &CrudConfig,
     pk_value: &str,
     driver: DatabaseDriver,
     context: &RequestContext,
 ) -> Result<BuiltQuery, AppError> {
+    let table_name = &table_config.name;
     use crate::db::query::helpers::resolve_fields;
 
     let fields = resolve_fields(&crud.fields, table_config);
@@ -436,7 +436,6 @@ mod tests {
         let crud = test_crud();
         let params = QueryParams::default();
         let q = build_select_list(
-            "posts",
             &table,
             &crud,
             &params,
@@ -464,7 +463,6 @@ mod tests {
             ..Default::default()
         };
         let q = build_select_list(
-            "posts",
             &table,
             &crud,
             &params,
@@ -490,7 +488,6 @@ mod tests {
             ..Default::default()
         };
         let q = build_select_list(
-            "posts",
             &table,
             &crud,
             &params,
@@ -510,7 +507,6 @@ mod tests {
         let table = test_table();
         let crud = test_crud();
         let q = build_select_one(
-            "posts",
             &table,
             &crud,
             "42",
@@ -531,7 +527,6 @@ mod tests {
         let crud = test_crud();
         let body = serde_json::json!({"title": "Hello", "author": "Alice"});
         let q = build_insert(
-            "posts",
             &table,
             &crud,
             &body,
@@ -554,7 +549,6 @@ mod tests {
         let crud = test_crud();
         let body = serde_json::json!({"title": "Hello", "author": "Alice", "id": 999});
         let q = build_insert(
-            "posts",
             &table,
             &crud,
             &body,
@@ -574,7 +568,6 @@ mod tests {
         let body = serde_json::json!({"title": "Updated"});
         let context = RequestContext::new();
         let q = build_update(
-            "posts",
             &table,
             &crud,
             "42",
@@ -596,7 +589,6 @@ mod tests {
         let table = test_table();
         let context = RequestContext::new();
         let q = build_delete(
-            "posts",
             &table,
             "42",
             DatabaseDriver::Sqlite,
@@ -614,7 +606,6 @@ mod tests {
         let context = RequestContext::new();
         let where_clause = Some("author = ${request.user.id}".to_string());
         let q = build_delete(
-            "posts",
             &table,
             "42",
             DatabaseDriver::Sqlite,
@@ -640,7 +631,6 @@ mod tests {
         });
         let where_clause = Some("author = ${request.user.id}".to_string());
         let q = build_delete(
-            "posts",
             &table,
             "42",
             DatabaseDriver::Sqlite,
@@ -663,7 +653,6 @@ mod tests {
         let context = RequestContext::new();
         let where_clause = Some("author = ${request.user.id}".to_string());
         let q = build_update(
-            "posts",
             &table,
             &crud,
             "42",
@@ -697,7 +686,6 @@ mod tests {
         let crud = test_crud();
         let body = serde_json::json!({"title": "Hello", "author": "Alice"});
         let q = build_insert(
-            "posts",
             &table,
             &crud,
             &body,
@@ -730,7 +718,6 @@ mod tests {
             ..Default::default()
         };
         let q = build_select_list(
-            "posts",
             &table,
             &crud,
             &params,
@@ -762,7 +749,6 @@ mod tests {
             ..Default::default()
         };
         let q = build_select_list(
-            "posts",
             &table,
             &crud,
             &params,
@@ -791,7 +777,6 @@ mod tests {
             ..Default::default()
         };
         let q = build_select_list(
-            "posts",
             &table,
             &crud,
             &params,
@@ -820,7 +805,6 @@ mod tests {
             ..Default::default()
         };
         let q = build_select_list(
-            "posts",
             &table,
             &crud,
             &params,
@@ -852,7 +836,6 @@ mod tests {
             ..Default::default()
         };
         let q = build_select_list(
-            "posts",
             &table,
             &crud,
             &params,
@@ -883,7 +866,6 @@ mod tests {
             ..Default::default()
         };
         let q = build_select_list(
-            "posts",
             &table,
             &crud,
             &params,
@@ -910,7 +892,6 @@ mod tests {
             ..Default::default()
         };
         let q = build_select_list(
-            "posts",
             &table,
             &crud,
             &params,
@@ -934,7 +915,6 @@ mod tests {
             ..Default::default()
         };
         let q = build_select_list(
-            "posts",
             &table,
             &crud,
             &params,
@@ -958,7 +938,6 @@ mod tests {
             ..Default::default()
         };
         let q = build_select_list(
-            "posts",
             &table,
             &crud,
             &params,
@@ -983,7 +962,6 @@ mod tests {
             ..Default::default()
         };
         let q = build_select_list(
-            "posts",
             &table,
             &crud,
             &params,
@@ -1008,7 +986,6 @@ mod tests {
             ..Default::default()
         };
         let q = build_select_list(
-            "posts",
             &table,
             &crud,
             &params,
@@ -1039,7 +1016,6 @@ mod tests {
             ..Default::default()
         };
         let q = build_select_list(
-            "posts",
             &table,
             &crud,
             &params,
@@ -1065,7 +1041,6 @@ mod tests {
             ..Default::default()
         };
         let q = build_select_list(
-            "posts",
             &table,
             &crud,
             &params,
@@ -1092,7 +1067,6 @@ mod tests {
             ..Default::default()
         };
         let q = build_select_list(
-            "posts",
             &table,
             &crud,
             &params,
@@ -1123,7 +1097,6 @@ mod tests {
             ..Default::default()
         };
         let result = build_select_list(
-            "posts",
             &table,
             &crud,
             &params,
@@ -1147,7 +1120,6 @@ mod tests {
             ..Default::default()
         };
         let result = build_select_list(
-            "posts",
             &table,
             &crud,
             &params,
@@ -1174,7 +1146,6 @@ mod tests {
             ..Default::default()
         };
         let q = build_select_list(
-            "posts",
             &table,
             &crud,
             &params,
@@ -1202,7 +1173,6 @@ mod tests {
             ..Default::default()
         };
         let q = build_select_list(
-            "posts",
             &table,
             &crud,
             &params,
@@ -1230,7 +1200,6 @@ mod tests {
             ..Default::default()
         };
         let q = build_select_list(
-            "posts",
             &table,
             &crud,
             &params,
@@ -1257,7 +1226,6 @@ mod tests {
             ..Default::default()
         };
         let q = build_select_list(
-            "posts",
             &table,
             &crud,
             &params,
@@ -1286,7 +1254,6 @@ mod tests {
             ..Default::default()
         };
         let q = build_select_list(
-            "posts",
             &table,
             &crud,
             &params,
@@ -1313,7 +1280,6 @@ mod tests {
             ..Default::default()
         };
         let q = build_select_list(
-            "posts",
             &table,
             &crud,
             &params,
@@ -1339,7 +1305,6 @@ mod tests {
             ..Default::default()
         };
         let q = build_select_list(
-            "posts",
             &table,
             &crud,
             &params,
@@ -1363,7 +1328,6 @@ mod tests {
             ..Default::default()
         };
         let q = build_select_list(
-            "posts",
             &table,
             &crud,
             &params,
@@ -1391,7 +1355,6 @@ mod tests {
             ..Default::default()
         };
         let q = build_select_list(
-            "posts",
             &table,
             &crud,
             &params,
@@ -1414,7 +1377,6 @@ mod tests {
             ..Default::default()
         };
         let q = build_select_list(
-            "posts",
             &table,
             &crud,
             &params,
@@ -1437,7 +1399,6 @@ mod tests {
             ..Default::default()
         };
         let result = build_select_list(
-            "posts",
             &table,
             &crud,
             &params,

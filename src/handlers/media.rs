@@ -190,7 +190,7 @@ pub(crate) async fn handle_media(
                 handle_media_list(&pool, config, &table_config, driver, &query_params).await
             } else {
                 match extract_media_id(&path) {
-                    Some(id) => handle_media_get(&pool, config, &table_config, driver, &id).await,
+                    Some(id) => handle_media_get(&pool, &table_config, driver, &id).await,
                     None => Err(AppError::BadRequest("Media ID required".to_string())),
                 }
             }
@@ -199,7 +199,6 @@ pub(crate) async fn handle_media(
             if path.is_empty() || path == "/" {
                 handle_media_create(
                     &pool,
-                    config,
                     &table_config,
                     driver,
                     endpoint,
@@ -302,7 +301,6 @@ async fn handle_media_list(
     };
 
     let built = build_select_list(
-        &config.table,
         table_config,
         &crate::config::types::CrudConfig::default(),
         &qp,
@@ -337,13 +335,11 @@ async fn handle_media_list(
 /// Handle media get by ID.
 async fn handle_media_get(
     pool: &crate::db::pool::DatabasePool,
-    config: &MediaConfig,
     table_config: &crate::config::types::TableConfig,
     driver: DatabaseDriver,
     id: &str,
 ) -> Result<Response, AppError> {
     let built = build_select_one(
-        &config.table,
         table_config,
         &crate::config::types::CrudConfig::default(),
         id,
@@ -364,16 +360,15 @@ async fn handle_media_get(
 #[allow(clippy::too_many_arguments)]
 async fn handle_media_create(
     pool: &crate::db::pool::DatabasePool,
-    config: &MediaConfig,
     table_config: &crate::config::types::TableConfig,
     driver: DatabaseDriver,
     endpoint: &EndpointConfig,
-    __headers: &axum::http::HeaderMap,
+    headers: &axum::http::HeaderMap,
     body: &serde_json::Value,
     state: &AppState,
     query_params: &HashMap<String, String>,
 ) -> Result<Response, AppError> {
-    let user_id = extract_user_id(state, endpoint, __headers, query_params).await?;
+    let user_id = extract_user_id(state, endpoint, headers, query_params).await?;
 
     let writable_columns = table_config
         .columns
@@ -406,7 +401,6 @@ async fn handle_media_create(
 
     let json_body = serde_json::Value::Object(body_map);
     let built = build_insert(
-        &config.table,
         table_config,
         &crate::config::types::CrudConfig::default(),
         &json_body,
@@ -509,7 +503,6 @@ async fn handle_media_update(
     );
 
     let built = build_update(
-        &config.table,
         table_config,
         &crate::config::types::CrudConfig::default(),
         id,
@@ -845,7 +838,7 @@ async fn handle_media_trash(
 
     match method {
         axum::http::Method::GET => {
-            handle_media_trash_list(pool, config, table_config, driver).await
+            handle_media_trash_list(pool, table_config, driver).await
         }
         axum::http::Method::DELETE
             if path == "/_main-serve/media/trash" || path == "/_main-serve/media/trash/" =>
@@ -905,7 +898,6 @@ async fn handle_media_trash(
 
 async fn handle_media_trash_list(
     pool: &crate::db::pool::DatabasePool,
-    config: &MediaConfig,
     table_config: &crate::config::types::TableConfig,
     driver: DatabaseDriver,
 ) -> Result<Response, AppError> {
@@ -918,7 +910,6 @@ async fn handle_media_trash_list(
     };
 
     let built = build_select_list(
-        &config.table,
         table_config,
         &crate::config::types::CrudConfig::default(),
         &qp,
@@ -1024,7 +1015,6 @@ async fn handle_media_trash_empty(
     for row in &rows {
         if let Some(id_val) = row.get("id").and_then(|v| v.as_str()) {
             let built = build_delete(
-                &config.table,
                 table_config,
                 id_val,
                 driver,
@@ -1093,7 +1083,6 @@ async fn handle_media_trash_permanent_delete(
     }
 
     let built = build_delete(
-        &config.table,
         table_config,
         id,
         driver,
@@ -1223,7 +1212,6 @@ async fn delete_media_permanently(
     }
 
     let built = build_delete(
-        &config.table,
         table_config,
         id,
         driver,

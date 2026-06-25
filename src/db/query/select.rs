@@ -188,7 +188,6 @@ impl SelectBuilder {
         crud: &CrudConfig,
         filters: &HashMap<String, String>,
         table_config: &TableConfig,
-        _context: &RequestContext,
     ) -> Result<(), AppError> {
         for (key, value) in filters {
             let expr = parse_filter_key(key)?;

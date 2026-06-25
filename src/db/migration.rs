@@ -140,7 +140,6 @@ pub async fn run_migrations(
             let allow_destructive = db_config.is_some_and(|db| db.allow_destructive);
             alter_existing_table(
                 pool,
-                table_name,
                 table_config,
                 &existing_columns,
                 driver,
@@ -282,12 +281,12 @@ async fn get_existing_indexes(
 /// apply the necessary `ALTER TABLE` statements.
 async fn alter_existing_table(
     pool: &DatabasePool,
-    table_name: &str,
     table_config: &TableConfig,
     existing_columns: &[ExistingColumn],
     driver: DatabaseDriver,
     allow_destructive: bool,
 ) -> Result<(), AppError> {
+    let table_name = &table_config.name;
     let existing_names: std::collections::HashSet<String> =
         existing_columns.iter().map(|c| c.name.clone()).collect();
 
