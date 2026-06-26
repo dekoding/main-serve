@@ -9,7 +9,7 @@
 //!
 //! Config: proxies /api/external/* to a mock upstream server.
 
-use crate::support::{BinaryHandle, LiveClient};
+use crate::support::BinaryHandle;
 use axum::Router;
 use axum::routing::{get, post};
 use axum::Json;

@@ -12,7 +12,7 @@
 //!
 //! Config: serves files from a local directory with various options.
 
-use crate::support::{BinaryHandle, LiveClient, write_files_to_dir};
+use crate::support::{BinaryHandle, write_files_to_dir};
 use reqwest::StatusCode;
 
 const STATIC_FILES_CONFIG: &str = r#"

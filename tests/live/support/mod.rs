@@ -5,7 +5,6 @@
 //! config-writing helpers to create temporary YAML configs per test.
 
 use std::env;
-use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;

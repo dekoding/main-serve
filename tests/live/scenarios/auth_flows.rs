@@ -187,7 +187,6 @@ async fn test_jwt_unauthorized() {
 #[tokio::test]
 async fn test_jwt_authorized() {
     let server = BinaryHandle::spawn(AUTH_CONFIG, None).await.expect("spawn");
-    let client = server.client();
 
     // Create a mock JWT token
     let token = create_mock_jwt("user-42", "user");

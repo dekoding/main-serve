@@ -10,7 +10,7 @@
 //!
 //! Config: serves a minimal SPA from a local directory.
 
-use crate::support::{BinaryHandle, LiveClient, write_files_to_dir};
+use crate::support::{BinaryHandle, write_files_to_dir};
 use reqwest::StatusCode;
 
 const SPA_CONFIG: &str = r#"

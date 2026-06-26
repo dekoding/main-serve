@@ -12,7 +12,7 @@
 //!
 //! Config: based on the media action from spec.yaml with SQLite and native storage.
 
-use crate::support::{BinaryHandle, LiveClient, write_files_to_dir};
+use crate::support::{BinaryHandle, LiveClient};
 use reqwest::StatusCode;
 
 const MEDIA_CONFIG: &str = r#"
