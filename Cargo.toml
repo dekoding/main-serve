@@ -79,7 +79,7 @@ argon2 = "0.5"
 rand = "0.8"
 
 # HTTP client (for reverse proxy)
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream", "multipart"] }
 
 # TLS
 tokio-rustls = "0.26"
@@ -130,6 +130,8 @@ aws-smithy-types = { version = "1", optional = true }
 [dev-dependencies]
 tempfile = "3"
 rcgen = "0.14"
+# Needed for live test subprocess signaling (Unix).
+libc = "0.2"
 
 [features]
 default = ["native"]
@@ -143,3 +145,8 @@ s3 = [
 ]
 azure = []
 gcs = []
+
+# Live (end-to-end) tests that spawn the compiled binary as a subprocess.
+# These are slow and are not included in a normal `cargo test` run.
+# Run them explicitly: `cargo test --features live-tests`
+live-tests = []
