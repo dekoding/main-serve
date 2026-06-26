@@ -122,7 +122,7 @@ pub(crate) async fn generate_directory_listing(
     html.push_str("</table>\n</body></html>\n");
 
     let mut response = (StatusCode::OK, html).into_response();
-    apply_static_headers(&mut response, "text/html; charset=utf-8", 0);
+    apply_static_headers(&mut response, "text/html; charset=utf-8", 0, None, &[]);
     Ok(response)
 }
 

@@ -11,7 +11,9 @@ use http::header;
 
 use crate::config::types::{EndpointConfig, SpaHostConfig};
 use crate::error::AppError;
-use crate::handlers::static_files::utils::{apply_static_headers, mime_from_path};
+use crate::handlers::static_files::utils::{
+    apply_static_headers, get_cache_control, mime_from_path,
+};
 use crate::server::state::AppState;
 use crate::storage::Storage;
 
@@ -238,7 +240,13 @@ async fn serve_spa_file(
         .map_err(|_| AppError::NotFound(format!("File not found: {}", path.display())))?;
 
     let mut response = (StatusCode::OK, contents).into_response();
-    apply_static_headers(&mut response, &content_type, config.cache_max_age);
+    apply_static_headers(
+        &mut response,
+        &content_type,
+        config.cache_max_age,
+        Some(path),
+        &config.cache_rules,
+    );
 
     let resp_headers = response.headers_mut();
     resp_headers.insert(
@@ -329,23 +337,6 @@ async fn serve_spa_fallback(
             config.index
         ))),
     }
-}
-
-/// Get the Cache-Control header value for a path.
-fn get_cache_control(
-    path: &Path,
-    default_max_age: u64,
-    cache_rules: &[crate::config::types::CacheRuleConfig],
-) -> String {
-    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-
-    for rule in cache_rules {
-        if rule.extensions.iter().any(|e| e == ext) {
-            return rule.cache_control.clone();
-        }
-    }
-
-    format!("public, max-age={default_max_age}")
 }
 
 /// Return 405 Method Not Allowed for SPA host (read-only endpoints).

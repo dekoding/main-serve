@@ -295,6 +295,7 @@ async fn async_main(cli: Cli, config: main_serve::config::AppConfig, config_path
     let tls_config = config_read.server.tls.clone();
     drop(config_read);
 
+    let local_addr = listener.local_addr().expect("local addr");
     if let Some(ref tls) = tls_config {
         // TLS mode: use tokio-rustls acceptor.
         let acceptor = match build_tls_acceptor(tls) {
@@ -305,12 +306,12 @@ async fn async_main(cli: Cli, config: main_serve::config::AppConfig, config_path
             }
         };
 
-        tracing::info!("Main Serve listening on https://{addr}");
+        tracing::info!("Main Serve listening on https://{local_addr}");
 
         serve_tls(listener, acceptor, app, shutdown_timeout, keep_alive).await;
     } else {
         // Plain HTTP mode.
-        tracing::info!("Main Serve listening on http://{addr}");
+        tracing::info!("Main Serve listening on http://{local_addr}");
 
         serve_plain(listener, app, shutdown_timeout, keep_alive).await;
     }

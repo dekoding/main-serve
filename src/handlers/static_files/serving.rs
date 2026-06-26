@@ -151,7 +151,13 @@ pub async fn serve_file(
         .map_err(|_| AppError::NotFound(format!("File not found: {}", path.display())))?;
 
     let mut response = (StatusCode::OK, content.to_vec()).into_response();
-    apply_static_headers(&mut response, &content_type, config.cache_max_age);
+    apply_static_headers(
+        &mut response,
+        &content_type,
+        config.cache_max_age,
+        Some(path),
+        &config.cache_rules,
+    );
 
     response.headers_mut().insert(
         header::CONTENT_LENGTH,
@@ -407,7 +413,7 @@ pub(crate) async fn handle_image_resize(
     };
 
     let mut response = (StatusCode::OK, output_bytes).into_response();
-    apply_static_headers(&mut response, content_type, 0);
+    apply_static_headers(&mut response, content_type, 0, None, &[]);
     Ok(Some(response))
 }
 

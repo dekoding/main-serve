@@ -4,18 +4,50 @@ use axum::http::HeaderValue;
 use axum::response::Response;
 use http::header;
 
+use crate::config::types::CacheRuleConfig;
+
 /// Apply Content-Type and Cache-Control headers to a response.
-pub fn apply_static_headers(response: &mut Response, content_type: &str, cache_max_age: u64) {
+pub fn apply_static_headers(
+    response: &mut Response,
+    content_type: &str,
+    cache_max_age: u64,
+    path: Option<&Path>,
+    cache_rules: &[CacheRuleConfig],
+) {
     response.headers_mut().insert(
         header::CONTENT_TYPE,
         HeaderValue::from_str(content_type)
             .unwrap_or(HeaderValue::from_static("application/octet-stream")),
     );
+    let cache_control = match (path, cache_rules.is_empty()) {
+        (Some(p), false) => get_cache_control(p, cache_max_age, cache_rules),
+        _ => format!("public, max-age={cache_max_age}"),
+    };
     response.headers_mut().insert(
         header::CACHE_CONTROL,
-        HeaderValue::from_str(&format!("public, max-age={cache_max_age}"))
+        HeaderValue::from_str(&cache_control)
             .unwrap_or(HeaderValue::from_static("public, max-age=3600")),
     );
+}
+
+/// Get the Cache-Control header value for a path.
+///
+/// Checks extension-specific cache rules first, then falls back to the
+/// default max-age.
+pub fn get_cache_control(
+    path: &Path,
+    default_max_age: u64,
+    cache_rules: &[CacheRuleConfig],
+) -> String {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+
+    for rule in cache_rules {
+        if rule.extensions.iter().any(|e| e == ext) {
+            return rule.cache_control.clone();
+        }
+    }
+
+    format!("public, max-age={default_max_age}")
 }
 
 /// Determine MIME type from file extension.
