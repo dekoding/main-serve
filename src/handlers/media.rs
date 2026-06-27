@@ -183,9 +183,26 @@ pub(crate) async fn handle_media(
         }
     }
 
+    // Determine the base path for this endpoint (strip parameterized segments).
+    let base_path = endpoint
+        .path
+        .strip_suffix("/{id}")
+        .unwrap_or(&endpoint.path)
+        .strip_suffix("/*")
+        .unwrap_or(&endpoint.path);
+
+    // Normalize: strip trailing slash for consistent comparison.
+    let path_normalized = path.trim_end_matches('/');
+    let base_normalized = base_path.trim_end_matches('/');
+
+    let is_list_request = path_normalized.is_empty()
+        || path_normalized == "/"
+        || path_normalized == base_normalized
+        || path == format!("{}/", base_normalized);
+
     match method {
         axum::http::Method::GET => {
-            if path.is_empty() || path == "/" || path == config.table {
+            if is_list_request {
                 handle_media_list(&pool, config, &table_config, &query_params).await
             } else {
                 match extract_media_id(&path) {
@@ -264,7 +281,7 @@ async fn handle_media_list(
     let page = query_params
         .get("page")
         .and_then(|v| v.parse::<u64>().ok())
-        .unwrap_or(config.pagination.default_page_size);
+        .unwrap_or(1);
 
     let page_size = query_params
         .get("page_size")
@@ -297,7 +314,7 @@ async fn handle_media_list(
         filters,
     };
 
-    let built = build_select_list(
+      let built = build_select_list(
         table_config,
         &crate::config::types::CrudConfig::default(),
         &qp,
@@ -306,7 +323,7 @@ async fn handle_media_list(
     )?;
     let rows = pool.fetch_all_json(&built.sql, &built.params).await?;
 
-    let count_built = build_select_list_count(&config.table, driver, &qp)?;
+    let count_built = build_select_list_count(&config.table, driver, &qp, &crate::config::types::CrudConfig::default(), &RequestContext::default())?;
     let count_row = pool
         .fetch_optional_json(&count_built.sql, &count_built.params)
         .await?;
@@ -626,15 +643,17 @@ async fn handle_media_upload(
         .map(|ext: &str| ext.to_lowercase())
         .unwrap_or_default();
 
-    if !upload_config.allowed_extensions.is_empty()
-        && !upload_config
+    if !upload_config.allowed_extensions.is_empty() {
+        let normalized: Vec<String> = upload_config
             .allowed_extensions
             .iter()
-            .any(|ext| ext == &file_extension)
-    {
-        return Err(AppError::BadRequest(format!(
-            "File extension .{file_extension} is not allowed"
-        )));
+            .map(|ext| ext.trim_start_matches('.').to_lowercase())
+            .collect();
+        if !normalized.contains(&file_extension) {
+            return Err(AppError::BadRequest(format!(
+                "File extension .{file_extension} is not allowed"
+            )));
+        }
     }
 
     storage
@@ -648,10 +667,53 @@ async fn handle_media_upload(
         .map_err(|e| AppError::FileOperation(format!("Failed to read file metadata: {e}")))?;
 
     let mime_type = mime_from_path(&storage_path);
-    let relative_path = storage_path.strip_prefix(&root).map_or_else(
-        |_| format!("/{sanitized_filename}"),
-        |p| format!("/{}", p.to_string_lossy()),
+
+    // Insert media record into the database
+    let (pool, table_config, driver) = get_db_context(&state, config).await?;
+
+    let file_path = storage_path.strip_prefix(&root).map_or_else(
+        |_| sanitized_filename.clone(),
+        |p| p.to_string_lossy().to_string(),
     );
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let mut insert_map = serde_json::Map::new();
+    insert_map.insert("original_name".to_string(), serde_json::Value::String(sanitized_filename.clone()));
+    insert_map.insert("mime_type".to_string(), serde_json::Value::String(mime_type.to_string()));
+    insert_map.insert("size".to_string(), serde_json::Value::Number(serde_json::Number::from(file_content.len())));
+    insert_map.insert("uploader_id".to_string(), serde_json::Value::String(user_id.to_string()));
+    insert_map.insert("file_path".to_string(), serde_json::Value::String(file_path.clone()));
+    insert_map.insert("created_at".to_string(), serde_json::Value::String(now.clone()));
+    insert_map.insert("updated_at".to_string(), serde_json::Value::String(now.clone()));
+
+    let writable_fields = table_config
+        .columns
+        .iter()
+        .map(|c| c.name.clone())
+        .collect();
+
+    let crud_config = crate::config::types::CrudConfig {
+        writable_fields,
+        ..Default::default()
+    };
+
+    let built = build_insert(
+        &table_config,
+        &crud_config,
+        &serde_json::Value::Object(insert_map),
+        driver,
+        &RequestContext::default(),
+    )?;
+
+    let returned_id = if built.sql.contains("RETURNING") {
+        let row = pool.fetch_optional_json(&built.sql, &built.params).await?;
+        row.and_then(|r| r.get("id").cloned()).and_then(|v| v.as_str().map(String::from))
+    } else {
+        pool.execute_with_params(&built.sql, &built.params).await?;
+        None
+    };
+
+    let relative_path = format!("/{file_path}");
 
     Ok((
         StatusCode::CREATED,
@@ -661,8 +723,9 @@ async fn handle_media_upload(
             "name": sanitized_filename,
             "size": file_content.len(),
             "type": mime_type,
-            "created": chrono::Utc::now().to_rfc3339(),
-            "message": "Media uploaded successfully"
+            "created": now,
+            "message": "Media uploaded successfully",
+            "id": returned_id,
         })),
     )
         .into_response())

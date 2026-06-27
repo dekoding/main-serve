@@ -17,7 +17,7 @@ use crate::config::types::EndpointConfig;
 use crate::db::query::builders::{
     build_delete, build_insert, build_select_list, build_select_one, build_update,
 };
-use crate::db::query::helpers::extract_query_params;
+use crate::db::query::helpers::{extract_query_params, build_select_list_count};
 use crate::error::AppError;
 use crate::middleware::auth::extractor::RequestContext;
 use crate::server::state::AppState;
@@ -91,7 +91,52 @@ pub async fn handle_crud(
                     return Err(e);
                 }
             };
-            Ok((StatusCode::OK, Json(serde_json::json!({ "data": rows }))).into_response())
+
+            // Build pagination metadata if pagination is configured.
+            let pagination = &crud.pagination;
+            let default_page_size = pagination.default_page_size;
+            let max_page_size = pagination.max_page_size;
+            let effective_page_size = qp
+                .page_size
+                .unwrap_or(default_page_size)
+                .min(max_page_size)
+                .max(1);
+            let page = qp.page.unwrap_or(1);
+
+            // Get total count using the same filters as the list query.
+            let count_q = build_select_list_count(
+                &table_config.name,
+                driver,
+                &qp,
+                crud,
+                &context,
+            );
+            let total = match count_q {
+                Ok(count_build) => match pool.fetch_optional_json(&count_build.sql, &count_build.params).await {
+                    Ok(Some(row)) => row.get("count").and_then(|v| v.as_u64()).unwrap_or(0),
+                    _ => 0,
+                },
+                Err(_) => 0,
+            };
+
+            let response = if pagination.enabled {
+                let total_pages = if effective_page_size > 0 {
+                    (total as u64).div_ceil(effective_page_size)
+                } else {
+                    1
+                };
+                serde_json::json!({
+                    "data": rows,
+                    "total": total,
+                    "page": page,
+                    "page_size": effective_page_size,
+                    "total_pages": total_pages,
+                })
+            } else {
+                serde_json::json!({ "data": rows })
+            };
+
+            Ok((StatusCode::OK, Json(response)).into_response())
         }
 
         // GET /resources/{id} -> get one

@@ -691,6 +691,99 @@ fn sort_tables_topologically(tables: &[TableConfig]) -> Result<Vec<TableConfig>,
     Ok(result.iter().map(|&idx| tables[idx].clone()).collect())
 }
 
+// =============================================================================
+// Media-specific column enforcement
+// =============================================================================
+
+/// Ensure media-specific columns exist on tables used by media endpoints.
+///
+/// The `file_path` column is required by the media handler for tracking
+/// the stored file location, but it is not part of the standard media
+/// presets (auto, tags, etc.). This function adds it if missing.
+///
+/// # Errors
+///
+/// Returns `AppError::Database` if the ALTER TABLE statement fails.
+pub async fn ensure_media_columns(
+    endpoints: &[crate::config::types::EndpointConfig],
+    pools: &HashMap<String, DatabasePool>,
+) -> Result<(), AppError> {
+    // Collect unique (database, table) pairs from media endpoints.
+    let mut media_tables: Vec<(String, String)> = Vec::new();
+    for endpoint in endpoints {
+        if let Some(media) = &endpoint.media {
+            let key = (media.database.clone(), media.table.clone());
+            if !media_tables.contains(&key) {
+                media_tables.push(key);
+            }
+        }
+    }
+
+    for (db_name, table_name) in &media_tables {
+        let pool = pools
+            .get(db_name)
+            .ok_or_else(|| AppError::Config(format!("Database '{}' not found", db_name)))?;
+
+        let driver = pool.driver();
+        let col_exists = match driver {
+            DatabaseDriver::Sqlite => {
+                let sql = format!(
+                    "SELECT COUNT(*) as cnt FROM pragma_table_info(\"{table_name}\") WHERE name = 'file_path'"
+                );
+                let row = pool.fetch_optional_json(&sql, &[]).await?;
+                row.and_then(|r| r.get("cnt").and_then(|v| v.as_i64()))
+                    .map(|c| c > 0)
+                    .unwrap_or(false)
+            }
+            DatabaseDriver::Postgres => {
+                let sql = format!(
+                    "SELECT COUNT(*) as cnt FROM information_schema.columns \
+                     WHERE table_name = '{table_name}' AND column_name = 'file_path'"
+                );
+                let row = pool.fetch_optional_json(&sql, &[]).await?;
+                row.and_then(|r| r.get("cnt").and_then(|v| v.as_i64()))
+                    .map(|c| c > 0)
+                    .unwrap_or(false)
+            }
+            DatabaseDriver::Mysql => {
+                let sql = format!(
+                    "SELECT COUNT(*) as cnt FROM information_schema.columns \
+                     WHERE table_name = '{table_name}' AND column_name = 'file_path'"
+                );
+                let row = pool.fetch_optional_json(&sql, &[]).await?;
+                row.and_then(|r| r.get("cnt").and_then(|v| v.as_i64()))
+                    .map(|c| c > 0)
+                    .unwrap_or(false)
+            }
+        };
+
+        if !col_exists {
+            let add_col_sql = match driver {
+                DatabaseDriver::Sqlite => {
+                    format!("ALTER TABLE \"{table_name}\" ADD COLUMN \"file_path\" TEXT")
+                }
+                DatabaseDriver::Postgres => {
+                    format!("ALTER TABLE \"{table_name}\" ADD COLUMN \"file_path\" TEXT")
+                }
+                DatabaseDriver::Mysql => {
+                    format!("ALTER TABLE `{table_name}` ADD COLUMN `file_path` TEXT")
+                }
+            };
+            tracing::info!(
+                "Adding 'file_path' column to media table '{table_name}' in database '{db_name}'"
+            );
+            tracing::debug!("DDL: {add_col_sql}");
+            pool.execute_raw(&add_col_sql).await.map_err(|e| {
+                AppError::Config(format!(
+                    "Failed to add file_path column to '{table_name}': {e}"
+                ))
+            })?;
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

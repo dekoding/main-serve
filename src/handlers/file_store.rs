@@ -196,7 +196,7 @@ async fn handle_file_store_list(
     )?;
     let rows = pool.fetch_all_json(&built.sql, &built.params).await?;
 
-    let count_built = build_select_list_count(&config.table, driver, &qp)?;
+    let count_built = build_select_list_count(&config.table, driver, &qp, &crate::config::types::CrudConfig::default(), &RequestContext::default())?;
     let count_row = pool
         .fetch_optional_json(&count_built.sql, &count_built.params)
         .await?;

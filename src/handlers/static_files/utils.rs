@@ -34,6 +34,9 @@ pub fn apply_static_headers(
 ///
 /// Checks extension-specific cache rules first, then falls back to the
 /// default max-age.
+///
+/// Cache rule extensions may include or omit the leading dot (e.g. ".js" or "js").
+/// File path extensions from `Path::extension()` do not include the dot.
 pub fn get_cache_control(
     path: &Path,
     default_max_age: u64,
@@ -42,7 +45,10 @@ pub fn get_cache_control(
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
     for rule in cache_rules {
-        if rule.extensions.iter().any(|e| e == ext) {
+        if rule.extensions.iter().any(|e| {
+            let rule_ext = e.trim_start_matches('.');
+            rule_ext == ext
+        }) {
             return rule.cache_control.clone();
         }
     }

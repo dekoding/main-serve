@@ -149,6 +149,26 @@ pub async fn handle_static_files(
     }
 
     match method {
+        Method::HEAD => {
+            // For HEAD, call GET handler then strip body
+            let resp = crate::handlers::static_files::serving::handle_static_get(
+                state,
+                StaticGetContext {
+                    config: static_config,
+                    relative: &relative,
+                    root: &root,
+                    request_path,
+                    query: query.as_ref(),
+                    headers: &headers,
+                    storage,
+                },
+            )
+            .await?;
+            let (_, body) = resp.into_parts();
+            let response = Response::new(body);
+            // Copy headers from the original response
+            Ok(response)
+        }
         Method::GET => {
             crate::handlers::static_files::serving::handle_static_get(
                 state,

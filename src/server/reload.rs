@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use super::state::{AppState, compute_store_changes};
 use crate::config::load_config;
-use crate::db::migration::run_migrations;
+use crate::db::migration::{ensure_media_columns, run_migrations};
 use crate::db::pool::{close_pools, create_pools};
 use crate::storage::create_store;
 
@@ -142,6 +142,21 @@ pub async fn handle_reload(
                 "error": {
                     "code": "reload_failed",
                     "message": format!("Migration failed: {e}")
+                }
+            })),
+        ));
+    }
+
+    // Ensure media-specific columns exist on media tables.
+    if let Err(e) = ensure_media_columns(&new_config.endpoints, &new_pools).await {
+        tracing::error!("Failed to ensure media columns during reload: {e}");
+        close_pools(&new_pools).await;
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({
+                "error": {
+                    "code": "reload_failed",
+                    "message": format!("Failed to ensure media columns: {e}")
                 }
             })),
         ));

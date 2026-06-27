@@ -10,7 +10,7 @@ use tracing_subscriber::EnvFilter;
 
 use main_serve::config::load_config;
 use main_serve::config::types::{LogFormat, RevocationStoreType};
-use main_serve::db::migration::run_migrations;
+use main_serve::db::migration::{ensure_media_columns, run_migrations};
 use main_serve::db::pool::{close_pools, create_pools};
 use main_serve::server::state::{
     DatabaseRevocationStore, InMemoryRevocationStore, RevocationStoreImpl,
@@ -243,6 +243,18 @@ async fn async_main(cli: Cli, config: main_serve::config::AppConfig, config_path
             tracing::error!("Migration failed: {e}");
             close_pools(&pools).await;
             process::exit(1);
+        }
+
+        // Ensure media-specific columns (like file_path) exist on media tables.
+        {
+            let config_ref = state.config.read().await;
+            let endpoints = config_ref.endpoints.clone();
+            drop(config_ref);
+            if let Err(e) = ensure_media_columns(&endpoints, &pools).await {
+                tracing::error!("Failed to ensure media columns: {e}");
+                close_pools(&pools).await;
+                process::exit(1);
+            }
         }
 
         // Set pools on state.

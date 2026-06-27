@@ -108,24 +108,49 @@ pub async fn serve_file(
         return Ok(resized);
     }
 
-    // Handle range requests with streaming.
+    // Handle range requests.
     if config.range_requests
         && let Some(range_header) = headers.get(header::RANGE)
         && let Ok(range_str) = range_header.to_str()
-        && let Some(streaming_config) = &config.streaming
-        && streaming_config.enabled
-        && file_size > streaming_config.threshold
     {
-        return handle_range_streaming(
-            storage,
-            path,
-            range_str,
+        // Determine streaming threshold.
+        let streaming_threshold = config
+            .streaming
+            .as_ref()
+            .and_then(|s| s.enabled.then_some(s.threshold))
+            .unwrap_or(u64::MAX);
+
+        if file_size > streaming_threshold {
+            // Use streaming for large files.
+            let streaming_config = config
+                .streaming
+                .as_ref()
+                .expect("streaming enabled when threshold < u64::MAX");
+            return handle_range_streaming(
+                storage,
+                path,
+                range_str,
+                file_size,
+                &content_type,
+                streaming_config,
+                config.cache_max_age,
+            )
+            .await;
+        }
+
+        // For small files, read full content and extract range.
+        let content = storage
+            .read(path)
+            .await
+            .map_err(|_| AppError::NotFound(format!("File not found: {}", path.display())))?;
+
+        return handle_range_small_file(
+            &content,
             file_size,
+            range_str,
             &content_type,
-            streaming_config,
             config.cache_max_age,
-        )
-        .await;
+        );
     }
 
     // Check if streaming is enabled.
@@ -429,4 +454,71 @@ pub(crate) fn is_image_path(path: &Path) -> bool {
     } else {
         false
     }
+}
+
+/// Handle range requests for small files (in-memory).
+fn handle_range_small_file(
+    content: &[u8],
+    file_size: u64,
+    range_str: &str,
+    content_type: &str,
+    cache_max_age: u64,
+) -> Result<Response, AppError> {
+    // Parse range header: "bytes=start-end" or "bytes=start-"
+    let bytes_range = range_str.strip_prefix("bytes=").ok_or_else(|| {
+        AppError::BadRequest("Invalid Range header format".to_string())
+    })?;
+
+    let (start, end) = if let Some((s, e)) = bytes_range.split_once('-') {
+        let start: u64 = s.parse().map_err(|_| {
+            AppError::BadRequest("Invalid Range header: invalid start".to_string())
+        })?;
+        let end: u64 = if e.is_empty() {
+            file_size - 1
+        } else {
+            e.parse().map_err(|_| {
+                AppError::BadRequest("Invalid Range header: invalid end".to_string())
+            })?
+        };
+        (start, end)
+    } else {
+        return Err(AppError::BadRequest(
+            "Invalid Range header format".to_string(),
+        ));
+    };
+
+    if start >= file_size {
+        return Err(AppError::RequestedRangeNotSatisfiable(format!(
+            "Range bytes={}-{} is not satisfiable for file size {file_size}",
+            start, end
+        )));
+    }
+
+    let actual_end = end.min(file_size - 1);
+    let range_size = actual_end - start + 1;
+
+    let body = content[start as usize..(actual_end + 1) as usize].to_vec();
+
+    let mut response = (StatusCode::PARTIAL_CONTENT, body).into_response();
+    response.headers_mut().insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(content_type).unwrap_or(HeaderValue::from_static("application/octet-stream")),
+    );
+    response.headers_mut().insert(
+        header::CONTENT_LENGTH,
+        HeaderValue::from_str(&range_size.to_string()).unwrap_or(HeaderValue::from_static("0")),
+    );
+    response.headers_mut().insert(
+        header::CONTENT_RANGE,
+        HeaderValue::from_str(&format!("bytes {}-{}/{}", start, actual_end, file_size))
+            .unwrap_or(HeaderValue::from_static("bytes */0")),
+    );
+
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_str(&format!("public, max-age={}", cache_max_age))
+            .unwrap_or(HeaderValue::from_static("public, max-age=0")),
+    );
+
+    Ok(response)
 }

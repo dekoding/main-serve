@@ -61,6 +61,9 @@ pub enum AppError {
 
     #[error("Parse error: {0}")]
     ParseError(String),
+
+    #[error("Requested range not satisfiable: {0}")]
+    RequestedRangeNotSatisfiable(String),
 }
 
 #[derive(Serialize)]
@@ -100,6 +103,9 @@ impl IntoResponse for AppError {
             AppError::FileOperation(_) => (StatusCode::INTERNAL_SERVER_ERROR, "file_operation"),
             AppError::Body(_) => (StatusCode::PAYLOAD_TOO_LARGE, "request_body_error"),
             AppError::ParseError(_) => (StatusCode::BAD_REQUEST, "json_parse_error"),
+            AppError::RequestedRangeNotSatisfiable(_) => {
+                (StatusCode::RANGE_NOT_SATISFIABLE, "range_not_satisfiable")
+            }
         };
 
         let body = ErrorBody {
