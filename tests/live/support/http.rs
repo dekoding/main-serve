@@ -51,6 +51,11 @@ impl LiveClient {
        &self.client
    }
 
+   /// Get a reference to the default headers.
+   pub fn default_headers(&self) -> &HeaderMap {
+       &self.default_headers
+   }
+
     /// Perform a GET request and return the response.
     pub async fn get(&self, path: &str) -> reqwest::Result<Response> {
         self.client

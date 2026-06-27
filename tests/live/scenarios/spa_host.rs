@@ -57,10 +57,10 @@ endpoints:
 
 /// Minimal SPA files to serve.
 const SPA_FILES: &[(&str, &[u8])] = &[
-    ("index.html", b"<!DOCTYPE html><html><head><title>Test SPA</title></head><body><div id=\"app\"></div><script src=\"/assets/app.js\"></script></body></html>"),
-    ("assets/app.js", b"console.log('SPA loaded');"),
-    ("assets/style.css", b"body { margin: 0; }"),
-    ("assets/logo.png", include_bytes!("../assets/logo-placeholder.png")),
+    ("index.html", b"<!DOCTYPE html><html><head><title>Test SPA</title></head><body><div id=\"app\"></div><script src=\"/app.js\"></script></body></html>"),
+    ("app.js", b"console.log('SPA loaded');"),
+    ("style.css", b"body { margin: 0; }"),
+    ("logo.png", include_bytes!("../assets/logo-placeholder.png")),
 ];
 
 #[tokio::test]
@@ -73,7 +73,7 @@ async fn test_spa_index_served() {
 
     let content_type = resp.headers().get("content-type")
         .and_then(|v| v.to_str().ok());
-    assert!(content_type.map_or(false, |ct| ct.contains("text/html")));
+    assert!(content_type.is_some_and(|ct| ct.contains("text/html")));
 
     let body = resp.text().await.expect("read body");
     assert!(body.contains("<title>Test SPA</title>"));
@@ -110,7 +110,7 @@ async fn test_static_asset_with_cache_headers() {
     // Should have aggressive cache header (immutable, 1 year)
     let cache_control = resp.headers().get("cache-control")
         .and_then(|v| v.to_str().ok());
-    assert!(cache_control.map_or(false, |cc| cc.contains("immutable")));
+    assert!(cache_control.is_some_and(|cc| cc.contains("immutable")));
 
     server.shutdown().await.expect("server shutdown");
     let _ = temp_dir;
@@ -127,7 +127,7 @@ async fn test_html_no_cache() {
     // CSS gets immutable cache
     let cache_control = resp.headers().get("cache-control")
         .and_then(|v| v.to_str().ok());
-    assert!(cache_control.map_or(false, |cc| cc.contains("immutable")));
+    assert!(cache_control.is_some_and(|cc| cc.contains("immutable")));
 
     server.shutdown().await.expect("server shutdown");
     let _ = temp_dir;

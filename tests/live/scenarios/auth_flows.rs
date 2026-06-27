@@ -81,7 +81,7 @@ auth:
     realm: "Admin Panel"
     users:
       - username: "admin"
-        password_hash: "$2b$12$dummyhashchangeme"
+        password_hash: "$argon2id$v=19$m=19456,t=2,p=1$dGVzdHNhbHQxMjM0NTY3OA$j8m9zaHJrmzBD2Ce/1dbliH5M0gBUF8J4WlNmdYrKIo"
         role: "admin"
 
   register:
@@ -279,7 +279,7 @@ async fn test_basic_auth() {
     // Check WWW-Authenticate header
     let www_auth = resp.headers().get("www-authenticate")
         .and_then(|v| v.to_str().ok());
-    assert!(www_auth.map_or(false, |w| w.contains("Basic")));
+    assert!(www_auth.is_some_and(|w| w.contains("Basic")));
 
     client.assert_status(&resp, StatusCode::UNAUTHORIZED).await;
 
@@ -330,10 +330,13 @@ async fn test_cors_headers() {
 /// Create a mock JWT token with the given subject and role.
 ///
 /// This is a simplified JWT creation for testing purposes. The token is
-/// signed with the same secret used in the auth config.
+/// signed with the same secret used in the auth config using HMAC-SHA256.
 fn create_mock_jwt(sub: &str, role: &str) -> String {
     use base64::engine::Engine as _;
-    use sha2::{Digest, Sha256};
+    use hmac::{Hmac, KeyInit, Mac};
+    use sha2::Sha256;
+
+    type HmacSha256 = Hmac<Sha256>;
 
     // Minimal JWT structure: header.payload.signature
     // header: {"alg": "HS256", "typ": "JWT"}
@@ -344,24 +347,24 @@ fn create_mock_jwt(sub: &str, role: &str) -> String {
         })).unwrap()
     );
 
-    // payload: {"sub": "user-42", "role": "user", "iat": 1700000000, "exp": 1700003600}
+    // payload: {"sub": "user-42", "role": "user", "iss": "main-serve", "iat": now, "exp": now + 3600}
+    let now = 1800000000u64;
     let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(
         serde_json::to_string(&json!({
             "sub": sub,
             "role": role,
-            "iat": 1700000000,
-            "exp": 1700003600
+            "iss": "main-serve",
+            "iat": now,
+            "exp": now + 3600
         })).unwrap()
     );
 
-    // Signature: HS256(header.payload, secret)
-    // For live tests, we just create a deterministic signature that looks like a JWT
+    // Signature: HMAC-SHA256(header.payload, secret) - proper HS256
     let signing_input = format!("{}.{}", header, payload);
-    let mut hasher = Sha256::new();
-    hasher.update(signing_input.as_bytes());
     let secret = "test-jwt-secret-key-32ch-long";
-    hasher.update(secret.as_bytes());
-    let signature = hasher.finalize();
+    let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).unwrap();
+    mac.update(signing_input.as_bytes());
+    let signature = mac.finalize().into_bytes();
     let sig = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(signature);
 
     format!("{}.{}.{}", header, payload, sig)

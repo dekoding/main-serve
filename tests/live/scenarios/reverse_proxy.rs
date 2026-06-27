@@ -11,7 +11,7 @@
 
 use crate::support::BinaryHandle;
 use axum::Router;
-use axum::routing::{get, post};
+use axum::routing::{get, any};
 use axum::Json;
 use reqwest::StatusCode;
 use std::net::SocketAddr;
@@ -77,8 +77,8 @@ impl MockUpstream {
             )
         .route(
                   "/v2/echo",
-                  post(|req: axum::http::Request<axum::body::Body>| async move {
-                      use axum::body::Body;
+                  any(|req: axum::http::Request<axum::body::Body>| async move {
+                      
                       use http_body_util::BodyExt;
                       let method = req.method().to_string();
                       let headers = req.headers().clone();
@@ -261,7 +261,7 @@ async fn test_proxy_preserves_body() {
 
     let body = resp.json::<serde_json::Value>().await.expect("parse response");
     let forwarded_body = body.get("body").and_then(|v| v.as_str());
-    assert!(forwarded_body.map_or(false, |b| b.contains("\"key\":\"value\"")));
+    assert!(forwarded_body.is_some_and(|b| b.contains("\"key\":\"value\"")));
 
     server.shutdown().await.expect("server shutdown");
 }

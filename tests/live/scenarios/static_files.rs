@@ -90,13 +90,13 @@ async fn test_directory_listing() {
     let (server, temp_dir) = setup_static_server().await;
     let client = server.client();
 
-    let resp = client.get("/files/").await.expect("GET /files/");
+    // Use a subdirectory that has no index file to trigger directory listing
+    let resp = client.get("/files/images/").await.expect("GET /files/images/");
     client.assert_status(&resp, StatusCode::OK).await;
 
     let body = resp.text().await.expect("read body");
-    // Directory listing should show the files
-    assert!(body.contains("index.html"));
-    assert!(body.contains("readme.txt") || body.contains("photo.png") || body.contains("sample.mp4"));
+    // Directory listing should show the files in this directory
+    assert!(body.contains("photo.png"));
 
     server.shutdown().await.expect("server shutdown");
     let _ = temp_dir;
@@ -135,7 +135,7 @@ async fn test_range_request() {
 
     let content_range = resp.headers().get("content-range")
         .and_then(|v| v.to_str().ok());
-    assert!(content_range.map_or(false, |cr| cr.starts_with("bytes 0-9/")));
+    assert!(content_range.is_some_and(|cr| cr.starts_with("bytes 0-9/")));
 
     server.shutdown().await.expect("server shutdown");
     let _ = temp_dir;
@@ -150,13 +150,13 @@ async fn test_cache_headers_by_extension() {
     let resp = client.get("/files/index.html").await.expect("GET HTML");
     let cc = resp.headers().get("cache-control")
         .and_then(|v| v.to_str().ok());
-    assert!(cc.map_or(false, |c| c.contains("no-cache")));
+    assert!(cc.is_some_and(|c| c.contains("no-cache")));
 
     // PNG should be immutable
     let resp = client.get("/files/images/photo.png").await.expect("GET PNG");
     let cc = resp.headers().get("cache-control")
         .and_then(|v| v.to_str().ok());
-    assert!(cc.map_or(false, |c| c.contains("immutable")));
+    assert!(cc.is_some_and(|c| c.contains("immutable")));
 
     server.shutdown().await.expect("server shutdown");
     let _ = temp_dir;
@@ -164,7 +164,7 @@ async fn test_cache_headers_by_extension() {
 
 #[tokio::test]
 async fn test_head_request() {
-    let (server, temp_dir) = setup_static_server().await;
+    let (server, _temp_dir) = setup_static_server().await;
     let client = server.client();
 
     let resp = client.head("/files/docs/readme.txt").await.expect("HEAD");

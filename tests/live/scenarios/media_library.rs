@@ -101,7 +101,7 @@ endpoints:
     methods: ["get", "post"]
     action: "media"
     auth: "jwt"
-    roles: ["admin", "editor", "author"]
+    roles: ["admin", "editor", "author", "user"]
     media:
       storage: "media_storage"
       table: "media_items"
@@ -160,27 +160,12 @@ endpoints:
     methods: ["get", "patch", "delete"]
     action: "media"
     auth: "jwt"
-    roles: ["admin", "editor", "author"]
+    roles: ["admin", "editor", "author", "user"]
     media:
       storage: "media_storage"
       table: "media_items"
       database: "main"
 
-  - path: "/register"
-    methods: ["post"]
-    action: "custom_response"
-    custom_response:
-      status: 200
-      content_type: "application/json"
-      body: '{"ok": true}'
-
-  - path: "/auth/login"
-    methods: ["post"]
-    action: "custom_response"
-    custom_response:
-      status: 200
-      content_type: "application/json"
-      body: '{"token": "test-token"}'
 "#;
 
 /// Minimal PNG bytes for upload tests (1x1 white pixel).
@@ -249,7 +234,7 @@ async fn test_media_upload() {
 
     // Register and login
     client
-        .post_json("/register", &serde_json::json!({
+        .post_json("/_main-serve/register", &serde_json::json!({
             "email": "uploader@example.com",
             "password": "uploadpass123"
         }))
@@ -259,7 +244,7 @@ async fn test_media_upload() {
         .ok();
 
     let login_resp = client
-        .post_json("/auth/login", &serde_json::json!({
+        .post_json("/_main-serve/login", &serde_json::json!({
             "email": "uploader@example.com",
             "password": "uploadpass123"
         }))
@@ -277,6 +262,7 @@ async fn test_media_upload() {
     let resp = authed
         .client()
         .post(authed.url("/media"))
+        .headers(authed.default_headers().clone())
         .multipart(
             reqwest::multipart::Form::new()
                 .part(
@@ -290,7 +276,7 @@ async fn test_media_upload() {
         .await
         .expect("upload");
 
-    assert!(resp.status() == StatusCode::CREATED || resp.status() == StatusCode::OK);
+    assert!(resp.status() == StatusCode::CREATED || resp.status() == StatusCode::OK, "upload status: {}", resp.status());
 
     server.shutdown().await.expect("server shutdown");
     let _ = temp_dir;
@@ -309,6 +295,7 @@ async fn test_media_list() {
     // Upload two images
     authed.client()
         .post(authed.url("/media"))
+        .headers(authed.default_headers().clone())
         .multipart(
             reqwest::multipart::Form::new()
                 .part("file", reqwest::multipart::Part::bytes(MINIMAL_PNG.to_vec())
@@ -322,6 +309,7 @@ async fn test_media_list() {
 
     authed.client()
         .post(authed.url("/media"))
+        .headers(authed.default_headers().clone())
         .multipart(
             reqwest::multipart::Form::new()
                 .part("file", reqwest::multipart::Part::bytes(MINIMAL_JPEG.to_vec())
@@ -339,10 +327,12 @@ async fn test_media_list() {
         .await
         .expect("list media");
 
-    let results = resp.get("results").or_else(|| resp.get("data"))
-        .and_then(|v| v.as_array());
+    eprintln!("Media list response keys: {:?}", resp.get("data").map(|_| "data").or_else(|| resp.get("results").map(|_| "results")).or_else(|| { eprintln!("Full response: {:#?}", serde_json::to_string(&resp).ok()); None }));
+    let results = resp.get("results").or_else(|| resp.get("data")).and_then(|v| v.as_array());
 
-    assert!(results.is_some(), "response should have results array");
+    assert!(results.is_some(), "should have results. Full response: {:#?}", serde_json::to_string(&resp).ok());
+
+    assert!(results.is_some(), "response should have results array. Full response: {:#?}", serde_json::to_string(&resp).ok());
     let results = results.unwrap();
     assert_eq!(results.len(), 2);
 
@@ -362,6 +352,7 @@ async fn test_media_filtering() {
     // Upload a PNG
     authed.client()
         .post(authed.url("/media"))
+        .headers(authed.default_headers().clone())
         .multipart(
             reqwest::multipart::Form::new()
                 .part("file", reqwest::multipart::Part::bytes(MINIMAL_PNG.to_vec())
@@ -379,8 +370,9 @@ async fn test_media_filtering() {
         .await
         .expect("filter by mime");
 
-    let results = resp.get("results").or_else(|| resp.get("data"))
-        .and_then(|v| v.as_array());
+    let results = resp.get("results").or_else(|| resp.get("data")).and_then(|v| v.as_array());
+
+    assert!(results.is_some(), "should have results. Full response: {:#?}", serde_json::to_string(&resp).ok());
 
     assert!(results.is_some(), "should have results");
     let results = results.unwrap();
@@ -403,6 +395,7 @@ async fn test_media_image_resize() {
     let upload_resp = authed
         .client()
         .post(authed.url("/media"))
+        .headers(authed.default_headers().clone())
         .multipart(
             reqwest::multipart::Form::new()
                 .part("file", reqwest::multipart::Part::bytes(MINIMAL_PNG.to_vec())
@@ -445,9 +438,9 @@ async fn test_unauthorized_media_access() {
     let _ = temp_dir;
 }
 
-async fn register_and_login(client: &LiveClient, server: &BinaryHandle) -> String {
+async fn register_and_login(client: &LiveClient, _server: &BinaryHandle) -> String {
     client
-        .post_json("/register", &serde_json::json!({
+        .post_json("/_main-serve/register", &serde_json::json!({
             "email": "test@example.com",
             "password": "testpass123"
         }))
@@ -457,7 +450,7 @@ async fn register_and_login(client: &LiveClient, server: &BinaryHandle) -> Strin
         .ok();
 
 let login_resp = client
-         .post_json("/auth/login", &serde_json::json!({
+         .post_json("/_main-serve/login", &serde_json::json!({
              "email": "test@example.com",
              "password": "testpass123"
          }))
@@ -475,11 +468,14 @@ async fn setup_media_server() -> (BinaryHandle, tempfile::TempDir) {
     let temp_dir = TempDir::new().expect("create temp dir");
     let media_dir = temp_dir.path().join("media");
     std::fs::create_dir_all(&media_dir).expect("create media dir");
+    let db_path = temp_dir.path().join("media.db");
 
-    let config = MEDIA_CONFIG.replace(
-        "./media",
-        media_dir.to_str().unwrap(),
-    );
+    let config = MEDIA_CONFIG
+        .replace("./media", media_dir.to_str().unwrap())
+        .replace(
+            "sqlite://media.db?mode=rwc",
+            &format!("sqlite://{}?mode=rwc", db_path.display()),
+        );
 
     let server = BinaryHandle::spawn(&config, None).await.expect("spawn server");
     (server, temp_dir)

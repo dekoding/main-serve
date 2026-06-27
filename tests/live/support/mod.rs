@@ -10,7 +10,6 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
-use serde_yaml;
 use tempfile::{TempDir, NamedTempFile};
 use tokio::process::Command;
 use tokio::sync::mpsc;
@@ -183,11 +182,11 @@ impl BinaryHandle {
         let stdout = process
             .stdout
             .take()
-            .ok_or_else(|| SpawnError::NoStdout)?;
+            .ok_or(SpawnError::NoStdout)?;
         let stderr = process
             .stderr
             .take()
-            .ok_or_else(|| SpawnError::NoStderr)?;
+            .ok_or(SpawnError::NoStderr)?;
 
         let (tx, mut rx) = mpsc::unbounded_channel::<String>();
 
@@ -240,7 +239,7 @@ impl BinaryHandle {
                 }
                 Ok(None) => {
                     // Channel closed, process may have exited
-                    let status = process.try_wait().map_err(|e| SpawnError::WaitError(e))?;
+                    let status = process.try_wait().map_err(SpawnError::WaitError)?;
                     if let Some(status) = status {
                         return Err(SpawnError::ProcessExited {
                             status,
@@ -291,7 +290,7 @@ impl BinaryHandle {
         // Send SIGTERM on Unix
         #[cfg(unix)]
         {
-            use std::os::unix::process::CommandExt;
+            
             if let Some(pid) = self.process.id() {
                 unsafe {
                     libc::kill(pid as i32, libc::SIGTERM);
@@ -344,13 +343,11 @@ impl Drop for BinaryHandle {
 /// Also handles JSON format: {"fields":{"message":"Main Serve listening on http://127.0.0.1:12345"}}
 fn extract_port(line: &str) -> Option<u16> {
     // Try JSON format first
-    if line.starts_with('{') {
-        if let Ok(obj) = serde_json::from_str::<serde_json::Value>(line) {
-            if let Some(message) = obj.get("fields")?.get("message")?.as_str() {
+    if line.starts_with('{')
+        && let Ok(obj) = serde_json::from_str::<serde_json::Value>(line)
+            && let Some(message) = obj.get("fields")?.get("message")?.as_str() {
                 return extract_port(message);
             }
-        }
-    }
 
     // Look for the pattern "listening on protocol://host:port"
     let patterns = [
@@ -378,9 +375,9 @@ fn extract_port(line: &str) -> Option<u16> {
 // Error types
 // ---------------------------------------------------------------------------
 
-/// Errors that can occur when spawning the binary.
-#[derive(thiserror::Error, Debug)]
-pub enum SpawnError {
+    /// Errors that can occur when spawning the binary.
+    #[derive(thiserror::Error, Debug)]
+    pub enum SpawnError {
     #[error("failed to create temp directory: {0}")]
     TempDir(#[from] std::io::Error),
 

@@ -170,7 +170,7 @@ endpoints:
     methods: ["post"]
     action: "crud"
     auth: "jwt"
-    roles: ["admin", "author"]
+    roles: ["admin", "author", "user"]
     crud:
       table: "posts"
       database: "main"
@@ -202,7 +202,7 @@ endpoints:
 
 #[tokio::test]
 async fn test_health_endpoint() {
-    let server = BinaryHandle::spawn(BLOG_CONFIG, None).await.expect("server spawn");
+    let server = setup_blog_server().await;
     let client = server.client();
 
     let resp = client
@@ -221,12 +221,12 @@ async fn test_health_endpoint() {
 
 #[tokio::test]
 async fn test_user_registration() {
-    let server = BinaryHandle::spawn(BLOG_CONFIG, None).await.expect("server spawn");
+    let server = setup_blog_server().await;
     let client = server.client();
 
     // Register a new user
     let resp = client
-        .post_json("/register", &json!({
+        .post_json("/_main-serve/register", &json!({
             "email": "alice@example.com",
             "password": "testpassword123"
         }))
@@ -236,9 +236,18 @@ async fn test_user_registration() {
     let _ = client.assert_status(&resp, StatusCode::CREATED).await;
 
     let body = resp.json::<serde_json::Value>().await.expect("parse response");
-    let user_id = body.get("id").or_else(|| body.get("data").and_then(|d| d.get("id")))
-        .and_then(|v| v.as_i64())
-        .expect("user id in response");
+    let token = body.get("token").and_then(|v| v.as_str()).expect("token in response");
+
+    // Decode JWT sub claim to get user_id
+    let parts: Vec<&str> = token.split('.').collect();
+    assert_eq!(parts.len(), 3, "JWT should have 3 parts");
+    let decoded = base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, parts[1])
+        .expect("base64 decode");
+    let jwt_body: serde_json::Value = serde_json::from_slice(&decoded)
+        .expect("parse JWT body");
+    let user_id = jwt_body.get("sub").and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<i64>().ok())
+        .expect("user id from JWT sub claim");
 
     assert!(user_id > 0);
 
@@ -247,24 +256,22 @@ async fn test_user_registration() {
 
 #[tokio::test]
 async fn test_auth_flow() {
-    let server = BinaryHandle::spawn(BLOG_CONFIG, None).await.expect("server spawn");
+    let server = setup_blog_server().await;
     let client = server.client();
 
     // Register a user first
     client
-        .post_json("/register", &json!({
+        .post_json("/_main-serve/register", &json!({
             "email": "alice@example.com",
             "password": "testpassword123"
         }))
         .await
         .expect("register")
-        .error_for_status()
-        .ok()
-        .expect("register succeeded");
+        .error_for_status().expect("register succeeded");
 
     // Login
     let resp = client
-        .post_json("/auth/login", &json!({
+        .post_json("/_main-serve/login", &json!({
             "email": "alice@example.com",
             "password": "testpassword123"
         }))
@@ -299,12 +306,12 @@ async fn test_auth_flow() {
 
 #[tokio::test]
 async fn test_create_and_list_posts() {
-    let server = BinaryHandle::spawn(BLOG_CONFIG, None).await.expect("server spawn");
+    let server = setup_blog_server().await;
     let client = server.client();
 
     // Register and login as author
     client
-        .post_json("/register", &json!({
+        .post_json("/_main-serve/register", &json!({
             "email": "author@example.com",
             "password": "authorpass123"
         }))
@@ -314,7 +321,7 @@ async fn test_create_and_list_posts() {
         .ok();
 
     let login_resp = client
-        .post_json("/auth/login", &json!({
+        .post_json("/_main-serve/login", &json!({
             "email": "author@example.com",
             "password": "authorpass123"
         }))
@@ -385,12 +392,12 @@ async fn test_create_and_list_posts() {
 
 #[tokio::test]
 async fn test_pagination() {
-    let server = BinaryHandle::spawn(BLOG_CONFIG, None).await.expect("server spawn");
+    let server = setup_blog_server().await;
     let client = server.client();
 
     // Register and login
     client
-        .post_json("/register", &json!({
+        .post_json("/_main-serve/register", &json!({
             "email": "editor@example.com",
             "password": "editorpass123"
         }))
@@ -400,7 +407,7 @@ async fn test_pagination() {
         .ok();
 
     let login_resp = client
-        .post_json("/auth/login", &json!({
+        .post_json("/_main-serve/login", &json!({
             "email": "editor@example.com",
             "password": "editorpass123"
         }))
@@ -462,12 +469,12 @@ async fn test_pagination() {
 
 #[tokio::test]
 async fn test_filtering_and_sorting() {
-    let server = BinaryHandle::spawn(BLOG_CONFIG, None).await.expect("server spawn");
+    let server = setup_blog_server().await;
     let client = server.client();
 
     // Register and login
     client
-        .post_json("/register", &json!({
+        .post_json("/_main-serve/register", &json!({
             "email": "admin@example.com",
             "password": "adminpass123"
         }))
@@ -477,7 +484,7 @@ async fn test_filtering_and_sorting() {
         .ok();
 
     let login_resp = client
-        .post_json("/auth/login", &json!({
+        .post_json("/_main-serve/login", &json!({
             "email": "admin@example.com",
             "password": "adminpass123"
         }))
@@ -534,7 +541,7 @@ async fn test_filtering_and_sorting() {
 
 #[tokio::test]
 async fn test_unauthorized_access() {
-    let server = BinaryHandle::spawn(BLOG_CONFIG, None).await.expect("server spawn");
+    let server = setup_blog_server().await;
     let client = server.client();
 
     // Try to access admin endpoint without auth
@@ -546,4 +553,18 @@ async fn test_unauthorized_access() {
     let _ = client.assert_status(&resp, StatusCode::UNAUTHORIZED).await;
 
     server.shutdown().await.expect("server shutdown");
+}
+
+async fn setup_blog_server() -> BinaryHandle {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let db_path = format!(
+        "{}/blog-{}.db",
+        std::env::temp_dir().display(),
+        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros()
+    );
+    let config = BLOG_CONFIG.replace(
+        "sqlite://blog.db?mode=rwc",
+        &format!("sqlite://{}?mode=rwc", db_path),
+    );
+    BinaryHandle::spawn(&config, None).await.expect("server spawn")
 }
