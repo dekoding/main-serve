@@ -5,6 +5,13 @@
 /// fields, and WHERE conditions.
 use std::collections::HashMap;
 use std::fmt::Write;
+use std::sync::LazyLock;
+
+use regex::Regex;
+
+/// Compiled regex for interpolating `${key}` patterns in where clauses.
+static INTERPOLATION_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\$\{([^}]+)\}").expect("valid interpolation regex"));
 
 use crate::config::types::{ColumnType, CrudConfig, DatabaseDriver, SortOrder, TableConfig};
 use crate::db::query::helpers::{
@@ -134,9 +141,7 @@ impl SelectBuilder {
         wc: &str,
         context: &RequestContext,
     ) -> Result<String, AppError> {
-        use regex::Regex;
-        let re = Regex::new(r"\$\{([^}]+)\}")
-            .map_err(|e| AppError::Internal(format!("Invalid interpolation regex: {e}")))?;
+        let re = &*INTERPOLATION_RE;
         let mut last_match_end = 0;
         let mut new_string = String::new();
 

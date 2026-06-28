@@ -554,6 +554,8 @@ mod tests {
 
     fn make_storage() -> S3Storage {
         let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .enable_io()
             .build()
             .unwrap();
         let config = rt.block_on(aws_config::load_from_env());

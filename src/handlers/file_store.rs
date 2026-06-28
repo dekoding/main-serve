@@ -6,6 +6,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
 use crate::config::types::{DatabaseDriver, EndpointConfig, FileStoreConfig};
+use crate::db::migration::quote_object_name;
 use crate::db::query::builders::{
     build_delete, build_insert, build_select_list, build_select_one, build_update,
 };
@@ -138,6 +139,7 @@ pub async fn handle_file_store(
                     &*storage,
                     endpoint,
                     &pool,
+                    driver,
                     &table_config,
                     &headers,
                     &query_params,
@@ -196,7 +198,13 @@ async fn handle_file_store_list(
     )?;
     let rows = pool.fetch_all_json(&built.sql, &built.params).await?;
 
-    let count_built = build_select_list_count(&config.table, driver, &qp, &crate::config::types::CrudConfig::default(), &RequestContext::default())?;
+    let count_built = build_select_list_count(
+        &config.table,
+        driver,
+        &qp,
+        &crate::config::types::CrudConfig::default(),
+        &RequestContext::default(),
+    )?;
     let count_row = pool
         .fetch_optional_json(&count_built.sql, &count_built.params)
         .await?;
@@ -356,7 +364,8 @@ async fn handle_file_store_update(
 ) -> Result<Response, AppError> {
     // Check ownership for non-admin users before update.
     if config.ownership.as_ref().is_some_and(|o| !o.admin_override) {
-        check_file_store_ownership(state, config, id, endpoint, headers, query_params).await?;
+        check_file_store_ownership(state, config, id, endpoint, headers, query_params, driver)
+            .await?;
     }
 
     let pool = {
@@ -417,6 +426,7 @@ async fn handle_file_store_delete(
     storage: &dyn Storage,
     endpoint: &EndpointConfig,
     pool: &crate::db::pool::DatabasePool,
+    driver: DatabaseDriver,
     table_config: &crate::config::types::TableConfig,
     headers: &axum::http::HeaderMap,
     query_params: &HashMap<String, String>,
@@ -426,11 +436,15 @@ async fn handle_file_store_delete(
     if trash_enabled {
         // Check ownership
         if config.ownership.as_ref().is_some_and(|o| !o.admin_override) {
-            check_file_store_ownership(state, config, id, endpoint, headers, query_params).await?;
+            check_file_store_ownership(state, config, id, endpoint, headers, query_params, driver)
+                .await?;
         }
 
         // Move file to trash if file_path column exists
-        let path_check = format!("SELECT file_path FROM {} WHERE id = $1", config.table);
+        let path_check = format!(
+            "SELECT file_path FROM {} WHERE id = $1",
+            quote_object_name(&config.table, driver)
+        );
         let row = pool.fetch_optional_json(&path_check, &[id.into()]).await?;
         if let Some(row) = row {
             if let Some(file_path) = row.get("file_path").and_then(|v| v.as_str()) {
@@ -455,7 +469,7 @@ async fn handle_file_store_delete(
 
         let update_sql = format!(
             "UPDATE {} SET deleted_at = NOW() WHERE id = $1",
-            config.table
+            quote_object_name(&config.table, driver)
         );
         let rows_affected = pool.execute_with_params(&update_sql, &[id.into()]).await?;
 
@@ -478,11 +492,15 @@ async fn handle_file_store_delete(
     } else {
         // Permanent delete
         if config.ownership.as_ref().is_some_and(|o| !o.admin_override) {
-            check_file_store_ownership(state, config, id, endpoint, headers, query_params).await?;
+            check_file_store_ownership(state, config, id, endpoint, headers, query_params, driver)
+                .await?;
         }
 
         // Delete file from storage
-        let path_check = format!("SELECT file_path FROM {} WHERE id = $1", config.table);
+        let path_check = format!(
+            "SELECT file_path FROM {} WHERE id = $1",
+            quote_object_name(&config.table, driver)
+        );
         let row = pool.fetch_optional_json(&path_check, &[id.into()]).await?;
         if let Some(row) = row {
             if let Some(file_path) = row.get("file_path").and_then(|v| v.as_str()) {
@@ -529,6 +547,7 @@ async fn check_file_store_ownership(
     endpoint: &EndpointConfig,
     headers: &axum::http::HeaderMap,
     query_params: &HashMap<String, String>,
+    driver: DatabaseDriver,
 ) -> Result<(), AppError> {
     let user_id = extract_user_id(state, endpoint, headers, query_params).await?;
     let pool = {
@@ -541,7 +560,10 @@ async fn check_file_store_ownership(
             .clone()
     };
 
-    let owner_check = format!("SELECT owner_id FROM {} WHERE id = $1", config.table);
+    let owner_check = format!(
+        "SELECT owner_id FROM {} WHERE id = $1",
+        quote_object_name(&config.table, driver)
+    );
     let row = pool.fetch_optional_json(&owner_check, &[id.into()]).await?;
 
     if let Some(row) = row {

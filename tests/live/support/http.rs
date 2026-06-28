@@ -3,7 +3,7 @@
 //! Wraps [`reqwest::Client`] with a base URL and common helper methods
 //! for JSON requests, authentication, and multipart uploads.
 
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue, AUTHORIZATION, CONTENT_TYPE};
+use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue};
 use reqwest::{Response, StatusCode};
 
 /// HTTP client configured for a specific Main Serve instance.
@@ -46,15 +46,15 @@ impl LiveClient {
         format!("{}{}", self.base_url, path)
     }
 
-   /// Get a reference to the underlying reqwest client.
-   pub fn client(&self) -> &reqwest::Client {
-       &self.client
-   }
+    /// Get a reference to the underlying reqwest client.
+    pub fn client(&self) -> &reqwest::Client {
+        &self.client
+    }
 
-   /// Get a reference to the default headers.
-   pub fn default_headers(&self) -> &HeaderMap {
-       &self.default_headers
-   }
+    /// Get a reference to the default headers.
+    pub fn default_headers(&self) -> &HeaderMap {
+        &self.default_headers
+    }
 
     /// Perform a GET request and return the response.
     pub async fn get(&self, path: &str) -> reqwest::Result<Response> {

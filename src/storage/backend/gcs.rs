@@ -19,12 +19,21 @@ const GCS_API_URL: &str = "https://storage.googleapis.com/storage/v1";
 const OAUTH2_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 
 /// Service account credentials parsed from JSON.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Deserialize)]
 struct ServiceAccountCredentials {
     /// The client email address.
     client_email: String,
     /// The RSA private key in PKCS#8 PEM format.
     private_key: String,
+}
+
+impl std::fmt::Debug for ServiceAccountCredentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ServiceAccountCredentials")
+            .field("client_email", &self.client_email)
+            .field("private_key", &"[REDACTED]")
+            .finish()
+    }
 }
 
 /// Cached OAuth2 access token.

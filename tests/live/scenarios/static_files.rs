@@ -64,8 +64,14 @@ endpoints:
 
 /// Files to serve.
 const TEST_FILES: &[(&str, &[u8])] = &[
-    ("index.html", b"<!DOCTYPE html><html><body>Root</body></html>"),
-    ("docs/readme.txt", b"This is a readme file for directory listing."),
+    (
+        "index.html",
+        b"<!DOCTYPE html><html><body>Root</body></html>",
+    ),
+    (
+        "docs/readme.txt",
+        b"This is a readme file for directory listing.",
+    ),
     ("images/photo.png", b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"),
     ("videos/sample.mp4", b"\x00\x00\x00\x1cftypmp42"),
 ];
@@ -75,7 +81,10 @@ async fn test_serve_file() {
     let (server, temp_dir) = setup_static_server().await;
     let client = server.client();
 
-    let resp = client.get("/files/index.html").await.expect("GET /files/index.html");
+    let resp = client
+        .get("/files/index.html")
+        .await
+        .expect("GET /files/index.html");
     client.assert_status(&resp, StatusCode::OK).await;
 
     let body = resp.text().await.expect("read body");
@@ -91,7 +100,10 @@ async fn test_directory_listing() {
     let client = server.client();
 
     // Use a subdirectory that has no index file to trigger directory listing
-    let resp = client.get("/files/images/").await.expect("GET /files/images/");
+    let resp = client
+        .get("/files/images/")
+        .await
+        .expect("GET /files/images/");
     client.assert_status(&resp, StatusCode::OK).await;
 
     let body = resp.text().await.expect("read body");
@@ -131,9 +143,13 @@ async fn test_range_request() {
         .await
         .expect("range request");
 
-    client.assert_status(&resp, StatusCode::PARTIAL_CONTENT).await;
+    client
+        .assert_status(&resp, StatusCode::PARTIAL_CONTENT)
+        .await;
 
-    let content_range = resp.headers().get("content-range")
+    let content_range = resp
+        .headers()
+        .get("content-range")
         .and_then(|v| v.to_str().ok());
     assert!(content_range.is_some_and(|cr| cr.starts_with("bytes 0-9/")));
 
@@ -148,13 +164,20 @@ async fn test_cache_headers_by_extension() {
 
     // HTML should have no-cache
     let resp = client.get("/files/index.html").await.expect("GET HTML");
-    let cc = resp.headers().get("cache-control")
+    let cc = resp
+        .headers()
+        .get("cache-control")
         .and_then(|v| v.to_str().ok());
     assert!(cc.is_some_and(|c| c.contains("no-cache")));
 
     // PNG should be immutable
-    let resp = client.get("/files/images/photo.png").await.expect("GET PNG");
-    let cc = resp.headers().get("cache-control")
+    let resp = client
+        .get("/files/images/photo.png")
+        .await
+        .expect("GET PNG");
+    let cc = resp
+        .headers()
+        .get("cache-control")
         .and_then(|v| v.to_str().ok());
     assert!(cc.is_some_and(|c| c.contains("immutable")));
 
@@ -176,7 +199,10 @@ async fn test_404_for_missing_file() {
     let (server, temp_dir) = setup_static_server().await;
     let client = server.client();
 
-    let resp = client.get("/files/does-not-exist.txt").await.expect("GET missing");
+    let resp = client
+        .get("/files/does-not-exist.txt")
+        .await
+        .expect("GET missing");
     client.assert_status(&resp, StatusCode::NOT_FOUND).await;
 
     server.shutdown().await.expect("server shutdown");
@@ -193,11 +219,14 @@ async fn test_file_upload() {
         .client()
         .post(client.url("/upload"))
         .multipart(
-            reqwest::multipart::Form::new()
-                .part("file", reqwest::multipart::Part::bytes(vec![
-                    0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-                    0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
-                ]).file_name("test.png"))
+            reqwest::multipart::Form::new().part(
+                "file",
+                reqwest::multipart::Part::bytes(vec![
+                    0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49,
+                    0x48, 0x44, 0x52,
+                ])
+                .file_name("test.png"),
+            ),
         )
         .send()
         .await
@@ -219,17 +248,18 @@ async fn test_upload_rejection() {
     let resp = client
         .client()
         .post(client.url("/upload"))
-        .multipart(
-            reqwest::multipart::Form::new()
-                .part("file", reqwest::multipart::Part::bytes(vec![0x4D, 0x5A])
-                    .file_name("malware.exe"))
-        )
+        .multipart(reqwest::multipart::Form::new().part(
+            "file",
+            reqwest::multipart::Part::bytes(vec![0x4D, 0x5A]).file_name("malware.exe"),
+        ))
         .send()
         .await
         .expect("upload exe");
 
-    assert!(resp.status() == StatusCode::BAD_REQUEST
-        || resp.status() == StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    assert!(
+        resp.status() == StatusCode::BAD_REQUEST
+            || resp.status() == StatusCode::UNSUPPORTED_MEDIA_TYPE
+    );
 
     server.shutdown().await.expect("server shutdown");
     let _ = temp_dir;
@@ -244,6 +274,8 @@ async fn setup_static_server() -> (BinaryHandle, tempfile::TempDir) {
 
     let config = STATIC_FILES_CONFIG.replace("./public", public_dir.to_str().unwrap());
 
-    let server = BinaryHandle::spawn(&config, None).await.expect("spawn server");
+    let server = BinaryHandle::spawn(&config, None)
+        .await
+        .expect("spawn server");
     (server, temp_dir)
 }

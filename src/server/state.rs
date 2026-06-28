@@ -52,9 +52,9 @@ pub struct InMemoryRevocationStore {
 
 impl Clone for InMemoryRevocationStore {
     fn clone(&self) -> Self {
-        // InMemoryRevocationStore is always behind Arc, so this should
-        // never be called directly. We panic to make that explicit.
-        panic!("InMemoryRevocationStore is always Arc-wrapped in AppState")
+        // InMemoryRevocationStore is always held behind Arc in AppState
+        // and RevocationStoreImpl, so this branch should never be reached.
+        unreachable!("InMemoryRevocationStore is always Arc-wrapped in AppState")
     }
 }
 
@@ -96,9 +96,9 @@ pub struct DatabaseRevocationStore {
 
 impl Clone for DatabaseRevocationStore {
     fn clone(&self) -> Self {
-        // DatabaseRevocationStore is always behind Arc, so this should
-        // never be called directly. We panic to make that explicit.
-        panic!("DatabaseRevocationStore is always Arc-wrapped in AppState")
+        // DatabaseRevocationStore is always held behind Arc in AppState
+        // and RevocationStoreImpl, so this branch should never be reached.
+        unreachable!("DatabaseRevocationStore is always Arc-wrapped in AppState")
     }
 }
 

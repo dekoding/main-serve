@@ -178,7 +178,10 @@ async fn test_jwt_unauthorized() {
     let server = BinaryHandle::spawn(AUTH_CONFIG, None).await.expect("spawn");
     let client = server.client();
 
-    let resp = client.get("/api/jwt-protected").await.expect("GET without token");
+    let resp = client
+        .get("/api/jwt-protected")
+        .await
+        .expect("GET without token");
     client.assert_status(&resp, StatusCode::UNAUTHORIZED).await;
 
     server.shutdown().await.expect("server shutdown");
@@ -191,8 +194,7 @@ async fn test_jwt_authorized() {
     // Create a mock JWT token
     let token = create_mock_jwt("user-42", "user");
 
-    let authed = LiveClient::new(server.base_url())
-        .with_bearer_token(&token);
+    let authed = LiveClient::new(server.base_url()).with_bearer_token(&token);
 
     let resp = authed
         .get_json::<serde_json::Value>("/api/jwt-protected")
@@ -214,16 +216,17 @@ async fn test_jwt_role_restriction() {
 
     // Regular user should not have access to admin endpoint
     let token = create_mock_jwt("user-42", "user");
-    let authed = LiveClient::new(server.base_url())
-        .with_bearer_token(&token);
+    let authed = LiveClient::new(server.base_url()).with_bearer_token(&token);
 
-    let resp = authed.get("/api/jwt-admin").await.expect("GET admin endpoint as user");
+    let resp = authed
+        .get("/api/jwt-admin")
+        .await
+        .expect("GET admin endpoint as user");
     client.assert_status(&resp, StatusCode::FORBIDDEN).await;
 
     // Admin should have access
     let admin_token = create_mock_jwt("admin-1", "admin");
-    let admin_client = LiveClient::new(server.base_url())
-        .with_bearer_token(&admin_token);
+    let admin_client = LiveClient::new(server.base_url()).with_bearer_token(&admin_token);
 
     let resp = admin_client
         .get_json::<serde_json::Value>("/api/jwt-admin")
@@ -244,7 +247,10 @@ async fn test_api_key_auth() {
     let client = server.client();
 
     // No API key -> unauthorized
-    let resp = client.get("/api/apikey-protected").await.expect("GET without key");
+    let resp = client
+        .get("/api/apikey-protected")
+        .await
+        .expect("GET without key");
     client.assert_status(&resp, StatusCode::UNAUTHORIZED).await;
 
     // Valid reader key
@@ -260,9 +266,11 @@ async fn test_api_key_auth() {
     );
 
     // Invalid key
-    let bad_client = LiveClient::new(server.base_url())
-        .with_header("X-API-Key", "invalid-key");
-    let resp = bad_client.get("/api/apikey-protected").await.expect("GET with bad key");
+    let bad_client = LiveClient::new(server.base_url()).with_header("X-API-Key", "invalid-key");
+    let resp = bad_client
+        .get("/api/apikey-protected")
+        .await
+        .expect("GET with bad key");
     client.assert_status(&resp, StatusCode::UNAUTHORIZED).await;
 
     server.shutdown().await.expect("server shutdown");
@@ -274,10 +282,15 @@ async fn test_basic_auth() {
     let client = server.client();
 
     // No credentials -> unauthorized
-    let resp = client.get("/api/basic-protected").await.expect("GET without creds");
+    let resp = client
+        .get("/api/basic-protected")
+        .await
+        .expect("GET without creds");
 
     // Check WWW-Authenticate header
-    let www_auth = resp.headers().get("www-authenticate")
+    let www_auth = resp
+        .headers()
+        .get("www-authenticate")
         .and_then(|v| v.to_str().ok());
     assert!(www_auth.is_some_and(|w| w.contains("Basic")));
 
@@ -312,7 +325,10 @@ async fn test_cors_headers() {
     let resp = client
         .client()
         .clone()
-        .request(reqwest::Method::from_bytes(b"OPTIONS").unwrap(), client.url("/api/jwt-protected"))
+        .request(
+            reqwest::Method::from_bytes(b"OPTIONS").unwrap(),
+            client.url("/api/jwt-protected"),
+        )
         .header("Origin", "https://example.com")
         .header("Access-Control-Request-Method", "GET")
         .send()
@@ -344,7 +360,8 @@ fn create_mock_jwt(sub: &str, role: &str) -> String {
         serde_json::to_string(&json!({
             "alg": "HS256",
             "typ": "JWT"
-        })).unwrap()
+        }))
+        .unwrap(),
     );
 
     // payload: {"sub": "user-42", "role": "user", "iss": "main-serve", "iat": now, "exp": now + 3600}
@@ -356,7 +373,8 @@ fn create_mock_jwt(sub: &str, role: &str) -> String {
             "iss": "main-serve",
             "iat": now,
             "exp": now + 3600
-        })).unwrap()
+        }))
+        .unwrap(),
     );
 
     // Signature: HMAC-SHA256(header.payload, secret) - proper HS256

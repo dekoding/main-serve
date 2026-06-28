@@ -12,8 +12,8 @@
 //! Config: based on `config/templates/blog.yaml` with port 0 and SQLite.
 
 use crate::support::{BinaryHandle, LiveClient};
-use serde_json::json;
 use reqwest::StatusCode;
+use serde_json::json;
 
 const BLOG_CONFIG: &str = r#"
 server:
@@ -210,11 +210,11 @@ async fn test_health_endpoint() {
         .await
         .expect("GET /api/info");
 
-    assert_eq!(resp.get("name").and_then(|v| v.as_str()), Some("Main Serve Blog"));
     assert_eq!(
-        resp.get("version").and_then(|v| v.as_str()),
-        Some("0.2.2")
+        resp.get("name").and_then(|v| v.as_str()),
+        Some("Main Serve Blog")
     );
+    assert_eq!(resp.get("version").and_then(|v| v.as_str()), Some("0.2.2"));
 
     server.shutdown().await.expect("server shutdown");
 }
@@ -226,26 +226,37 @@ async fn test_user_registration() {
 
     // Register a new user
     let resp = client
-        .post_json("/_main-serve/register", &json!({
-            "email": "alice@example.com",
-            "password": "testpassword123"
-        }))
+        .post_json(
+            "/_main-serve/register",
+            &json!({
+                "email": "alice@example.com",
+                "password": "testpassword123"
+            }),
+        )
         .await
         .expect("POST /register");
 
     let _ = client.assert_status(&resp, StatusCode::CREATED).await;
 
-    let body = resp.json::<serde_json::Value>().await.expect("parse response");
-    let token = body.get("token").and_then(|v| v.as_str()).expect("token in response");
+    let body = resp
+        .json::<serde_json::Value>()
+        .await
+        .expect("parse response");
+    let token = body
+        .get("token")
+        .and_then(|v| v.as_str())
+        .expect("token in response");
 
     // Decode JWT sub claim to get user_id
     let parts: Vec<&str> = token.split('.').collect();
     assert_eq!(parts.len(), 3, "JWT should have 3 parts");
-    let decoded = base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, parts[1])
-        .expect("base64 decode");
-    let jwt_body: serde_json::Value = serde_json::from_slice(&decoded)
-        .expect("parse JWT body");
-    let user_id = jwt_body.get("sub").and_then(|v| v.as_str())
+    let decoded =
+        base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, parts[1])
+            .expect("base64 decode");
+    let jwt_body: serde_json::Value = serde_json::from_slice(&decoded).expect("parse JWT body");
+    let user_id = jwt_body
+        .get("sub")
+        .and_then(|v| v.as_str())
         .and_then(|s| s.parse::<i64>().ok())
         .expect("user id from JWT sub claim");
 
@@ -261,35 +272,45 @@ async fn test_auth_flow() {
 
     // Register a user first
     client
-        .post_json("/_main-serve/register", &json!({
-            "email": "alice@example.com",
-            "password": "testpassword123"
-        }))
+        .post_json(
+            "/_main-serve/register",
+            &json!({
+                "email": "alice@example.com",
+                "password": "testpassword123"
+            }),
+        )
         .await
         .expect("register")
-        .error_for_status().expect("register succeeded");
+        .error_for_status()
+        .expect("register succeeded");
 
     // Login
     let resp = client
-        .post_json("/_main-serve/login", &json!({
-            "email": "alice@example.com",
-            "password": "testpassword123"
-        }))
+        .post_json(
+            "/_main-serve/login",
+            &json!({
+                "email": "alice@example.com",
+                "password": "testpassword123"
+            }),
+        )
         .await
         .expect("POST /auth/login");
 
     let _ = client.assert_status(&resp, StatusCode::OK).await;
 
-    let body = resp.json::<serde_json::Value>().await.expect("parse login response");
-    let token = body.get("token")
+    let body = resp
+        .json::<serde_json::Value>()
+        .await
+        .expect("parse login response");
+    let token = body
+        .get("token")
         .and_then(|v| v.as_str())
         .expect("token in login response");
 
     assert!(!token.is_empty());
 
     // Use token to access protected endpoint
-    let authed_client = LiveClient::new(server.base_url())
-        .with_bearer_token(token);
+    let authed_client = LiveClient::new(server.base_url()).with_bearer_token(token);
 
     let resp = authed_client
         .get_json::<serde_json::Value>("/api/posts")
@@ -297,7 +318,9 @@ async fn test_auth_flow() {
         .expect("GET /api/posts with token");
 
     // Should return an empty list (no published posts yet)
-    let results = resp.get("results").or_else(|| resp.get("data"))
+    let results = resp
+        .get("results")
+        .or_else(|| resp.get("data"))
         .expect("results in response");
     assert_eq!(results.as_array().map(|a| a.len()), Some(0));
 
@@ -311,41 +334,56 @@ async fn test_create_and_list_posts() {
 
     // Register and login as author
     client
-        .post_json("/_main-serve/register", &json!({
-            "email": "author@example.com",
-            "password": "authorpass123"
-        }))
+        .post_json(
+            "/_main-serve/register",
+            &json!({
+                "email": "author@example.com",
+                "password": "authorpass123"
+            }),
+        )
         .await
         .expect("register")
         .error_for_status()
         .ok();
 
     let login_resp = client
-        .post_json("/_main-serve/login", &json!({
-            "email": "author@example.com",
-            "password": "authorpass123"
-        }))
+        .post_json(
+            "/_main-serve/login",
+            &json!({
+                "email": "author@example.com",
+                "password": "authorpass123"
+            }),
+        )
         .await
         .expect("login");
 
     let _ = client.assert_status(&login_resp, StatusCode::OK).await;
-    let login_body = login_resp.json::<serde_json::Value>().await.expect("parse login");
-    let token = login_body.get("token").and_then(|v| v.as_str()).expect("token");
+    let login_body = login_resp
+        .json::<serde_json::Value>()
+        .await
+        .expect("parse login");
+    let token = login_body
+        .get("token")
+        .and_then(|v| v.as_str())
+        .expect("token");
 
-    let authed = LiveClient::new(server.base_url())
-        .with_bearer_token(token);
+    let authed = LiveClient::new(server.base_url()).with_bearer_token(token);
 
     // Create a draft post (not published, so not visible in public feed)
-    authed.post_json("/api/posts", &json!({
-        "title": "My Draft Post",
-        "slug": "my-draft-post",
-        "body": "This is a draft post body.",
-        "status": "draft"
-    }))
-    .await
-    .expect("create draft")
-    .error_for_status()
-    .ok();
+    authed
+        .post_json(
+            "/api/posts",
+            &json!({
+                "title": "My Draft Post",
+                "slug": "my-draft-post",
+                "body": "This is a draft post body.",
+                "status": "draft"
+            }),
+        )
+        .await
+        .expect("create draft")
+        .error_for_status()
+        .ok();
 
     // Public feed should be empty (only published posts)
     let public_client = LiveClient::new(server.base_url());
@@ -354,23 +392,33 @@ async fn test_create_and_list_posts() {
         .await
         .expect("get feed");
 
-    let results = feed.get("results").or_else(|| feed.get("data"))
+    let results = feed
+        .get("results")
+        .or_else(|| feed.get("data"))
         .and_then(|v| v.as_array())
         .expect("results array");
-    assert_eq!(results.len(), 0, "draft post should not appear in public feed");
+    assert_eq!(
+        results.len(),
+        0,
+        "draft post should not appear in public feed"
+    );
 
     // Create a published post
-    authed.post_json("/api/posts", &json!({
-        "title": "My Published Post",
-        "slug": "my-published-post",
-        "body": "This is a published post body.",
-        "status": "published",
-        "published_at": "2025-01-15T12:00:00Z"
-    }))
-    .await
-    .expect("create published")
-    .error_for_status()
-    .ok();
+    authed
+        .post_json(
+            "/api/posts",
+            &json!({
+                "title": "My Published Post",
+                "slug": "my-published-post",
+                "body": "This is a published post body.",
+                "status": "published",
+                "published_at": "2025-01-15T12:00:00Z"
+            }),
+        )
+        .await
+        .expect("create published")
+        .error_for_status()
+        .ok();
 
     // Now the public feed should have one post
     let feed = public_client
@@ -378,14 +426,22 @@ async fn test_create_and_list_posts() {
         .await
         .expect("get feed");
 
-    let results = feed.get("results").or_else(|| feed.get("data"))
+    let results = feed
+        .get("results")
+        .or_else(|| feed.get("data"))
         .and_then(|v| v.as_array())
         .expect("results array");
     assert_eq!(results.len(), 1);
 
     let first = &results[0];
-    assert_eq!(first.get("title").and_then(|v| v.as_str()), Some("My Published Post"));
-    assert_eq!(first.get("status").and_then(|v| v.as_str()), Some("published"));
+    assert_eq!(
+        first.get("title").and_then(|v| v.as_str()),
+        Some("My Published Post")
+    );
+    assert_eq!(
+        first.get("status").and_then(|v| v.as_str()),
+        Some("published")
+    );
 
     server.shutdown().await.expect("server shutdown");
 }
@@ -397,43 +453,58 @@ async fn test_pagination() {
 
     // Register and login
     client
-        .post_json("/_main-serve/register", &json!({
-            "email": "editor@example.com",
-            "password": "editorpass123"
-        }))
+        .post_json(
+            "/_main-serve/register",
+            &json!({
+                "email": "editor@example.com",
+                "password": "editorpass123"
+            }),
+        )
         .await
         .expect("register")
         .error_for_status()
         .ok();
 
     let login_resp = client
-        .post_json("/_main-serve/login", &json!({
-            "email": "editor@example.com",
-            "password": "editorpass123"
-        }))
+        .post_json(
+            "/_main-serve/login",
+            &json!({
+                "email": "editor@example.com",
+                "password": "editorpass123"
+            }),
+        )
         .await
         .expect("login");
 
     let _ = client.assert_status(&login_resp, StatusCode::OK).await;
-    let login_body = login_resp.json::<serde_json::Value>().await.expect("parse login");
-    let token = login_body.get("token").and_then(|v| v.as_str()).expect("token");
+    let login_body = login_resp
+        .json::<serde_json::Value>()
+        .await
+        .expect("parse login");
+    let token = login_body
+        .get("token")
+        .and_then(|v| v.as_str())
+        .expect("token");
 
-    let authed = LiveClient::new(server.base_url())
-        .with_bearer_token(token);
+    let authed = LiveClient::new(server.base_url()).with_bearer_token(token);
 
     // Create 5 published posts
     for i in 1..=5 {
-        authed.post_json("/api/posts", &json!({
-            "title": &format!("Post {}", i),
-            "slug": &format!("post-{}", i),
-            "body": format!("Body of post {}", i),
-            "status": "published",
-            "published_at": "2025-01-15T12:00:00Z"
-        }))
-        .await
-        .expect("create post")
-        .error_for_status()
-        .ok();
+        authed
+            .post_json(
+                "/api/posts",
+                &json!({
+                    "title": &format!("Post {}", i),
+                    "slug": &format!("post-{}", i),
+                    "body": format!("Body of post {}", i),
+                    "status": "published",
+                    "published_at": "2025-01-15T12:00:00Z"
+                }),
+            )
+            .await
+            .expect("create post")
+            .error_for_status()
+            .ok();
     }
 
     // Get page 1, page size 2
@@ -442,7 +513,9 @@ async fn test_pagination() {
         .await
         .expect("get page 1");
 
-    let results = feed.get("results").or_else(|| feed.get("data"))
+    let results = feed
+        .get("results")
+        .or_else(|| feed.get("data"))
         .and_then(|v| v.as_array())
         .expect("results");
     assert_eq!(results.len(), 2);
@@ -453,13 +526,17 @@ async fn test_pagination() {
         .await
         .expect("get page 2");
 
-    let results = feed.get("results").or_else(|| feed.get("data"))
+    let results = feed
+        .get("results")
+        .or_else(|| feed.get("data"))
         .and_then(|v| v.as_array())
         .expect("results");
     assert_eq!(results.len(), 2);
 
     // Verify total count metadata
-    let total = feed.get("total").or_else(|| feed.get("data").and_then(|d| d.get("total")))
+    let total = feed
+        .get("total")
+        .or_else(|| feed.get("data").and_then(|d| d.get("total")))
         .and_then(|v| v.as_u64())
         .expect("total in response");
     assert_eq!(total, 5);
@@ -474,54 +551,73 @@ async fn test_filtering_and_sorting() {
 
     // Register and login
     client
-        .post_json("/_main-serve/register", &json!({
-            "email": "admin@example.com",
-            "password": "adminpass123"
-        }))
+        .post_json(
+            "/_main-serve/register",
+            &json!({
+                "email": "admin@example.com",
+                "password": "adminpass123"
+            }),
+        )
         .await
         .expect("register")
         .error_for_status()
         .ok();
 
     let login_resp = client
-        .post_json("/_main-serve/login", &json!({
-            "email": "admin@example.com",
-            "password": "adminpass123"
-        }))
+        .post_json(
+            "/_main-serve/login",
+            &json!({
+                "email": "admin@example.com",
+                "password": "adminpass123"
+            }),
+        )
         .await
         .expect("login");
 
     let _ = client.assert_status(&login_resp, StatusCode::OK).await;
-    let login_body = login_resp.json::<serde_json::Value>().await.expect("parse login");
-    let token = login_body.get("token").and_then(|v| v.as_str()).expect("token");
+    let login_body = login_resp
+        .json::<serde_json::Value>()
+        .await
+        .expect("parse login");
+    let token = login_body
+        .get("token")
+        .and_then(|v| v.as_str())
+        .expect("token");
 
-    let authed = LiveClient::new(server.base_url())
-        .with_bearer_token(token);
+    let authed = LiveClient::new(server.base_url()).with_bearer_token(token);
 
     // Create posts with different dates
-    authed.post_json("/api/posts", &json!({
-        "title": "Old Post",
-        "slug": "old-post",
-        "body": "old",
-        "status": "published",
-        "published_at": "2024-01-01T00:00:00Z"
-    }))
-    .await
-    .expect("create old")
-    .error_for_status()
-    .ok();
+    authed
+        .post_json(
+            "/api/posts",
+            &json!({
+                "title": "Old Post",
+                "slug": "old-post",
+                "body": "old",
+                "status": "published",
+                "published_at": "2024-01-01T00:00:00Z"
+            }),
+        )
+        .await
+        .expect("create old")
+        .error_for_status()
+        .ok();
 
-    authed.post_json("/api/posts", &json!({
-        "title": "New Post",
-        "slug": "new-post",
-        "body": "new",
-        "status": "published",
-        "published_at": "2025-06-15T00:00:00Z"
-    }))
-    .await
-    .expect("create new")
-    .error_for_status()
-    .ok();
+    authed
+        .post_json(
+            "/api/posts",
+            &json!({
+                "title": "New Post",
+                "slug": "new-post",
+                "body": "new",
+                "status": "published",
+                "published_at": "2025-06-15T00:00:00Z"
+            }),
+        )
+        .await
+        .expect("create new")
+        .error_for_status()
+        .ok();
 
     // Default sort is by published_at desc (newest first)
     let feed = client
@@ -529,12 +625,20 @@ async fn test_filtering_and_sorting() {
         .await
         .expect("sorted feed");
 
-    let results = feed.get("results").or_else(|| feed.get("data"))
+    let results = feed
+        .get("results")
+        .or_else(|| feed.get("data"))
         .and_then(|v| v.as_array())
         .expect("results");
     assert_eq!(results.len(), 2);
-    assert_eq!(results[0].get("title").and_then(|v| v.as_str()), Some("New Post"));
-    assert_eq!(results[1].get("title").and_then(|v| v.as_str()), Some("Old Post"));
+    assert_eq!(
+        results[0].get("title").and_then(|v| v.as_str()),
+        Some("New Post")
+    );
+    assert_eq!(
+        results[1].get("title").and_then(|v| v.as_str()),
+        Some("Old Post")
+    );
 
     server.shutdown().await.expect("server shutdown");
 }
@@ -545,10 +649,7 @@ async fn test_unauthorized_access() {
     let client = server.client();
 
     // Try to access admin endpoint without auth
-    let resp = client
-        .get("/api/users")
-        .await
-        .expect("GET /api/users");
+    let resp = client.get("/api/users").await.expect("GET /api/users");
 
     let _ = client.assert_status(&resp, StatusCode::UNAUTHORIZED).await;
 
@@ -560,11 +661,16 @@ async fn setup_blog_server() -> BinaryHandle {
     let db_path = format!(
         "{}/blog-{}.db",
         std::env::temp_dir().display(),
-        SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros()
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_micros()
     );
     let config = BLOG_CONFIG.replace(
         "sqlite://blog.db?mode=rwc",
         &format!("sqlite://{}?mode=rwc", db_path),
     );
-    BinaryHandle::spawn(&config, None).await.expect("server spawn")
+    BinaryHandle::spawn(&config, None)
+        .await
+        .expect("server spawn")
 }

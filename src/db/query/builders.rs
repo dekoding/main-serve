@@ -1,7 +1,7 @@
 use crate::config::types::{ColumnType, CrudConfig, DatabaseDriver, TableConfig};
 use crate::db::query::helpers::{
     coerce_filter_value_by_type, coerce_pk_value, find_pk_column, interpolate_value,
-    is_valid_identifier, placeholder, resolve_writable_fields,
+    is_valid_identifier, placeholder, quote_identifier, resolve_writable_fields,
 };
 use crate::db::query::select::SelectBuilder;
 use crate::db::query::types::BuiltQuery;
@@ -135,7 +135,6 @@ pub fn build_insert(
 /// Returns `AppError::BadRequest` if the body is not a JSON object, contains
 /// invalid field names, or provides no writable fields.
 /// Returns `AppError::Internal` if the table has no primary key column.
-#[allow(clippy::too_many_arguments)]
 pub fn build_update(
     table_config: &TableConfig,
     crud: &CrudConfig,
@@ -243,9 +242,15 @@ pub fn build_delete(
                 serde_json::Value::String(s) => s,
                 other => other.to_string(),
             };
-            format!("DELETE FROM {table_name} WHERE 1 = 0 AND {wc_str}")
+            format!(
+                "DELETE FROM {} WHERE 1 = 0 AND {wc_str}",
+                quote_identifier(table_name, driver)
+            )
         } else {
-            format!("DELETE FROM {table_name} WHERE 1 = 0")
+            format!(
+                "DELETE FROM {} WHERE 1 = 0",
+                quote_identifier(table_name, driver)
+            )
         };
         return Ok(BuiltQuery {
             sql,

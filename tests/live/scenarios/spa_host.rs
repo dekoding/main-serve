@@ -71,7 +71,9 @@ async fn test_spa_index_served() {
     let resp = client.get("/app/").await.expect("GET /app/");
     client.assert_status(&resp, StatusCode::OK).await;
 
-    let content_type = resp.headers().get("content-type")
+    let content_type = resp
+        .headers()
+        .get("content-type")
         .and_then(|v| v.to_str().ok());
     assert!(content_type.is_some_and(|ct| ct.contains("text/html")));
 
@@ -104,11 +106,16 @@ async fn test_static_asset_with_cache_headers() {
     let (server, temp_dir) = setup_spa().await;
     let client = server.client();
 
-    let resp = client.get("/assets/app.js").await.expect("GET /assets/app.js");
+    let resp = client
+        .get("/assets/app.js")
+        .await
+        .expect("GET /assets/app.js");
     client.assert_status(&resp, StatusCode::OK).await;
 
     // Should have aggressive cache header (immutable, 1 year)
-    let cache_control = resp.headers().get("cache-control")
+    let cache_control = resp
+        .headers()
+        .get("cache-control")
         .and_then(|v| v.to_str().ok());
     assert!(cache_control.is_some_and(|cc| cc.contains("immutable")));
 
@@ -121,11 +128,16 @@ async fn test_html_no_cache() {
     let (server, temp_dir) = setup_spa().await;
     let client = server.client();
 
-    let resp = client.get("/assets/style.css").await.expect("GET /assets/style.css");
+    let resp = client
+        .get("/assets/style.css")
+        .await
+        .expect("GET /assets/style.css");
     client.assert_status(&resp, StatusCode::OK).await;
 
     // CSS gets immutable cache
-    let cache_control = resp.headers().get("cache-control")
+    let cache_control = resp
+        .headers()
+        .get("cache-control")
         .and_then(|v| v.to_str().ok());
     assert!(cache_control.is_some_and(|cc| cc.contains("immutable")));
 
@@ -159,7 +171,10 @@ async fn test_404_for_missing_file() {
     let client = server.client();
 
     // Request a file that doesn't exist in static files
-    let resp = client.get("/assets/nonexistent.js").await.expect("GET /assets/nonexistent.js");
+    let resp = client
+        .get("/assets/nonexistent.js")
+        .await
+        .expect("GET /assets/nonexistent.js");
 
     // Static files should return 404 for missing files
     // (SPA fallback only applies to /app/* paths)
@@ -179,6 +194,8 @@ async fn setup_spa() -> (BinaryHandle, tempfile::TempDir) {
     // Override the config to point to our temp directory
     let config = SPA_CONFIG.replace("./public", assets_dir.to_str().unwrap());
 
-    let server = BinaryHandle::spawn(&config, None).await.expect("spawn server");
+    let server = BinaryHandle::spawn(&config, None)
+        .await
+        .expect("spawn server");
     (server, temp_dir)
 }

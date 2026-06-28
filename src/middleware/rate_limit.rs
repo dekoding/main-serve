@@ -22,7 +22,7 @@ use crate::config::types::{RateLimitConfig, RateLimitKeyStrategy};
 use crate::error::AppError;
 
 /// Entry tracking request counts within a time window.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 struct RateLimitEntry {
     count: u64,
     window_start: Instant,

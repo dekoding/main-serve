@@ -25,7 +25,6 @@ pub(crate) struct DirEntryInfo {
 }
 
 /// Generate an HTML directory listing for the given directory.
-#[allow(clippy::unwrap_used)] // writeln! on String is infallible
 pub(crate) async fn generate_directory_listing(
     storage: &dyn Storage,
     dir: &Path,
@@ -111,12 +110,11 @@ pub(crate) async fn generate_directory_listing(
             .map_or_else(|| "-".to_string(), |t| format_modified(*t));
 
         html.push_str("<tr>");
-        writeln!(
+        let _ = writeln!(
             html,
             "<td class=\"perms\">{perms}</td><td>{owner}</td><td>{group}</td>\
              <td class=\"size\">{size_str}</td><td>{modified_str}</td><td>{link}</td></tr>"
-        )
-        .unwrap();
+        );
     }
 
     html.push_str("</table>\n</body></html>\n");

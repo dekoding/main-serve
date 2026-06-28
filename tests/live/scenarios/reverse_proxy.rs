@@ -10,9 +10,9 @@
 //! Config: proxies /api/external/* to a mock upstream server.
 
 use crate::support::BinaryHandle;
-use axum::Router;
-use axum::routing::{get, any};
 use axum::Json;
+use axum::Router;
+use axum::routing::{any, get};
 use reqwest::StatusCode;
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
@@ -75,32 +75,33 @@ impl MockUpstream {
                     }))
                 }),
             )
-        .route(
-                  "/v2/echo",
-                  any(|req: axum::http::Request<axum::body::Body>| async move {
-                      
-                      use http_body_util::BodyExt;
-                      let method = req.method().to_string();
-                      let headers = req.headers().clone();
-                      let x_upstream_auth = headers.get("x-upstream-auth")
-                          .and_then(|v| v.to_str().ok())
-                          .unwrap_or("")
-                          .to_string();
-                      let content_type = headers.get("content-type")
-                          .and_then(|v| v.to_str().ok())
-                          .unwrap_or("")
-                          .to_string();
-                      let body_bytes = req.into_body().collect().await.unwrap().to_bytes();
-                      Json(serde_json::json!({
-                          "method": method,
-                          "headers": {
-                              "x-upstream-auth": x_upstream_auth,
-                              "content-type": content_type,
-                          },
-                          "body": String::from_utf8_lossy(&body_bytes).to_string(),
-                      }))
-                  }),
-              )
+            .route(
+                "/v2/echo",
+                any(|req: axum::http::Request<axum::body::Body>| async move {
+                    use http_body_util::BodyExt;
+                    let method = req.method().to_string();
+                    let headers = req.headers().clone();
+                    let x_upstream_auth = headers
+                        .get("x-upstream-auth")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("")
+                        .to_string();
+                    let content_type = headers
+                        .get("content-type")
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("")
+                        .to_string();
+                    let body_bytes = req.into_body().collect().await.unwrap().to_bytes();
+                    Json(serde_json::json!({
+                        "method": method,
+                        "headers": {
+                            "x-upstream-auth": x_upstream_auth,
+                            "content-type": content_type,
+                        },
+                        "body": String::from_utf8_lossy(&body_bytes).to_string(),
+                    }))
+                }),
+            )
             .route(
                 "/delay",
                 get(|| async {
@@ -120,7 +121,9 @@ impl MockUpstream {
 
         tokio::spawn(async move {
             axum::serve(listener, app)
-                .with_graceful_shutdown(async { shutdown_rx.await.ok(); })
+                .with_graceful_shutdown(async {
+                    shutdown_rx.await.ok();
+                })
                 .await
                 .ok();
         });
@@ -135,12 +138,11 @@ impl MockUpstream {
 #[tokio::test]
 async fn test_proxy_forward() {
     let upstream = MockUpstream::spawn().await;
-    let config = PROXY_CONFIG.replace(
-        "http://127.0.0.1:0",
-        &upstream.base_url,
-    );
+    let config = PROXY_CONFIG.replace("http://127.0.0.1:0", &upstream.base_url);
 
-    let server = BinaryHandle::spawn(&config, None).await.expect("spawn proxy server");
+    let server = BinaryHandle::spawn(&config, None)
+        .await
+        .expect("spawn proxy server");
     let client = server.client();
 
     // GET /api/external/users -> upstream /v2/users
@@ -161,12 +163,11 @@ async fn test_proxy_forward() {
 #[tokio::test]
 async fn test_proxy_path_rewrite() {
     let upstream = MockUpstream::spawn().await;
-    let config = PROXY_CONFIG.replace(
-        "http://127.0.0.1:0",
-        &upstream.base_url,
-    );
+    let config = PROXY_CONFIG.replace("http://127.0.0.1:0", &upstream.base_url);
 
-    let server = BinaryHandle::spawn(&config, None).await.expect("spawn proxy server");
+    let server = BinaryHandle::spawn(&config, None)
+        .await
+        .expect("spawn proxy server");
     let client = server.client();
 
     // GET /api/external/users/42 -> upstream /v2/users/42
@@ -184,12 +185,11 @@ async fn test_proxy_path_rewrite() {
 #[tokio::test]
 async fn test_proxy_headers() {
     let upstream = MockUpstream::spawn().await;
-    let config = PROXY_CONFIG.replace(
-        "http://127.0.0.1:0",
-        &upstream.base_url,
-    );
+    let config = PROXY_CONFIG.replace("http://127.0.0.1:0", &upstream.base_url);
 
-    let server = BinaryHandle::spawn(&config, None).await.expect("spawn proxy server");
+    let server = BinaryHandle::spawn(&config, None)
+        .await
+        .expect("spawn proxy server");
     let client = server.client();
 
     // POST /api/external/echo - check that upstream receives proxy headers
@@ -203,7 +203,10 @@ async fn test_proxy_headers() {
 
     let _ = client.assert_status(&resp, StatusCode::OK).await;
 
-    let body = resp.json::<serde_json::Value>().await.expect("parse response");
+    let body = resp
+        .json::<serde_json::Value>()
+        .await
+        .expect("parse response");
     let headers = body.get("headers").and_then(|v| v.as_object());
     assert!(headers.is_some(), "response should have headers object");
 
@@ -217,24 +220,23 @@ async fn test_proxy_headers() {
 #[tokio::test]
 async fn test_proxy_preserves_method() {
     let upstream = MockUpstream::spawn().await;
-    let config = PROXY_CONFIG.replace(
-        "http://127.0.0.1:0",
-        &upstream.base_url,
-    );
+    let config = PROXY_CONFIG.replace("http://127.0.0.1:0", &upstream.base_url);
 
-    let server = BinaryHandle::spawn(&config, None).await.expect("spawn proxy server");
+    let server = BinaryHandle::spawn(&config, None)
+        .await
+        .expect("spawn proxy server");
     let client = server.client();
 
     // PUT /api/external/echo - check that method is forwarded
     let resp = client
-        .put_json(
-            "/api/external/echo",
-            &serde_json::json!({"updated": true}),
-        )
+        .put_json("/api/external/echo", &serde_json::json!({"updated": true}))
         .await
         .expect("PUT /api/external/echo");
 
-    let body = resp.json::<serde_json::Value>().await.expect("parse response");
+    let body = resp
+        .json::<serde_json::Value>()
+        .await
+        .expect("parse response");
     assert_eq!(body.get("method").and_then(|v| v.as_str()), Some("PUT"));
 
     server.shutdown().await.expect("server shutdown");
@@ -243,12 +245,11 @@ async fn test_proxy_preserves_method() {
 #[tokio::test]
 async fn test_proxy_preserves_body() {
     let upstream = MockUpstream::spawn().await;
-    let config = PROXY_CONFIG.replace(
-        "http://127.0.0.1:0",
-        &upstream.base_url,
-    );
+    let config = PROXY_CONFIG.replace("http://127.0.0.1:0", &upstream.base_url);
 
-    let server = BinaryHandle::spawn(&config, None).await.expect("spawn proxy server");
+    let server = BinaryHandle::spawn(&config, None)
+        .await
+        .expect("spawn proxy server");
     let client = server.client();
 
     let resp = client
@@ -259,7 +260,10 @@ async fn test_proxy_preserves_body() {
         .await
         .expect("POST echo");
 
-    let body = resp.json::<serde_json::Value>().await.expect("parse response");
+    let body = resp
+        .json::<serde_json::Value>()
+        .await
+        .expect("parse response");
     let forwarded_body = body.get("body").and_then(|v| v.as_str());
     assert!(forwarded_body.is_some_and(|b| b.contains("\"key\":\"value\"")));
 

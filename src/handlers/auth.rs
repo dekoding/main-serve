@@ -10,6 +10,7 @@ use http_body_util::BodyExt;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
 
 use crate::config::types::{DatabaseDriver, JwtAlgorithm};
+use crate::db::migration::quote_object_name;
 use crate::error::AppError;
 use crate::middleware::auth::validators::jwt::create_token;
 use crate::server::state::AppState;
@@ -195,7 +196,7 @@ pub async fn handle_register(
     let column_rows = match pool.driver() {
         DatabaseDriver::Sqlite => {
             pool.fetch_all_json(
-                &format!("PRAGMA table_info(\"{table_name}\")"),
+                &format!("PRAGMA table_info({})", quote_object_name(table_name, driver)),
                 &[],
             )
             .await
@@ -232,8 +233,16 @@ pub async fn handle_register(
     let has_updated_at = col_names.contains(&"updated_at".to_string());
 
     // Build INSERT columns and values dynamically.
-    let mut insert_cols = vec!["email".to_string(), "password_hash".to_string(), "role".to_string()];
-    let mut insert_placeholders: Vec<String> = vec![ph_param(driver, 1), ph_param(driver, 2), ph_param(driver, 3)];
+    let mut insert_cols = vec![
+        "email".to_string(),
+        "password_hash".to_string(),
+        "role".to_string(),
+    ];
+    let mut insert_placeholders: Vec<String> = vec![
+        ph_param(driver, 1),
+        ph_param(driver, 2),
+        ph_param(driver, 3),
+    ];
 
     if has_created_at {
         insert_cols.push("created_at".to_string());
@@ -245,12 +254,16 @@ pub async fn handle_register(
     }
 
     // Build the INSERT statement.
-    let cols_str = insert_cols.iter().map(|c| quote_col(c, driver)).collect::<Vec<_>>().join(", ");
+    let cols_str = insert_cols
+        .iter()
+        .map(|c| quote_col(c, driver))
+        .collect::<Vec<_>>()
+        .join(", ");
     let placeholders_str = insert_placeholders.join(", ");
 
     let insert_sql = format!(
         "INSERT INTO {} ({}) VALUES ({})",
-        quote_obj(table_name, driver),
+        quote_object_name(table_name, driver),
         cols_str,
         placeholders_str
     );
@@ -265,7 +278,10 @@ pub async fn handle_register(
     let email_col = quote_col("email", driver);
     let existing = pool
         .fetch_optional_json(
-            &format!("SELECT {email_col} FROM {table_name} WHERE {email_col} = ? LIMIT 1"),
+            &format!(
+                "SELECT {email_col} FROM {} WHERE {email_col} = ? LIMIT 1",
+                quote_object_name(table_name, driver)
+            ),
             &[body.email.clone().into()],
         )
         .await
@@ -284,7 +300,7 @@ pub async fn handle_register(
         .fetch_optional_json(
             &format!(
                 "SELECT id, email, role FROM {} WHERE email = ?",
-                register_config.table
+                quote_object_name(&register_config.table, driver)
             ),
             &[body.email.clone().into()],
         )
@@ -388,7 +404,10 @@ pub async fn handle_login(
 
     let row = pool
         .fetch_optional_json(
-            &format!("SELECT id, email, password_hash, role FROM users WHERE email = {email_param} LIMIT 1"),
+            &format!(
+                "SELECT id, email, password_hash, role FROM {} WHERE email = {email_param} LIMIT 1",
+                quote_object_name("users", driver)
+            ),
             &[body.email.clone().into()],
         )
         .await
@@ -507,11 +526,6 @@ fn quote_col(name: &str, driver: DatabaseDriver) -> String {
         DatabaseDriver::Mysql => format!("`{}`", name),
         DatabaseDriver::Sqlite | DatabaseDriver::Postgres => format!("\"{}\"", name),
     }
-}
-
-/// Quote a table/object name.
-fn quote_obj(name: &str, driver: DatabaseDriver) -> String {
-    quote_col(name, driver)
 }
 
 #[cfg(test)]

@@ -44,7 +44,7 @@ pub async fn body_limit_middleware(
     // Content-Length not present (e.g., chunked encoding, tests, or axum test client).
     // Must read the body to check size, then reconstruct it.
     let (parts, body) = request.into_parts();
-    let bytes = axum::body::to_bytes(body, usize::MAX)
+    let bytes = axum::body::to_bytes(body, max_size)
         .await
         .map_err(|e| AppError::Body(e.to_string()))?;
 

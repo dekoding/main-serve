@@ -41,7 +41,7 @@ pub enum StoreBackend {
 }
 
 /// S3 storage backend configuration.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct S3StoreConfig {
     /// AWS region (e.g. "us-east-1").
@@ -59,6 +59,19 @@ pub struct S3StoreConfig {
     /// Use path-style URLs (true for `MinIO`, `LocalStack`, Ceph).
     #[serde(default)]
     pub force_path_style: bool,
+}
+
+impl std::fmt::Debug for S3StoreConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("S3StoreConfig")
+            .field("region", &self.region)
+            .field("bucket", &self.bucket)
+            .field("access_key", &self.access_key)
+            .field("secret_key", &"[REDACTED]")
+            .field("endpoint", &self.endpoint)
+            .field("force_path_style", &self.force_path_style)
+            .finish()
+    }
 }
 
 /// Azure Blob Storage backend configuration.

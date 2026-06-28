@@ -193,7 +193,10 @@ async fn get_existing_columns(
 ) -> Result<Vec<ExistingColumn>, AppError> {
     let rows = match pool {
         DatabasePool::Sqlite(_) => {
-            let sql = format!("PRAGMA table_info(\"{table_name}\")");
+            let sql = format!(
+                "PRAGMA table_info({})",
+                quote_object_name(table_name, pool.driver())
+            );
             pool.fetch_all_json(&sql, &[]).await?
         }
         DatabasePool::Postgres(_) => {
@@ -728,7 +731,8 @@ pub async fn ensure_media_columns(
         let col_exists = match driver {
             DatabaseDriver::Sqlite => {
                 let sql = format!(
-                    "SELECT COUNT(*) as cnt FROM pragma_table_info(\"{table_name}\") WHERE name = 'file_path'"
+                    "SELECT COUNT(*) as cnt FROM pragma_table_info({}) WHERE name = 'file_path'",
+                    quote_object_name(table_name, driver)
                 );
                 let row = pool.fetch_optional_json(&sql, &[]).await?;
                 row.and_then(|r| r.get("cnt").and_then(|v| v.as_i64()))
@@ -736,21 +740,21 @@ pub async fn ensure_media_columns(
                     .unwrap_or(false)
             }
             DatabaseDriver::Postgres => {
-                let sql = format!(
-                    "SELECT COUNT(*) as cnt FROM information_schema.columns \
-                     WHERE table_name = '{table_name}' AND column_name = 'file_path'"
-                );
-                let row = pool.fetch_optional_json(&sql, &[]).await?;
+                let sql = "SELECT COUNT(*) as cnt FROM information_schema.columns \
+                           WHERE table_name = $1 AND column_name = 'file_path'";
+                let row = pool
+                    .fetch_optional_json(sql, &[serde_json::Value::String(table_name.to_owned())])
+                    .await?;
                 row.and_then(|r| r.get("cnt").and_then(|v| v.as_i64()))
                     .map(|c| c > 0)
                     .unwrap_or(false)
             }
             DatabaseDriver::Mysql => {
-                let sql = format!(
-                    "SELECT COUNT(*) as cnt FROM information_schema.columns \
-                     WHERE table_name = '{table_name}' AND column_name = 'file_path'"
-                );
-                let row = pool.fetch_optional_json(&sql, &[]).await?;
+                let sql = "SELECT COUNT(*) as cnt FROM information_schema.columns \
+                           WHERE table_name = ? AND column_name = 'file_path'";
+                let row = pool
+                    .fetch_optional_json(sql, &[serde_json::Value::String(table_name.to_owned())])
+                    .await?;
                 row.and_then(|r| r.get("cnt").and_then(|v| v.as_i64()))
                     .map(|c| c > 0)
                     .unwrap_or(false)
@@ -758,17 +762,10 @@ pub async fn ensure_media_columns(
         };
 
         if !col_exists {
-            let add_col_sql = match driver {
-                DatabaseDriver::Sqlite => {
-                    format!("ALTER TABLE \"{table_name}\" ADD COLUMN \"file_path\" TEXT")
-                }
-                DatabaseDriver::Postgres => {
-                    format!("ALTER TABLE \"{table_name}\" ADD COLUMN \"file_path\" TEXT")
-                }
-                DatabaseDriver::Mysql => {
-                    format!("ALTER TABLE `{table_name}` ADD COLUMN `file_path` TEXT")
-                }
-            };
+            let add_col_sql = format!(
+                "ALTER TABLE {} ADD COLUMN \"file_path\" TEXT",
+                quote_object_name(table_name, driver)
+            );
             tracing::info!(
                 "Adding 'file_path' column to media table '{table_name}' in database '{db_name}'"
             );

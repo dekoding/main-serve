@@ -122,6 +122,8 @@ pub async fn serve_file(
 
         if file_size > streaming_threshold {
             // Use streaming for large files.
+            #[allow(clippy::expect_used)]
+            // streaming_config is guaranteed: if streaming_threshold < u64::MAX then config.streaming was Some
             let streaming_config = config
                 .streaming
                 .as_ref()
@@ -465,14 +467,14 @@ fn handle_range_small_file(
     cache_max_age: u64,
 ) -> Result<Response, AppError> {
     // Parse range header: "bytes=start-end" or "bytes=start-"
-    let bytes_range = range_str.strip_prefix("bytes=").ok_or_else(|| {
-        AppError::BadRequest("Invalid Range header format".to_string())
-    })?;
+    let bytes_range = range_str
+        .strip_prefix("bytes=")
+        .ok_or_else(|| AppError::BadRequest("Invalid Range header format".to_string()))?;
 
     let (start, end) = if let Some((s, e)) = bytes_range.split_once('-') {
-        let start: u64 = s.parse().map_err(|_| {
-            AppError::BadRequest("Invalid Range header: invalid start".to_string())
-        })?;
+        let start: u64 = s
+            .parse()
+            .map_err(|_| AppError::BadRequest("Invalid Range header: invalid start".to_string()))?;
         let end: u64 = if e.is_empty() {
             file_size - 1
         } else {
@@ -502,7 +504,8 @@ fn handle_range_small_file(
     let mut response = (StatusCode::PARTIAL_CONTENT, body).into_response();
     response.headers_mut().insert(
         header::CONTENT_TYPE,
-        HeaderValue::from_str(content_type).unwrap_or(HeaderValue::from_static("application/octet-stream")),
+        HeaderValue::from_str(content_type)
+            .unwrap_or(HeaderValue::from_static("application/octet-stream")),
     );
     response.headers_mut().insert(
         header::CONTENT_LENGTH,

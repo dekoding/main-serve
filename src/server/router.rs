@@ -167,7 +167,8 @@ pub async fn build_router(config: &AppConfig, state: AppState) -> Router {
                 router = register_spa_bare_routes(router, "/", endpoint, endpoint_cors);
             } else {
                 router = register_spa_bare_routes(router, bare, endpoint, endpoint_cors);
-                router = register_spa_bare_routes(router, &format!("{bare}/"), endpoint, endpoint_cors);
+                router =
+                    register_spa_bare_routes(router, &format!("{bare}/"), endpoint, endpoint_cors);
             }
         }
     }
@@ -432,9 +433,13 @@ fn add_endpoint_route(
 
             // Track which methods got an upload handler to avoid overlapping routes
             let upload_methods: std::collections::HashSet<ConfigHttpMethod> = if has_upload {
-                [ConfigHttpMethod::Post, ConfigHttpMethod::Put, ConfigHttpMethod::Patch]
-                    .into_iter()
-                    .collect()
+                [
+                    ConfigHttpMethod::Post,
+                    ConfigHttpMethod::Put,
+                    ConfigHttpMethod::Patch,
+                ]
+                .into_iter()
+                .collect()
             } else {
                 std::collections::HashSet::new()
             };
@@ -542,7 +547,10 @@ async fn handle_crud_route(
         .and_then(|v| v.to_str().ok())
         .is_some_and(|t| t.contains("application/json"))
     {
-        let bytes = axum::body::to_bytes(body, usize::MAX)
+        let config = state.config.read().await;
+        let max_body_size = config.server.max_body_size;
+        drop(config);
+        let bytes = axum::body::to_bytes(body, max_body_size)
             .await
             .map_err(|e| AppError::Body(e.to_string()))?;
         serde_json::from_slice(&bytes)

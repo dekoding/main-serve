@@ -17,7 +17,7 @@ use crate::config::types::EndpointConfig;
 use crate::db::query::builders::{
     build_delete, build_insert, build_select_list, build_select_one, build_update,
 };
-use crate::db::query::helpers::{extract_query_params, build_select_list_count};
+use crate::db::query::helpers::{build_select_list_count, extract_query_params};
 use crate::error::AppError;
 use crate::middleware::auth::extractor::RequestContext;
 use crate::server::state::AppState;
@@ -104,15 +104,12 @@ pub async fn handle_crud(
             let page = qp.page.unwrap_or(1);
 
             // Get total count using the same filters as the list query.
-            let count_q = build_select_list_count(
-                &table_config.name,
-                driver,
-                &qp,
-                crud,
-                &context,
-            );
+            let count_q = build_select_list_count(&table_config.name, driver, &qp, crud, &context);
             let total = match count_q {
-                Ok(count_build) => match pool.fetch_optional_json(&count_build.sql, &count_build.params).await {
+                Ok(count_build) => match pool
+                    .fetch_optional_json(&count_build.sql, &count_build.params)
+                    .await
+                {
                     Ok(Some(row)) => row.get("count").and_then(|v| v.as_u64()).unwrap_or(0),
                     _ => 0,
                 },

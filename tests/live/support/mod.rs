@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
-use tempfile::{TempDir, NamedTempFile};
+use tempfile::{NamedTempFile, TempDir};
 use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
@@ -34,27 +34,24 @@ const DEFAULT_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 /// lifetime. The config file is always named `main-serve.yaml`.
 pub fn write_config(temp_dir: &TempDir, yaml: &str) -> PathBuf {
     let config_path = temp_dir.path().join("main-serve.yaml");
-    let mut file = NamedTempFile::new_in(temp_dir.path())
-        .expect("failed to create temp config file");
+    let mut file =
+        NamedTempFile::new_in(temp_dir.path()).expect("failed to create temp config file");
     file.write_all(yaml.as_bytes())
         .expect("failed to write config");
     match file.persist(&config_path) {
-            Ok(_) => {},
-            Err(_) => {
-                // Fallback: write directly if persist fails (e.g., cross-device).
-                std::fs::write(&config_path, yaml).expect("failed to write config");
-            }
+        Ok(_) => {}
+        Err(_) => {
+            // Fallback: write directly if persist fails (e.g., cross-device).
+            std::fs::write(&config_path, yaml).expect("failed to write config");
         }
+    }
     // We need the path, not the file handle.
     // If persist failed, the file is still at config_path from the fallback.
     config_path
 }
 
 /// Write a config from a Rust struct (via serde) to a temp directory.
-pub fn write_config_from_struct<T: serde::Serialize>(
-    temp_dir: &TempDir,
-    config: &T,
-) -> PathBuf {
+pub fn write_config_from_struct<T: serde::Serialize>(temp_dir: &TempDir, config: &T) -> PathBuf {
     let yaml = serde_yaml::to_string(config).expect("failed to serialize config to YAML");
     write_config(temp_dir, &yaml)
 }
@@ -99,10 +96,7 @@ impl BinaryHandle {
     /// This function waits up to `ready_timeout` for the server to start
     /// listening. It parses the port from the log line:
     /// `Main Serve listening on http://127.0.0.1:PORT`
-    pub async fn spawn(
-        yaml: &str,
-        ready_timeout: Option<Duration>,
-    ) -> Result<Self, SpawnError> {
+    pub async fn spawn(yaml: &str, ready_timeout: Option<Duration>) -> Result<Self, SpawnError> {
         let temp_dir = TempDir::new().map_err(SpawnError::TempDir)?;
 
         let config_path = write_config(&temp_dir, yaml);
@@ -179,14 +173,8 @@ impl BinaryHandle {
         mut process: tokio::process::Child,
         timeout_duration: Duration,
     ) -> Result<(String, tokio::process::Child), SpawnError> {
-        let stdout = process
-            .stdout
-            .take()
-            .ok_or(SpawnError::NoStdout)?;
-        let stderr = process
-            .stderr
-            .take()
-            .ok_or(SpawnError::NoStderr)?;
+        let stdout = process.stdout.take().ok_or(SpawnError::NoStdout)?;
+        let stderr = process.stderr.take().ok_or(SpawnError::NoStderr)?;
 
         let (tx, mut rx) = mpsc::unbounded_channel::<String>();
 
@@ -265,9 +253,7 @@ impl BinaryHandle {
             .ok();
 
         match client {
-            Some(c) => {
-                c.get(format!("{url}/")).send().await.is_ok()
-            }
+            Some(c) => c.get(format!("{url}/")).send().await.is_ok(),
             None => false,
         }
     }
@@ -290,7 +276,6 @@ impl BinaryHandle {
         // Send SIGTERM on Unix
         #[cfg(unix)]
         {
-            
             if let Some(pid) = self.process.id() {
                 unsafe {
                     libc::kill(pid as i32, libc::SIGTERM);
@@ -345,15 +330,13 @@ fn extract_port(line: &str) -> Option<u16> {
     // Try JSON format first
     if line.starts_with('{')
         && let Ok(obj) = serde_json::from_str::<serde_json::Value>(line)
-            && let Some(message) = obj.get("fields")?.get("message")?.as_str() {
-                return extract_port(message);
-            }
+        && let Some(message) = obj.get("fields")?.get("message")?.as_str()
+    {
+        return extract_port(message);
+    }
 
     // Look for the pattern "listening on protocol://host:port"
-    let patterns = [
-        "listening on http://",
-        "listening on https://",
-    ];
+    let patterns = ["listening on http://", "listening on https://"];
 
     for pattern in &patterns {
         if let Some(pos) = line.find(pattern) {
@@ -375,9 +358,9 @@ fn extract_port(line: &str) -> Option<u16> {
 // Error types
 // ---------------------------------------------------------------------------
 
-    /// Errors that can occur when spawning the binary.
-    #[derive(thiserror::Error, Debug)]
-    pub enum SpawnError {
+/// Errors that can occur when spawning the binary.
+#[derive(thiserror::Error, Debug)]
+pub enum SpawnError {
     #[error("failed to create temp directory: {0}")]
     TempDir(#[from] std::io::Error),
 
@@ -394,10 +377,16 @@ fn extract_port(line: &str) -> Option<u16> {
     NoStderr,
 
     #[error("server did not become ready within {:?}. Last output:\n{}", .timeout, .last_output)]
-    Timeout { timeout: Duration, last_output: String },
+    Timeout {
+        timeout: Duration,
+        last_output: String,
+    },
 
     #[error("process exited before becoming ready: {status}. Last output:\n{last_output}")]
-    ProcessExited { status: std::process::ExitStatus, last_output: String },
+    ProcessExited {
+        status: std::process::ExitStatus,
+        last_output: String,
+    },
 
     #[error("failed to wait on process: {0}")]
     WaitError(std::io::Error),
