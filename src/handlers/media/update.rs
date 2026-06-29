@@ -43,9 +43,7 @@ pub async fn handle_media_update(
 
             let built = build_select_by_id(&config.table, &["uploader_id"], driver)
                 .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
-            let row = pool
-                .fetch_optional_json(&built.sql, &[id.into()])
-                .await?;
+            let row = pool.fetch_optional_json(&built.sql, &[id.into()]).await?;
             if let Some(row) = row {
                 if let Some(uploader_id) = row.get("uploader_id").and_then(|v| v.as_str()) {
                     if uploader_id != current_user {

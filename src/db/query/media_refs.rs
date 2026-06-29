@@ -34,7 +34,10 @@ pub fn build_media_ref_insert(
     driver: DatabaseDriver,
 ) -> BuiltQuery {
     let table = quote_identifier(table_name, driver);
-    let col_names: Vec<String> = columns.iter().map(|c| quote_identifier(c, driver)).collect();
+    let col_names: Vec<String> = columns
+        .iter()
+        .map(|c| quote_identifier(c, driver))
+        .collect();
     let placeholders: Vec<String> = (1..=columns.len())
         .map(|i| placeholder(driver, i))
         .collect();

@@ -127,8 +127,12 @@ impl DatabaseRevocationStore {
     ///
     /// Returns `AppError::Database` if the lookup query fails.
     pub async fn is_revoked_db(&self, jti: &str) -> bool {
-        let built = revocation::build_revoke_check(&self.table_name, self.pool.driver(), jti.into());
-        let result = self.pool.fetch_optional_json(&built.sql, &built.params).await;
+        let built =
+            revocation::build_revoke_check(&self.table_name, self.pool.driver(), jti.into());
+        let result = self
+            .pool
+            .fetch_optional_json(&built.sql, &built.params)
+            .await;
         matches!(result, Ok(Some(_)))
     }
 

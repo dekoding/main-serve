@@ -22,13 +22,19 @@ pub fn build_select_by_field(
     driver: DatabaseDriver,
 ) -> Result<BuiltQuery, AppError> {
     if columns.is_empty() {
-        return Err(AppError::BadRequest("At least one column is required".to_string()));
+        return Err(AppError::BadRequest(
+            "At least one column is required".to_string(),
+        ));
     }
     if field.is_empty() {
         return Err(AppError::BadRequest("Field name is required".to_string()));
     }
 
-    let cols = columns.iter().map(|c| quote_identifier(c, driver)).collect::<Vec<_>>().join(", ");
+    let cols = columns
+        .iter()
+        .map(|c| quote_identifier(c, driver))
+        .collect::<Vec<_>>()
+        .join(", ");
     let sql = format!(
         "SELECT {} FROM {} WHERE {} = {} LIMIT 1",
         cols,
@@ -47,10 +53,7 @@ pub fn build_select_by_field(
 ///
 /// Used by media/delete.rs, media/resize.rs, media/move_rename.rs,
 /// and file_store.rs to retrieve the stored file path.
-pub fn build_select_file_path(
-    table_name: &str,
-    driver: DatabaseDriver,
-) -> BuiltQuery {
+pub fn build_select_file_path(table_name: &str, driver: DatabaseDriver) -> BuiltQuery {
     BuiltQuery {
         sql: format!(
             "SELECT file_path FROM {} WHERE id = {}",
@@ -64,10 +67,7 @@ pub fn build_select_file_path(
 /// Build `SELECT id, file_path FROM {table} WHERE id = {param} AND trashed_at IS NOT NULL`.
 ///
 /// Used by media/trash.rs to retrieve a trashed media item by ID.
-pub fn build_select_trashed_item(
-    table_name: &str,
-    driver: DatabaseDriver,
-) -> BuiltQuery {
+pub fn build_select_trashed_item(table_name: &str, driver: DatabaseDriver) -> BuiltQuery {
     BuiltQuery {
         sql: format!(
             "SELECT id, file_path FROM {} WHERE id = {} AND trashed_at IS NOT NULL",
@@ -207,10 +207,16 @@ pub fn build_select_by_id(
     driver: DatabaseDriver,
 ) -> Result<BuiltQuery, AppError> {
     if columns.is_empty() {
-        return Err(AppError::BadRequest("At least one column is required".to_string()));
+        return Err(AppError::BadRequest(
+            "At least one column is required".to_string(),
+        ));
     }
 
-    let cols = columns.iter().map(|c| quote_identifier(c, driver)).collect::<Vec<_>>().join(", ");
+    let cols = columns
+        .iter()
+        .map(|c| quote_identifier(c, driver))
+        .collect::<Vec<_>>()
+        .join(", ");
     let sql = format!(
         "SELECT {} FROM {} WHERE id = {}",
         cols,

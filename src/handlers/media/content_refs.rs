@@ -4,8 +4,8 @@ use axum::response::{IntoResponse, Response};
 
 use crate::config::types::MediaConfig;
 use crate::db::query::media_refs::{
-    build_media_ref_insert, build_media_ref_max_order, build_media_ref_select,
-    build_media_ref_delete,
+    build_media_ref_delete, build_media_ref_insert, build_media_ref_max_order,
+    build_media_ref_select,
 };
 use crate::error::AppError;
 
@@ -68,7 +68,12 @@ pub async fn handle_media_attach(
 
     let built = build_media_ref_insert(
         table,
-        &[media_id_col.as_str(), entity_id_col.as_str(), content_type_col.as_str(), order_col.as_str()],
+        &[
+            media_id_col.as_str(),
+            entity_id_col.as_str(),
+            content_type_col.as_str(),
+            order_col.as_str(),
+        ],
         pool.driver(),
     );
 

@@ -337,9 +337,7 @@ pub async fn handle_media_trash_delete(
 
     let built = build_set_trashed(&config.table, pool.driver())
         .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
-    let rows_affected = pool
-        .execute_with_params(&built.sql, &[id.into()])
-        .await?;
+    let rows_affected = pool.execute_with_params(&built.sql, &[id.into()]).await?;
 
     if rows_affected == 0 {
         return Err(AppError::NotFound(format!(

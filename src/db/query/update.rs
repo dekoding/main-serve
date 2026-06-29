@@ -50,10 +50,7 @@ pub fn build_set_deleted_at(
 /// # Errors
 ///
 /// Returns `AppError::BadRequest` if `table_name` is empty.
-pub fn build_set_trashed(
-    table_name: &str,
-    driver: DatabaseDriver,
-) -> Result<BuiltQuery, AppError> {
+pub fn build_set_trashed(table_name: &str, driver: DatabaseDriver) -> Result<BuiltQuery, AppError> {
     if table_name.is_empty() {
         return Err(AppError::BadRequest("Table name is required".to_string()));
     }

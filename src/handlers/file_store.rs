@@ -11,8 +11,8 @@ use crate::db::query::builders::{
 };
 use crate::db::query::helpers::{build_select_list_count, extract_query_params};
 use crate::db::query::select_one::{build_select_by_id, build_select_file_path};
-use crate::db::query::update::build_set_deleted_at;
 use crate::db::query::types::{MutationContext, SelectContext};
+use crate::db::query::update::build_set_deleted_at;
 use crate::error::AppError;
 use crate::middleware::auth::extractor::RequestContext;
 use crate::server::state::AppState;
@@ -192,13 +192,7 @@ async fn handle_file_store_list(
     }
 
     let ctx = SelectContext::permissive();
-    let built = build_select_list(
-        table_config,
-        &ctx,
-        &qp,
-        driver,
-        &RequestContext::default(),
-    )?;
+    let built = build_select_list(table_config, &ctx, &qp, driver, &RequestContext::default())?;
     let rows = pool.fetch_all_json(&built.sql, &built.params).await?;
 
     let count_built = build_select_list_count(
@@ -243,7 +237,7 @@ async fn handle_file_store_get(
     id: &str,
 ) -> Result<Response, AppError> {
     let driver = pool.driver();
-   let built = build_select_one(
+    let built = build_select_one(
         table_config,
         &SelectContext::permissive(),
         id,
@@ -394,7 +388,7 @@ async fn handle_file_store_update(
         serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
     );
 
-   let ctx = MutationContext::default();
+    let ctx = MutationContext::default();
     let built = build_update(
         table_config,
         ctx,
@@ -470,9 +464,7 @@ async fn handle_file_store_delete(
 
         let built = build_set_deleted_at(&config.table, driver)
             .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
-        let rows_affected = pool
-            .execute_with_params(&built.sql, &[id.into()])
-            .await?;
+        let rows_affected = pool.execute_with_params(&built.sql, &[id.into()]).await?;
 
         if rows_affected == 0 {
             return Err(AppError::NotFound(format!(
@@ -560,9 +552,7 @@ async fn check_file_store_ownership(
 
     let built = build_select_by_id(&config.table, &["owner_id"], driver)
         .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
-    let row = pool
-        .fetch_optional_json(&built.sql, &[id.into()])
-        .await?;
+    let row = pool.fetch_optional_json(&built.sql, &[id.into()]).await?;
 
     if let Some(row) = row {
         let owner_id = row.get("owner_id").and_then(|v| v.as_str());
