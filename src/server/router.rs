@@ -1,3 +1,4 @@
+use axum::routing::MethodRouter;
 use std::collections::HashMap;
 use tower_http::compression::CompressionLayer;
 
@@ -270,6 +271,22 @@ fn register_spa_bare_routes(
     router
 }
 
+fn check_use_cors(
+    mut app: Router<AppState>,
+    path: &str,
+    method_router: MethodRouter<AppState>,
+    cors: Option<&crate::config::types::CorsConfig>,
+) -> Router<AppState> {
+    if let Some(cors_config) = cors {
+        app = app
+            .route(path, method_router)
+            .route_layer(build_cors_layer(cors_config));
+    } else {
+        app = app.route(path, method_router);
+    }
+    return app;
+}
+
 fn add_endpoint_route(
     mut app: Router<AppState>,
     path: &str,
@@ -290,13 +307,7 @@ fn add_endpoint_route(
                 ConfigHttpMethod::Options => axum::routing::options(handler),
             };
 
-            if let Some(cors_config) = cors {
-                app = app
-                    .route(path, method_router)
-                    .route_layer(build_cors_layer(cors_config));
-            } else {
-                app = app.route(path, method_router);
-            }
+            app = check_use_cors(app, &path, method_router, cors);
         }
 
         EndpointAction::Crud => {
@@ -311,13 +322,7 @@ fn add_endpoint_route(
                 ConfigHttpMethod::Options => axum::routing::options(handler),
             };
 
-            if let Some(cors_config) = cors {
-                app = app
-                    .route(path, method_router)
-                    .route_layer(build_cors_layer(cors_config));
-            } else {
-                app = app.route(path, method_router);
-            }
+            app = check_use_cors(app, &path, method_router, cors);
         }
 
         EndpointAction::Proxy => {
@@ -332,13 +337,7 @@ fn add_endpoint_route(
                 ConfigHttpMethod::Options => axum::routing::options(handler),
             };
 
-            if let Some(cors_config) = cors {
-                app = app
-                    .route(path, method_router)
-                    .route_layer(build_cors_layer(cors_config));
-            } else {
-                app = app.route(path, method_router);
-            }
+            app = check_use_cors(app, &path, method_router, cors);
         }
 
         EndpointAction::StaticFiles => {
@@ -360,13 +359,7 @@ fn add_endpoint_route(
                     ConfigHttpMethod::Get => axum::routing::get(handle_static_files_route),
                 };
 
-                if let Some(cors_config) = cors {
-                    app = app
-                        .route(path, method_router)
-                        .route_layer(build_cors_layer(cors_config));
-                } else {
-                    app = app.route(path, method_router);
-                }
+                app = check_use_cors(app, &path, method_router, cors);
             } else {
                 let handler = handle_static_files_route;
                 let method_router = match method {
@@ -379,13 +372,7 @@ fn add_endpoint_route(
                     ConfigHttpMethod::Options => axum::routing::options(handler),
                 };
 
-                if let Some(cors_config) = cors {
-                    app = app
-                        .route(path, method_router)
-                        .route_layer(build_cors_layer(cors_config));
-                } else {
-                    app = app.route(path, method_router);
-                }
+                app = check_use_cors(app, &path, method_router, cors);
             }
         }
 
@@ -412,13 +399,7 @@ fn add_endpoint_route(
                 }
             };
 
-            if let Some(cors_config) = cors {
-                app = app
-                    .route(path, method_router)
-                    .route_layer(build_cors_layer(cors_config));
-            } else {
-                app = app.route(path, method_router);
-            }
+            app = check_use_cors(app, &path, method_router, cors);
         }
         EndpointAction::Media => {
             let media_handler = handle_media_route;
@@ -452,13 +433,7 @@ fn add_endpoint_route(
                     ConfigHttpMethod::Patch => axum::routing::patch(media_upload_handler),
                     _ => unreachable!(),
                 };
-                if let Some(cors_config) = cors {
-                    app = app
-                        .route(path, upload_method_router)
-                        .route_layer(build_cors_layer(cors_config));
-                } else {
-                    app = app.route(path, upload_method_router);
-                }
+                app = check_use_cors(app, &path, upload_method_router, cors);
             } else {
                 // Register regular media routes for methods without upload handlers
                 // or when upload is not enabled
@@ -472,13 +447,7 @@ fn add_endpoint_route(
                     ConfigHttpMethod::Options => axum::routing::options(media_handler),
                 };
 
-                if let Some(cors_config) = cors {
-                    app = app
-                        .route(path, method_router)
-                        .route_layer(build_cors_layer(cors_config));
-                } else {
-                    app = app.route(path, method_router);
-                }
+                app = check_use_cors(app, &path, method_router, cors);
             }
         }
 
@@ -494,13 +463,7 @@ fn add_endpoint_route(
                 ConfigHttpMethod::Options => axum::routing::options(handler),
             };
 
-            if let Some(cors_config) = cors {
-                app = app
-                    .route(path, method_router)
-                    .route_layer(build_cors_layer(cors_config));
-            } else {
-                app = app.route(path, method_router);
-            }
+            app = check_use_cors(app, &path, method_router, cors);
         }
     }
     app
