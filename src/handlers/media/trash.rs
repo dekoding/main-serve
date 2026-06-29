@@ -6,9 +6,12 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
 use crate::config::types::{EndpointConfig, MediaConfig, TableConfig};
-use crate::db::migration::quote_object_name;
-use crate::db::query::builders::{build_delete, build_select_list};
-use crate::db::query::types::QueryParams;
+use crate::db::query::builders::build_delete;
+use crate::db::query::select_one::{
+    build_select_file_path, build_select_trashed, build_select_trashed_ids,
+    build_select_trashed_item,
+};
+use crate::db::query::update::{build_set_restored, build_set_trashed};
 use crate::error::AppError;
 use crate::handlers::media::extract_auth_info;
 use crate::middleware::auth::extractor::RequestContext;
@@ -102,23 +105,8 @@ pub async fn handle_media_trash_list(
     pool: &crate::db::pool::DatabasePool,
     table_config: &TableConfig,
 ) -> Result<Response, AppError> {
-    let qp = QueryParams {
-        page: None,
-        page_size: None,
-        sort: None,
-        order: Some(crate::config::types::SortOrder::Desc),
-        filters: HashMap::new(),
-    };
-
-    let built = build_select_list(
-        table_config,
-        &crate::config::types::CrudConfig::default(),
-        &qp,
-        pool.driver(),
-        &RequestContext::default(),
-    )?;
-    let sql = format!("{} WHERE trashed_at IS NOT NULL", built.sql);
-    let rows = pool.fetch_all_json(&sql, &[]).await?;
+    let built = build_select_trashed(&table_config.name, pool.driver());
+    let rows = pool.fetch_all_json(&built.sql, &[]).await?;
 
     Ok((StatusCode::OK, axum::Json(rows)).into_response())
 }
@@ -141,11 +129,8 @@ pub async fn handle_media_trash_restore(
         .as_ref()
         .ok_or_else(|| AppError::Internal("Trash not enabled".to_string()))?;
 
-    let sql = format!(
-        "SELECT id, file_path FROM {} WHERE id = $1 AND trashed_at IS NOT NULL",
-        config.table
-    );
-    let row = pool.fetch_optional_json(&sql, &[id.into()]).await?;
+    let built = build_select_trashed_item(&config.table, pool.driver());
+    let row = pool.fetch_optional_json(&built.sql, &[id.into()]).await?;
 
     let file_path = match row {
         Some(r) => r
@@ -181,11 +166,9 @@ pub async fn handle_media_trash_restore(
             .map_err(|e| AppError::FileOperation(format!("Failed to restore file: {e}")))?;
     }
 
-    let update_sql = format!(
-        "UPDATE {} SET trashed_at = NULL, deleted_at = NULL WHERE id = $1",
-        config.table
-    );
-    pool.execute_with_params(&update_sql, &[id.into()]).await?;
+    let built = build_set_restored(&config.table, pool.driver())
+        .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
+    pool.execute_with_params(&built.sql, &[id.into()]).await?;
 
     Ok((
         StatusCode::OK,
@@ -204,11 +187,8 @@ pub async fn handle_media_trash_empty(
     pool: &crate::db::pool::DatabasePool,
     table_config: &TableConfig,
 ) -> Result<Response, AppError> {
-    let sql = format!(
-        "SELECT id FROM {} WHERE trashed_at IS NOT NULL",
-        config.table
-    );
-    let rows = pool.fetch_all_json(&sql, &[]).await?;
+    let built = build_select_trashed_ids(&config.table, pool.driver());
+    let rows = pool.fetch_all_json(&built.sql, &[]).await?;
 
     let mut deleted_count = 0u64;
 
@@ -256,11 +236,8 @@ pub async fn handle_media_trash_permanent_delete(
         .as_ref()
         .ok_or_else(|| AppError::Internal("Trash not enabled".to_string()))?;
 
-    let sql = format!(
-        "SELECT id, file_path FROM {} WHERE id = $1 AND trashed_at IS NOT NULL",
-        config.table
-    );
-    let row = pool.fetch_optional_json(&sql, &[id.into()]).await?;
+    let built = build_select_trashed_item(&config.table, pool.driver());
+    let row = pool.fetch_optional_json(&built.sql, &[id.into()]).await?;
 
     let file_path: String = if let Some(r) = row {
         r.get("file_path")
@@ -328,12 +305,8 @@ pub async fn handle_media_trash_delete(
     let auth_info = extract_auth_info(state, endpoint, headers, query_params).await?;
     let user_id = auth_info.subject;
 
-    let driver = pool.driver();
-    let path_check = format!(
-        "SELECT file_path FROM {} WHERE id = $1",
-        quote_object_name(&config.table, driver)
-    );
-    let row = pool.fetch_optional_json(&path_check, &[id.into()]).await?;
+    let built = build_select_file_path(&config.table, pool.driver());
+    let row = pool.fetch_optional_json(&built.sql, &[id.into()]).await?;
 
     let file_path = row
         .as_ref()
@@ -362,11 +335,11 @@ pub async fn handle_media_trash_delete(
             .map_err(|e| AppError::FileOperation(format!("Failed to move file to trash: {e}")))?;
     }
 
-    let update_sql = format!(
-        "UPDATE {} SET deleted_at = NOW(), trashed_at = NOW() WHERE id = $1",
-        config.table
-    );
-    let rows_affected = pool.execute_with_params(&update_sql, &[id.into()]).await?;
+    let built = build_set_trashed(&config.table, pool.driver())
+        .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
+    let rows_affected = pool
+        .execute_with_params(&built.sql, &[id.into()])
+        .await?;
 
     if rows_affected == 0 {
         return Err(AppError::NotFound(format!(

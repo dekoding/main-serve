@@ -7,7 +7,7 @@ use axum::response::{IntoResponse, Response};
 use crate::config::types::MediaConfig;
 use crate::db::query::builders::{build_select_list, build_select_one};
 use crate::db::query::helpers::build_select_list_count;
-use crate::db::query::types::QueryParams;
+use crate::db::query::types::{QueryParams, SelectContext};
 use crate::error::AppError;
 use crate::middleware::auth::extractor::RequestContext;
 
@@ -57,7 +57,7 @@ pub async fn handle_media_list(
 
     let built = build_select_list(
         table_config,
-        &crate::config::types::CrudConfig::default(),
+        &SelectContext::permissive(),
         &qp,
         driver,
         &RequestContext::default(),
@@ -68,7 +68,7 @@ pub async fn handle_media_list(
         &config.table,
         driver,
         &qp,
-        &crate::config::types::CrudConfig::default(),
+        &SelectContext::permissive(),
         &RequestContext::default(),
     )?;
     let count_row = pool
@@ -102,7 +102,7 @@ pub async fn handle_media_get(
     let driver = pool.driver();
     let built = build_select_one(
         table_config,
-        &crate::config::types::CrudConfig::default(),
+        &SelectContext::permissive(),
         id,
         driver,
         &RequestContext::default(),

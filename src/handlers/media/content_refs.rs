@@ -3,6 +3,10 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
 use crate::config::types::MediaConfig;
+use crate::db::query::media_refs::{
+    build_media_ref_insert, build_media_ref_max_order, build_media_ref_select,
+    build_media_ref_delete,
+};
 use crate::error::AppError;
 
 /// Handle content reference attach.
@@ -53,11 +57,8 @@ pub async fn handle_media_attach(
     let content_type_col = &content_refs.content_type_column;
     let order_col = &content_refs.order_column;
 
-    let max_order_sql = format!(
-        "SELECT COALESCE(MAX({}), 0) as max_order FROM {}",
-        order_col, table
-    );
-    let max_row = pool.fetch_optional_json(&max_order_sql, &[]).await?;
+    let built = build_media_ref_max_order(table, order_col, pool.driver());
+    let max_row = pool.fetch_optional_json(&built.sql, &[]).await?;
     let max_order: i64 = max_row
         .as_ref()
         .and_then(|r| r.get("max_order").and_then(|v| v.as_i64()))
@@ -65,29 +66,33 @@ pub async fn handle_media_attach(
 
     let next_order = max_order + 1;
 
-    let insert_sql = format!(
-        "INSERT INTO {} ({}, {}, {}, {}) VALUES ($1, $2, $3, $4)",
-        table, media_id_col, entity_id_col, content_type_col, order_col
+    let built = build_media_ref_insert(
+        table,
+        &[media_id_col.as_str(), entity_id_col.as_str(), content_type_col.as_str(), order_col.as_str()],
+        pool.driver(),
     );
 
     pool.execute_with_params(
-        &insert_sql,
+        &built.sql,
         &[
             id.into(),
-            serde_json::Value::String(entity_id_str),
+            serde_json::Value::String(entity_id_str.clone()),
             serde_json::Value::String(content_type_str.clone()),
             serde_json::Value::Number(serde_json::Number::from(next_order)),
         ],
     )
     .await?;
 
-    let select_sql = format!(
-        "SELECT * FROM {} WHERE {} = $1 AND {} = $2 AND {} = $3",
-        table, media_id_col, entity_id_col, content_type_col
+    let built = build_media_ref_select(
+        table,
+        media_id_col,
+        entity_id_col,
+        content_type_col,
+        pool.driver(),
     );
     let row = pool
         .fetch_optional_json(
-            &select_sql,
+            &built.sql,
             &[id.into(), entity_id.into(), content_type_str.into()],
         )
         .await?;
@@ -132,14 +137,16 @@ pub async fn handle_media_detach(
     let entity_id_col = &content_refs.entity_id_column;
     let content_type_col = &content_refs.content_type_column;
 
-    let delete_sql = format!(
-        "DELETE FROM {} WHERE {} = $1 AND {} = $2 AND {} = $3",
-        table, media_id_col, entity_id_col, content_type_col
+    let built = build_media_ref_delete(
+        table,
+        media_id_col,
+        entity_id_col,
+        content_type_col,
+        pool.driver(),
     );
-
     let rows_affected = pool
         .execute_with_params(
-            &delete_sql,
+            &built.sql,
             &[
                 id.into(),
                 serde_json::Value::String(entity_id.to_string()),

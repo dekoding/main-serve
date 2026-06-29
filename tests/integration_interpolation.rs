@@ -11,14 +11,16 @@ use main_serve::config::types::CrudConfig;
 use main_serve::config::types::DatabaseDriver;
 use main_serve::config::types::TableConfig;
 use main_serve::db::query::builders::{build_insert, build_select_list, build_update};
+use main_serve::db::query::types::MutationContext;
 use main_serve::db::query::types::QueryParams;
+use main_serve::db::query::types::SelectContext;
 use main_serve::middleware::auth::extractor::RequestContext;
 
 // =============================================================================
 // Test Environment Setup
 // =============================================================================
 
-fn setup_test_env() -> (TableConfig, CrudConfig) {
+fn setup_test_env() -> (TableConfig, SelectContext, MutationContext) {
     let table = TableConfig {
         name: "posts".to_string(),
         database: "test".to_string(),
@@ -73,12 +75,15 @@ fn setup_test_env() -> (TableConfig, CrudConfig) {
         ..Default::default()
     };
 
-    (table, crud)
+    let select_ctx = SelectContext::from(&crud);
+    let mutate_ctx = MutationContext::from(&crud);
+
+    (table, select_ctx, mutate_ctx)
 }
 
 #[tokio::test]
 async fn test_interpolation_in_where_clause() {
-    let (table, crud) = setup_test_env();
+    let (table, select_ctx, _) = setup_test_env();
     let context = RequestContext {
         user_id: Some("123".to_string()),
         ..Default::default()
@@ -86,7 +91,7 @@ async fn test_interpolation_in_where_clause() {
 
     let q = build_select_list(
         &table,
-        &crud,
+        &select_ctx,
         &QueryParams::default(),
         DatabaseDriver::Sqlite,
         &context,
@@ -99,7 +104,7 @@ async fn test_interpolation_in_where_clause() {
 
 #[tokio::test]
 async fn test_interpolation_in_insert_body() {
-    let (table, crud) = setup_test_env();
+    let (table, _, mutate_ctx) = setup_test_env();
     let context = RequestContext {
         user_id: Some("456".to_string()),
         ..Default::default()
@@ -111,7 +116,7 @@ async fn test_interpolation_in_insert_body() {
         "author_name": "Admin"
     });
 
-    let q = build_insert(&table, &crud, &body, DatabaseDriver::Sqlite, &context).unwrap();
+    let q = build_insert(&table, &mutate_ctx, &body, DatabaseDriver::Sqlite, &context).unwrap();
 
     // Note: Sqlite/Mysql order might vary due to BTreeMap in serde_json
     // But we check if "456" is in params.
@@ -121,7 +126,7 @@ async fn test_interpolation_in_insert_body() {
 
 #[tokio::test]
 async fn test_interpolation_in_update_body() {
-    let (table, crud) = setup_test_env();
+    let (table, _, mutate_ctx) = setup_test_env();
     let context = RequestContext {
         user_id: Some("789".to_string()),
         ..Default::default()
@@ -133,7 +138,7 @@ async fn test_interpolation_in_update_body() {
 
     let q = build_update(
         &table,
-        &crud,
+        mutate_ctx,
         "1",
         &body,
         DatabaseDriver::Sqlite,
@@ -150,14 +155,14 @@ async fn test_interpolation_in_update_body() {
 
 #[tokio::test]
 async fn test_interpolation_with_default_value() {
-    let (table, crud) = setup_test_env();
+    let (table, _, mutate_ctx) = setup_test_env();
     let context = RequestContext::default(); // user_id is None
 
     let body = serde_json::json!({
         "author_name": "${request.user.name:-Anonymous}"
     });
 
-    let q = build_insert(&table, &crud, &body, DatabaseDriver::Sqlite, &context).unwrap();
+    let q = build_insert(&table, &mutate_ctx, &body, DatabaseDriver::Sqlite, &context).unwrap();
 
     assert!(q.params.contains(&serde_json::json!("Anonymous")));
 }

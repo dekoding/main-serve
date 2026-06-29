@@ -664,7 +664,7 @@ async fn setup_blog_server() -> BinaryHandle {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
-            .as_micros()
+            .as_nanos()
     );
     let config = BLOG_CONFIG.replace(
         "sqlite://blog.db?mode=rwc",

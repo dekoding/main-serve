@@ -231,10 +231,6 @@ pub(super) fn default_fallback_status() -> u16 {
     200
 }
 
-pub(super) fn default_join_type() -> super::crud::JoinType {
-    super::crud::JoinType::Inner
-}
-
 pub(super) fn default_max_response_size() -> u64 {
     256 * 1024 * 1024 // 256 MiB
 }

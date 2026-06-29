@@ -9,8 +9,10 @@ use http_body_util::BodyExt;
 
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
 
-use crate::config::types::{DatabaseDriver, JwtAlgorithm};
-use crate::db::migration::quote_object_name;
+use crate::config::types::JwtAlgorithm;
+use crate::db::query::select_one::{
+    build_insert_user, build_select_by_field, build_select_user_for_login, build_table_columns,
+};
 use crate::error::AppError;
 use crate::middleware::auth::validators::jwt::create_token;
 use crate::server::state::AppState;
@@ -186,37 +188,14 @@ pub async fn handle_register(
     };
 
     let driver = pool.driver();
-    let ts: String = match driver {
-        DatabaseDriver::Sqlite => "CURRENT_TIMESTAMP".to_string(),
-        _ => "NOW()".to_string(),
-    };
-
-    // Query table columns to build dynamic INSERT based on available columns.
     let table_name = &register_config.table;
-    let column_rows = match pool.driver() {
-        DatabaseDriver::Sqlite => {
-            pool.fetch_all_json(
-                &format!("PRAGMA table_info({})", quote_object_name(table_name, driver)),
-                &[],
-            )
-            .await
-        }
-        DatabaseDriver::Postgres => {
-            pool.fetch_all_json(
-                "SELECT column_name FROM information_schema.columns WHERE table_name = $1 ORDER BY ordinal_position",
-                &[serde_json::Value::String(table_name.to_owned())],
-            )
-            .await
-        }
-        DatabaseDriver::Mysql => {
-            pool.fetch_all_json(
-                "SELECT column_name FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? ORDER BY ordinal_position",
-                &[serde_json::Value::String(table_name.to_owned())],
-            )
-            .await
-        }
-    }
-    .map_err(|e| AppError::Internal(format!("Database query error: {e}")))?;
+
+    // Introspect table columns to determine if timestamps should be included.
+    let built = build_table_columns(table_name, driver);
+    let column_rows = pool
+        .fetch_all_json(&built.sql, &built.params)
+        .await
+        .map_err(|e| AppError::Internal(format!("Database query error: {e}")))?;
 
     let col_names: Vec<String> = column_rows
         .iter()
@@ -229,61 +208,20 @@ pub async fn handle_register(
         })
         .collect();
 
-    let has_created_at = col_names.contains(&"created_at".to_string());
-    let has_updated_at = col_names.contains(&"updated_at".to_string());
+    let include_timestamps = col_names.contains(&"created_at".to_string())
+        && col_names.contains(&"updated_at".to_string());
 
-    // Build INSERT columns and values dynamically.
-    let mut insert_cols = vec![
-        "email".to_string(),
-        "password_hash".to_string(),
-        "role".to_string(),
-    ];
-    let mut insert_placeholders: Vec<String> = vec![
-        ph_param(driver, 1),
-        ph_param(driver, 2),
-        ph_param(driver, 3),
-    ];
-
-    if has_created_at {
-        insert_cols.push("created_at".to_string());
-        insert_placeholders.push(ts.clone());
-    }
-    if has_updated_at {
-        insert_cols.push("updated_at".to_string());
-        insert_placeholders.push(ts.clone());
-    }
-
-    // Build the INSERT statement.
-    let cols_str = insert_cols
-        .iter()
-        .map(|c| quote_col(c, driver))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let placeholders_str = insert_placeholders.join(", ");
-
-    let insert_sql = format!(
-        "INSERT INTO {} ({}) VALUES ({})",
-        quote_object_name(table_name, driver),
-        cols_str,
-        placeholders_str
-    );
-
-    let params: Vec<serde_json::Value> = vec![
+    // Check email uniqueness using builder.
+    let built = build_select_by_field(
+        table_name,
+        &["email"],
+        "email",
         body.email.clone().into(),
-        password_hash.clone().into(),
-        register_config.default_role.clone().into(),
-    ];
-
-    // Check email exists.
-    let email_col = quote_col("email", driver);
+        driver,
+    )
+    .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
     let existing = pool
-        .fetch_optional_json(
-            &format!(
-                "SELECT {email_col} FROM {} WHERE {email_col} = ? LIMIT 1",
-                quote_object_name(table_name, driver)
-            ),
-            &[body.email.clone().into()],
-        )
+        .fetch_optional_json(&built.sql, &built.params)
         .await
         .map_err(|e| AppError::Internal(format!("Database query error: {e}")))?;
 
@@ -291,19 +229,32 @@ pub async fn handle_register(
         return Err(AppError::BadRequest("Email already registered".to_string()));
     }
 
-    pool.execute_with_params(&insert_sql, &params)
+    // Insert the new user using the builder.
+    let built = build_insert_user(
+        table_name,
+        &body.email,
+        &password_hash,
+        &register_config.default_role,
+        include_timestamps,
+        driver,
+    )
+    .map_err(|e| AppError::Internal(format!("Failed to build insert query: {e}")))?;
+
+    pool.execute_with_params(&built.sql, &built.params)
         .await
         .map_err(|e| AppError::Internal(format!("Database insert error: {e}")))?;
 
     // Fetch the newly created user to get their ID.
+    let built = build_select_by_field(
+        table_name,
+        &["id", "email", "role"],
+        "email",
+        body.email.clone().into(),
+        driver,
+    )
+    .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
     let user_row = pool
-        .fetch_optional_json(
-            &format!(
-                "SELECT id, email, role FROM {} WHERE email = ?",
-                quote_object_name(&register_config.table, driver)
-            ),
-            &[body.email.clone().into()],
-        )
+        .fetch_optional_json(&built.sql, &built.params)
         .await
         .map_err(|e| AppError::Internal(format!("Database query error: {e}")))?
         .ok_or_else(|| AppError::Internal("Failed to retrieve newly created user".to_string()))?;
@@ -397,19 +348,11 @@ pub async fn handle_login(
     };
 
     let driver = pool.driver();
-    let email_param = match driver {
-        DatabaseDriver::Postgres => "$1",
-        _ => "?",
-    };
 
+    let built = build_select_user_for_login("users", driver)
+        .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
     let row = pool
-        .fetch_optional_json(
-            &format!(
-                "SELECT id, email, password_hash, role FROM {} WHERE email = {email_param} LIMIT 1",
-                quote_object_name("users", driver)
-            ),
-            &[body.email.clone().into()],
-        )
+        .fetch_optional_json(&built.sql, &[body.email.clone().into()])
         .await
         .map_err(|e| AppError::Internal(format!("Database query error: {e}")))?;
 
@@ -509,22 +452,6 @@ fn verify_password(password: &str, hash: &str) -> Result<bool, AppError> {
         Err(e) => Err(AppError::Internal(format!(
             "Password verification error: {e}"
         ))),
-    }
-}
-
-/// Generate a placeholder for the given parameter index.
-fn ph_param(driver: DatabaseDriver, idx: i64) -> String {
-    match driver {
-        DatabaseDriver::Postgres => format!("${}", idx),
-        _ => "?".to_string(),
-    }
-}
-
-/// Quote a column identifier.
-fn quote_col(name: &str, driver: DatabaseDriver) -> String {
-    match driver {
-        DatabaseDriver::Mysql => format!("`{}`", name),
-        DatabaseDriver::Sqlite | DatabaseDriver::Postgres => format!("\"{}\"", name),
     }
 }
 

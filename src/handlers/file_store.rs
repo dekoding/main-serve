@@ -6,11 +6,13 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
 use crate::config::types::{DatabaseDriver, EndpointConfig, FileStoreConfig};
-use crate::db::migration::quote_object_name;
 use crate::db::query::builders::{
     build_delete, build_insert, build_select_list, build_select_one, build_update,
 };
 use crate::db::query::helpers::{build_select_list_count, extract_query_params};
+use crate::db::query::select_one::{build_select_by_id, build_select_file_path};
+use crate::db::query::update::build_set_deleted_at;
+use crate::db::query::types::{MutationContext, SelectContext};
 use crate::error::AppError;
 use crate::middleware::auth::extractor::RequestContext;
 use crate::server::state::AppState;
@@ -189,9 +191,10 @@ async fn handle_file_store_list(
         );
     }
 
+    let ctx = SelectContext::permissive();
     let built = build_select_list(
         table_config,
-        &crate::config::types::CrudConfig::default(),
+        &ctx,
         &qp,
         driver,
         &RequestContext::default(),
@@ -202,7 +205,7 @@ async fn handle_file_store_list(
         &config.table,
         driver,
         &qp,
-        &crate::config::types::CrudConfig::default(),
+        &SelectContext::permissive(),
         &RequestContext::default(),
     )?;
     let count_row = pool
@@ -240,9 +243,9 @@ async fn handle_file_store_get(
     id: &str,
 ) -> Result<Response, AppError> {
     let driver = pool.driver();
-    let built = build_select_one(
+   let built = build_select_one(
         table_config,
-        &crate::config::types::CrudConfig::default(),
+        &SelectContext::permissive(),
         id,
         driver,
         &RequestContext::default(),
@@ -326,7 +329,7 @@ async fn handle_file_store_create(
     let json_body = serde_json::Value::Object(body_map);
     let built = build_insert(
         table_config,
-        &crate::config::types::CrudConfig::default(),
+        &MutationContext::default(),
         &json_body,
         driver,
         &RequestContext::default(),
@@ -391,9 +394,10 @@ async fn handle_file_store_update(
         serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
     );
 
+   let ctx = MutationContext::default();
     let built = build_update(
         table_config,
-        &crate::config::types::CrudConfig::default(),
+        ctx,
         id,
         &serde_json::Value::Object(body_map),
         driver,
@@ -441,11 +445,8 @@ async fn handle_file_store_delete(
         }
 
         // Move file to trash if file_path column exists
-        let path_check = format!(
-            "SELECT file_path FROM {} WHERE id = $1",
-            quote_object_name(&config.table, driver)
-        );
-        let row = pool.fetch_optional_json(&path_check, &[id.into()]).await?;
+        let built = build_select_file_path(&config.table, driver);
+        let row = pool.fetch_optional_json(&built.sql, &[id.into()]).await?;
         if let Some(row) = row {
             if let Some(file_path) = row.get("file_path").and_then(|v| v.as_str()) {
                 let store_root = storage
@@ -467,11 +468,11 @@ async fn handle_file_store_delete(
             }
         }
 
-        let update_sql = format!(
-            "UPDATE {} SET deleted_at = NOW() WHERE id = $1",
-            quote_object_name(&config.table, driver)
-        );
-        let rows_affected = pool.execute_with_params(&update_sql, &[id.into()]).await?;
+        let built = build_set_deleted_at(&config.table, driver)
+            .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
+        let rows_affected = pool
+            .execute_with_params(&built.sql, &[id.into()])
+            .await?;
 
         if rows_affected == 0 {
             return Err(AppError::NotFound(format!(
@@ -497,11 +498,8 @@ async fn handle_file_store_delete(
         }
 
         // Delete file from storage
-        let path_check = format!(
-            "SELECT file_path FROM {} WHERE id = $1",
-            quote_object_name(&config.table, driver)
-        );
-        let row = pool.fetch_optional_json(&path_check, &[id.into()]).await?;
+        let built = build_select_file_path(&config.table, driver);
+        let row = pool.fetch_optional_json(&built.sql, &[id.into()]).await?;
         if let Some(row) = row {
             if let Some(file_path) = row.get("file_path").and_then(|v| v.as_str()) {
                 let file_path_buf = storage
@@ -560,11 +558,11 @@ async fn check_file_store_ownership(
             .clone()
     };
 
-    let owner_check = format!(
-        "SELECT owner_id FROM {} WHERE id = $1",
-        quote_object_name(&config.table, driver)
-    );
-    let row = pool.fetch_optional_json(&owner_check, &[id.into()]).await?;
+    let built = build_select_by_id(&config.table, &["owner_id"], driver)
+        .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
+    let row = pool
+        .fetch_optional_json(&built.sql, &[id.into()])
+        .await?;
 
     if let Some(row) = row {
         let owner_id = row.get("owner_id").and_then(|v| v.as_str());

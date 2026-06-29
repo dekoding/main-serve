@@ -1,5 +1,5 @@
 use crate::config::types::DatabaseDriver;
-use crate::db::query::types::QueryParams;
+use crate::db::query::types::{QueryParams, SelectContext};
 use crate::error::AppError;
 use crate::middleware::auth::extractor::RequestContext;
 
@@ -13,13 +13,13 @@ pub fn build_select_list_count(
     table_name: &str,
     driver: DatabaseDriver,
     query_params: &QueryParams,
-    crud: &crate::config::types::CrudConfig,
+    ctx: &SelectContext,
     context: &RequestContext,
 ) -> Result<crate::db::query::types::BuiltQuery, AppError> {
     use crate::db::query::select::SelectBuilder;
 
     let mut sb = SelectBuilder::new(table_name, vec!["COUNT(*) as count".to_string()], driver);
-    sb.apply_where_clause(crud, context)?;
+    sb.apply_where_clause(ctx, context)?;
 
     // Apply query param filters without table validation.
     for (key, value) in &query_params.filters {

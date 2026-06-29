@@ -6,6 +6,7 @@ use axum::response::{IntoResponse, Response};
 
 use crate::config::types::{EndpointConfig, TableConfig};
 use crate::db::query::builders::build_insert;
+use crate::db::query::types::MutationContext;
 use crate::error::AppError;
 use crate::handlers::media::extract_user_id;
 use crate::middleware::auth::extractor::RequestContext;
@@ -56,7 +57,7 @@ pub async fn handle_media_create(
     let json_body = serde_json::Value::Object(body_map);
     let built = build_insert(
         table_config,
-        &crate::config::types::CrudConfig::default(),
+        &MutationContext::default(),
         &json_body,
         driver,
         &RequestContext::default(),

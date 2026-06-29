@@ -5,8 +5,9 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
 use crate::config::types::{DatabaseDriver, EndpointConfig, MediaConfig, TableConfig};
-use crate::db::migration::quote_object_name;
 use crate::db::query::builders::build_update;
+use crate::db::query::select_one::build_select_by_id;
+use crate::db::query::types::MutationContext;
 use crate::error::AppError;
 use crate::middleware::auth::extractor::RequestContext;
 
@@ -40,11 +41,11 @@ pub async fn handle_media_update(
                     .clone()
             };
 
-            let user_check = format!(
-                "SELECT uploader_id FROM {} WHERE id = $1",
-                quote_object_name(&config.table, driver)
-            );
-            let row = pool.fetch_optional_json(&user_check, &[id.into()]).await?;
+            let built = build_select_by_id(&config.table, &["uploader_id"], driver)
+                .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
+            let row = pool
+                .fetch_optional_json(&built.sql, &[id.into()])
+                .await?;
             if let Some(row) = row {
                 if let Some(uploader_id) = row.get("uploader_id").and_then(|v| v.as_str()) {
                     if uploader_id != current_user {
@@ -91,7 +92,7 @@ pub async fn handle_media_update(
 
     let built = build_update(
         table_config,
-        &crate::config::types::CrudConfig::default(),
+        MutationContext::default(),
         id,
         &serde_json::Value::Object(body_map),
         driver,

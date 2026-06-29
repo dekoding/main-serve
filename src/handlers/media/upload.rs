@@ -8,6 +8,7 @@ use uuid::Uuid;
 
 use crate::config::types::{DatabaseDriver, EndpointConfig, MediaConfig, TableConfig};
 use crate::db::query::builders::build_insert;
+use crate::db::query::types::MutationContext;
 use crate::error::AppError;
 use crate::handlers::media::extract_auth_info;
 use crate::handlers::static_files::upload::{build_storage_path, sanitize_filename};
@@ -191,9 +192,11 @@ pub async fn handle_media_upload(
         ..Default::default()
     };
 
+    let ctx = MutationContext::from(&crud_config);
+
     let built = build_insert(
         &table_config,
-        &crud_config,
+        &ctx,
         &serde_json::Value::Object(insert_map),
         driver,
         &RequestContext::default(),

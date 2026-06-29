@@ -18,6 +18,7 @@ use crate::db::query::builders::{
     build_delete, build_insert, build_select_list, build_select_one, build_update,
 };
 use crate::db::query::helpers::{build_select_list_count, extract_query_params};
+use crate::db::query::types::{MutationContext, SelectContext};
 use crate::error::AppError;
 use crate::middleware::auth::extractor::RequestContext;
 use crate::server::state::AppState;
@@ -42,6 +43,9 @@ pub async fn handle_crud(
         .crud
         .as_ref()
         .ok_or_else(|| AppError::Internal("CRUD config missing on crud endpoint".to_string()))?;
+
+    let select_ctx = SelectContext::from(crud);
+    let mutate_ctx = MutationContext::from(crud);
 
     let config = state.config.read().await;
     let table_config = config
@@ -71,7 +75,7 @@ pub async fn handle_crud(
         // GET /resources -> list
         ("GET", None) => {
             let qp = extract_query_params(&query_string);
-            let built = match build_select_list(table_config, crud, &qp, driver, &context) {
+            let built = match build_select_list(table_config, &select_ctx, &qp, driver, &context) {
                 Ok(q) => q,
                 Err(e) => {
                     tracing::error!("build_select_list failed: {:?}", e);
@@ -104,7 +108,8 @@ pub async fn handle_crud(
             let page = qp.page.unwrap_or(1);
 
             // Get total count using the same filters as the list query.
-            let count_q = build_select_list_count(&table_config.name, driver, &qp, crud, &context);
+            let count_q =
+                build_select_list_count(&table_config.name, driver, &qp, &select_ctx, &context);
             let total = match count_q {
                 Ok(count_build) => match pool
                     .fetch_optional_json(&count_build.sql, &count_build.params)
@@ -138,7 +143,7 @@ pub async fn handle_crud(
 
         // GET /resources/{id} -> get one
         ("GET", Some(pk)) => {
-            let built = build_select_one(table_config, crud, pk, driver, &context)?;
+            let built = build_select_one(table_config, &select_ctx, pk, driver, &context)?;
             match pool.fetch_optional_json(&built.sql, &built.params).await? {
                 Some(row) => Ok((StatusCode::OK, Json(row)).into_response()),
                 None => Err(AppError::NotFound(format!(
@@ -153,7 +158,7 @@ pub async fn handle_crud(
             let body = body
                 .ok_or_else(|| AppError::BadRequest("Request body required".to_string()))?
                 .0;
-            let built = match build_insert(table_config, crud, &body, driver, &context) {
+            let built = match build_insert(table_config, &mutate_ctx, &body, driver, &context) {
                 Ok(q) => q,
                 Err(e) => {
                     return Err(e);
@@ -184,7 +189,7 @@ pub async fn handle_crud(
                 .0;
             let built = build_update(
                 table_config,
-                crud,
+                mutate_ctx,
                 pk,
                 &body,
                 driver,

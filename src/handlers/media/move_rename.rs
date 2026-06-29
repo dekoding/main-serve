@@ -5,7 +5,8 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
 use crate::config::types::MediaConfig;
-use crate::db::migration::quote_object_name;
+use crate::db::query::select_one::build_select_file_path;
+use crate::db::query::update::build_set_file_path;
 use crate::error::AppError;
 use crate::storage::Storage;
 
@@ -34,12 +35,8 @@ pub async fn handle_media_move(
         .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::BadRequest("destination_path is required".to_string()))?;
 
-    let driver = pool.driver();
-    let sql = format!(
-        "SELECT file_path FROM {} WHERE id = $1",
-        quote_object_name(&config.table, driver)
-    );
-    let row = pool.fetch_optional_json(&sql, &[id.into()]).await?;
+    let built = build_select_file_path(&config.table, pool.driver());
+    let row = pool.fetch_optional_json(&built.sql, &[id.into()]).await?;
 
     let current_file_path = row
         .and_then(|r| {
@@ -75,12 +72,14 @@ pub async fn handle_media_move(
         .map(|p| format!("/{}", p.to_string_lossy()))
         .unwrap_or_else(|_| format!("/{}", new_path.to_string_lossy()));
 
-    let update_sql = format!(
-        "UPDATE {} SET file_path = $1 WHERE id = $2",
-        quote_object_name(&config.table, driver)
-    );
+    let built = build_set_file_path(
+        &config.table,
+        new_relative.trim_start_matches('/'),
+        pool.driver(),
+    )
+    .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
     pool.execute_with_params(
-        &update_sql,
+        &built.sql,
         &[
             serde_json::Value::String(new_relative.trim_start_matches('/').to_string()),
             id.into(),
@@ -124,12 +123,8 @@ pub async fn handle_media_rename(
         .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::BadRequest("name is required".to_string()))?;
 
-    let driver = pool.driver();
-    let sql = format!(
-        "SELECT file_path FROM {} WHERE id = $1",
-        quote_object_name(&config.table, driver)
-    );
-    let row = pool.fetch_optional_json(&sql, &[id.into()]).await?;
+    let built = build_select_file_path(&config.table, pool.driver());
+    let row = pool.fetch_optional_json(&built.sql, &[id.into()]).await?;
 
     let current_file_path = row
         .and_then(|r| {
@@ -156,12 +151,14 @@ pub async fn handle_media_rename(
         .map(|p| format!("/{}", p.to_string_lossy()))
         .unwrap_or_else(|_| format!("/{}", new_path.to_string_lossy()));
 
-    let update_sql = format!(
-        "UPDATE {} SET file_path = $1 WHERE id = $2",
-        quote_object_name(&config.table, driver)
-    );
+    let built = build_set_file_path(
+        &config.table,
+        new_relative.trim_start_matches('/'),
+        pool.driver(),
+    )
+    .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
     pool.execute_with_params(
-        &update_sql,
+        &built.sql,
         &[
             serde_json::Value::String(new_relative.trim_start_matches('/').to_string()),
             id.into(),

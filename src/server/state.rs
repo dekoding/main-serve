@@ -12,12 +12,11 @@ use async_trait::async_trait;
 use tokio::sync::{Mutex, RwLock};
 
 use crate::config::AppConfig;
-use crate::config::types::DatabaseDriver;
 use crate::config::types::EndpointConfig;
 use crate::config::types::RoleHierarchy;
 use crate::config::types::StoreConfig;
-use crate::db::migration::quote_object_name;
 use crate::db::pool::DatabasePool;
+use crate::db::query::revocation;
 use crate::error::AppError;
 use crate::middleware::auth::validators::oauth2::PendingOAuth2;
 use crate::middleware::rate_limit::RateLimiter;
@@ -117,11 +116,8 @@ impl DatabaseRevocationStore {
     ///
     /// Returns `AppError::Database` if the deletion query fails.
     pub async fn cleanup_expired(&self) -> Result<(), AppError> {
-        let sql = format!(
-            "DELETE FROM {} WHERE expires_at < NOW()",
-            quote_object_name(&self.table_name, self.pool.driver())
-        );
-        let _ = self.pool.execute_raw(&sql).await?;
+        let built = revocation::build_revoke_cleanup(&self.table_name, self.pool.driver());
+        let _ = self.pool.execute_raw(&built.sql).await?;
         Ok(())
     }
 
@@ -131,12 +127,8 @@ impl DatabaseRevocationStore {
     ///
     /// Returns `AppError::Database` if the lookup query fails.
     pub async fn is_revoked_db(&self, jti: &str) -> bool {
-        let sql = format!(
-            "SELECT 1 FROM {} WHERE jti = {} LIMIT 1",
-            quote_object_name(&self.table_name, self.pool.driver()),
-            placeholder(self.pool.driver())
-        );
-        let result = self.pool.fetch_optional_json(&sql, &[jti.into()]).await;
+        let built = revocation::build_revoke_check(&self.table_name, self.pool.driver(), jti.into());
+        let result = self.pool.fetch_optional_json(&built.sql, &built.params).await;
         matches!(result, Ok(Some(_)))
     }
 
@@ -154,52 +146,17 @@ impl DatabaseRevocationStore {
         let revoked_at_str = now.to_rfc3339();
         let expires_at_str = expires_at_utc.to_rfc3339();
 
-        let sql = match self.pool.driver() {
-            DatabaseDriver::Sqlite => format!(
-                "INSERT OR REPLACE INTO {} (jti, revoked_at, expires_at) \
-                 VALUES ($1, $2, $3)",
-                quote_object_name(&self.table_name, DatabaseDriver::Sqlite)
-            ),
-            DatabaseDriver::Postgres => format!(
-                "INSERT INTO {} (jti, revoked_at, expires_at) \
-                 VALUES ($1, $2, $3) \
-                 ON CONFLICT (jti) DO UPDATE SET expires_at = EXCLUDED.expires_at",
-                quote_object_name(&self.table_name, DatabaseDriver::Postgres)
-            ),
-            DatabaseDriver::Mysql => format!(
-                "INSERT INTO {} (jti, revoked_at, expires_at) \
-                 VALUES (?, ?, ?) \
-                 ON DUPLICATE KEY UPDATE expires_at = VALUES(expires_at)",
-                quote_object_name(&self.table_name, DatabaseDriver::Mysql)
-            ),
-        };
+        let built = revocation::build_revoke_insert(
+            &self.table_name,
+            jti,
+            &revoked_at_str,
+            &expires_at_str,
+            self.pool.driver(),
+        )?;
 
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => {
-                self.pool
-                    .execute_with_params(
-                        &sql,
-                        &[jti.into(), revoked_at_str.into(), expires_at_str.into()],
-                    )
-                    .await?;
-            }
-            DatabaseDriver::Postgres => {
-                self.pool
-                    .execute_with_params(
-                        &sql,
-                        &[jti.into(), revoked_at_str.into(), expires_at_str.into()],
-                    )
-                    .await?;
-            }
-            DatabaseDriver::Mysql => {
-                self.pool
-                    .execute_with_params(
-                        &sql,
-                        &[jti.into(), revoked_at_str.into(), expires_at_str.into()],
-                    )
-                    .await?;
-            }
-        };
+        self.pool
+            .execute_with_params(&built.sql, &built.params)
+            .await?;
 
         Ok(())
     }
@@ -276,14 +233,6 @@ impl RevocationStoreImpl {
             Self::Database(_) => None, // Caller passes interval from config
             Self::InMemory(_) => None,
         }
-    }
-}
-
-/// Helper: generate a single placeholder character for the given driver.
-fn placeholder(driver: DatabaseDriver) -> char {
-    match driver {
-        DatabaseDriver::Sqlite | DatabaseDriver::Postgres => '$',
-        DatabaseDriver::Mysql => '?',
     }
 }
 

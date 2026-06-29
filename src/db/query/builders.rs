@@ -4,9 +4,40 @@ use crate::db::query::helpers::{
     is_valid_identifier, placeholder, quote_identifier, resolve_writable_fields,
 };
 use crate::db::query::select::SelectBuilder;
-use crate::db::query::types::BuiltQuery;
+use crate::db::query::types::{BuiltQuery, MutationContext, SelectContext};
 use crate::error::AppError;
 use crate::middleware::auth::extractor::RequestContext;
+
+impl From<&CrudConfig> for MutationContext {
+    fn from(crud: &CrudConfig) -> Self {
+        MutationContext {
+            writable_fields: crud.writable_fields.clone(),
+            insert_owner: crud.insert_owner.clone(),
+            update_where_clause: crud.update_where_clause.clone(),
+            delete_where_clause: crud.delete_where_clause.clone(),
+        }
+    }
+}
+
+impl From<&CrudConfig> for SelectContext {
+    fn from(crud: &CrudConfig) -> Self {
+        SelectContext {
+            fields: crud.fields.clone(),
+            joins: crud.joins.clone(),
+            computed_fields: crud.computed_fields.clone(),
+            where_clause: crud.where_clause.clone(),
+            filtering_enabled: crud.filtering.enabled,
+            filtering_allowed_fields: crud.filtering.allowed_fields.clone(),
+            sorting_enabled: crud.sorting.enabled,
+            sorting_default_field: crud.sorting.default_field.clone(),
+            sorting_default_order: crud.sorting.default_order,
+            sorting_allowed_fields: crud.sorting.allowed_fields.clone(),
+            pagination_enabled: crud.pagination.enabled,
+            pagination_default_page_size: crud.pagination.default_page_size,
+            pagination_max_page_size: crud.pagination.max_page_size,
+        }
+    }
+}
 
 // =============================================================================
 // CRUD Query Builders
@@ -21,7 +52,7 @@ use crate::middleware::auth::extractor::RequestContext;
 /// Returns `AppError::Internal` if the table has no primary key column.
 pub fn build_insert(
     table_config: &TableConfig,
-    crud: &CrudConfig,
+    ctx: &MutationContext,
     body: &serde_json::Value,
     driver: DatabaseDriver,
     context: &RequestContext,
@@ -31,10 +62,10 @@ pub fn build_insert(
         .as_object()
         .ok_or_else(|| AppError::BadRequest("Request body must be a JSON object".to_string()))?;
 
-    let writable = resolve_writable_fields(&crud.writable_fields, table_config);
+    let writable = resolve_writable_fields(&ctx.writable_fields, table_config);
 
     // Check if we need to auto-populate the owner field.
-    let owner_col = crud.insert_owner.clone();
+    let owner_col = ctx.insert_owner.clone();
 
     let mut columns: Vec<String> = Vec::new();
     let mut placeholders: Vec<String> = Vec::new();
@@ -137,7 +168,7 @@ pub fn build_insert(
 /// Returns `AppError::Internal` if the table has no primary key column.
 pub fn build_update(
     table_config: &TableConfig,
-    crud: &CrudConfig,
+    ctx: MutationContext,
     pk_value: &str,
     body: &serde_json::Value,
     driver: DatabaseDriver,
@@ -149,7 +180,7 @@ pub fn build_update(
         .as_object()
         .ok_or_else(|| AppError::BadRequest("Request body must be a JSON object".to_string()))?;
 
-    let writable = resolve_writable_fields(&crud.writable_fields, table_config);
+    let writable = resolve_writable_fields(&ctx.writable_fields, table_config);
     let pk_col = find_pk_column(table_config)?;
     let mut set_parts: Vec<String> = Vec::new();
     let mut params: Vec<serde_json::Value> = Vec::new();
@@ -288,7 +319,7 @@ pub fn build_delete(
 /// Returns `AppError::BadRequest` if filter or sort fields are invalid or disallowed.
 pub fn build_select_list(
     table_config: &TableConfig,
-    crud: &CrudConfig,
+    ctx: &SelectContext,
     query_params: &crate::db::query::types::QueryParams,
     driver: DatabaseDriver,
     context: &RequestContext,
@@ -296,15 +327,15 @@ pub fn build_select_list(
     let table_name = &table_config.name;
     use crate::db::query::helpers::resolve_fields;
 
-    let fields = resolve_fields(&crud.fields, table_config);
+    let fields = resolve_fields(&ctx.fields, table_config);
     let mut sb = SelectBuilder::new(table_name, fields, driver);
 
-    sb.apply_joins(crud);
-    sb.apply_computed_fields(crud);
-    sb.apply_where_clause(crud, context)?;
-    sb.apply_filters(crud, &query_params.filters, table_config)?;
-    sb.apply_sorting(crud, table_config, query_params)?;
-    sb.apply_pagination(crud, query_params);
+    sb.apply_joins(ctx);
+    sb.apply_computed_fields(ctx);
+    sb.apply_where_clause(ctx, context)?;
+    sb.apply_filters(ctx, &query_params.filters, table_config)?;
+    sb.apply_sorting(ctx, table_config, query_params)?;
+    sb.apply_pagination(ctx, query_params);
 
     Ok(sb.build())
 }
@@ -316,7 +347,7 @@ pub fn build_select_list(
 /// Returns `AppError::Internal` if the table has no primary key column.
 pub fn build_select_one(
     table_config: &TableConfig,
-    crud: &CrudConfig,
+    ctx: &SelectContext,
     pk_value: &str,
     driver: DatabaseDriver,
     context: &RequestContext,
@@ -324,12 +355,12 @@ pub fn build_select_one(
     let table_name = &table_config.name;
     use crate::db::query::helpers::resolve_fields;
 
-    let fields = resolve_fields(&crud.fields, table_config);
+    let fields = resolve_fields(&ctx.fields, table_config);
     let pk_col = find_pk_column(table_config)?;
     let mut sb = SelectBuilder::new(table_name, fields, driver);
 
     sb.apply_pk_condition(&pk_col, coerce_pk_value(table_config, pk_value));
-    sb.apply_where_clause(crud, context)?;
+    sb.apply_where_clause(ctx, context)?;
     sb.limit_one();
 
     Ok(sb.build())
@@ -439,10 +470,11 @@ mod tests {
     fn test_build_select_list_basic() {
         let table = test_table();
         let crud = test_crud();
+        let ctx = SelectContext::from(&crud);
         let params = QueryParams::default();
         let q = build_select_list(
             &table,
-            &crud,
+            &ctx,
             &params,
             DatabaseDriver::Sqlite,
             &RequestContext::new(),
@@ -461,6 +493,7 @@ mod tests {
     fn test_build_select_list_with_filter() {
         let table = test_table();
         let crud = test_crud();
+        let ctx = SelectContext::from(&crud);
         let params = QueryParams {
             filters: [("author".to_string(), "alice".to_string())]
                 .into_iter()
@@ -469,7 +502,7 @@ mod tests {
         };
         let q = build_select_list(
             &table,
-            &crud,
+            &ctx,
             &params,
             DatabaseDriver::Sqlite,
             &RequestContext::new(),
@@ -486,6 +519,7 @@ mod tests {
     fn test_build_select_list_postgres_placeholders() {
         let table = test_table();
         let crud = test_crud();
+        let ctx = SelectContext::from(&crud);
         let params = QueryParams {
             filters: [("author".to_string(), "bob".to_string())]
                 .into_iter()
@@ -494,7 +528,7 @@ mod tests {
         };
         let q = build_select_list(
             &table,
-            &crud,
+            &ctx,
             &params,
             DatabaseDriver::Postgres,
             &RequestContext::new(),
@@ -511,9 +545,10 @@ mod tests {
     fn test_build_select_one() {
         let table = test_table();
         let crud = test_crud();
+        let ctx = SelectContext::from(&crud);
         let q = build_select_one(
             &table,
-            &crud,
+            &ctx,
             "42",
             DatabaseDriver::Sqlite,
             &RequestContext::new(),
@@ -530,10 +565,11 @@ mod tests {
     fn test_build_insert() {
         let table = test_table();
         let crud = test_crud();
+        let ctx = MutationContext::from(&crud);
         let body = serde_json::json!({"title": "Hello", "author": "Alice"});
         let q = build_insert(
             &table,
-            &crud,
+            &ctx,
             &body,
             DatabaseDriver::Sqlite,
             &RequestContext::new(),
@@ -552,10 +588,11 @@ mod tests {
     fn test_build_insert_ignores_non_writable() {
         let table = test_table();
         let crud = test_crud();
+        let ctx = MutationContext::from(&crud);
         let body = serde_json::json!({"title": "Hello", "author": "Alice", "id": 999});
         let q = build_insert(
             &table,
-            &crud,
+            &ctx,
             &body,
             DatabaseDriver::Sqlite,
             &RequestContext::new(),
@@ -570,11 +607,12 @@ mod tests {
     fn test_build_update() {
         let table = test_table();
         let crud = test_crud();
+        let ctx = MutationContext::from(&crud);
         let body = serde_json::json!({"title": "Updated"});
         let context = RequestContext::new();
         let q = build_update(
             &table,
-            &crud,
+            ctx,
             "42",
             &body,
             DatabaseDriver::Sqlite,
@@ -647,12 +685,13 @@ mod tests {
     fn test_build_update_with_where_clause() {
         let table = test_table();
         let crud = test_crud();
+        let ctx = MutationContext::from(&crud);
         let body = serde_json::json!({"title": "Updated"});
         let context = RequestContext::new();
         let where_clause = Some("author = ${request.user.id}".to_string());
         let q = build_update(
             &table,
-            &crud,
+            ctx,
             "42",
             &body,
             DatabaseDriver::Sqlite,
@@ -682,10 +721,11 @@ mod tests {
     fn test_build_insert_postgres_returning() {
         let table = test_table();
         let crud = test_crud();
+        let ctx = MutationContext::from(&crud);
         let body = serde_json::json!({"title": "Hello", "author": "Alice"});
         let q = build_insert(
             &table,
-            &crud,
+            &ctx,
             &body,
             DatabaseDriver::Postgres,
             &RequestContext::new(),
@@ -705,6 +745,7 @@ mod tests {
     fn test_filter_dot_notation_nested() {
         let table = test_table_with_jsonb();
         let crud = test_crud_with_jsonb_filtering();
+        let ctx = SelectContext::from(&crud);
         let params = QueryParams {
             // Testing nested dot-notation: metadata.user.profile.email
             filters: [(
@@ -717,7 +758,7 @@ mod tests {
         };
         let q = build_select_list(
             &table,
-            &crud,
+            &ctx,
             &params,
             DatabaseDriver::Sqlite,
             &RequestContext::new(),
@@ -739,6 +780,7 @@ mod tests {
     fn test_filter_lhs_bracket_eq() {
         let table = test_table_with_jsonb();
         let crud = test_crud_with_jsonb_filtering();
+        let ctx = SelectContext::from(&crud);
         let params = QueryParams {
             // Testing LHS bracket equality: metadata.role[eq]
             filters: [("metadata.role[eq]".to_string(), "admin".to_string())]
@@ -748,7 +790,7 @@ mod tests {
         };
         let q = build_select_list(
             &table,
-            &crud,
+            &ctx,
             &params,
             DatabaseDriver::Sqlite,
             &RequestContext::new(),
@@ -767,6 +809,7 @@ mod tests {
     fn test_filter_lhs_bracket_gt() {
         let table = test_table_with_jsonb();
         let crud = test_crud_with_jsonb_filtering();
+        let ctx = SelectContext::from(&crud);
         let params = QueryParams {
             // Testing LHS bracket greater-than: metadata.user.age[gt]
             filters: [("metadata.user.age[gt]".to_string(), "18".to_string())]
@@ -776,7 +819,7 @@ mod tests {
         };
         let q = build_select_list(
             &table,
-            &crud,
+            &ctx,
             &params,
             DatabaseDriver::Sqlite,
             &RequestContext::new(),
@@ -795,6 +838,7 @@ mod tests {
     fn test_filter_lhs_bracket_lt() {
         let table = test_table_with_jsonb();
         let crud = test_crud_with_jsonb_filtering();
+        let ctx = SelectContext::from(&crud);
         let params = QueryParams {
             // Testing LHS bracket less-than: metadata.user.age[lte]
             filters: [("metadata.user.age[lte]".to_string(), "65".to_string())]
@@ -804,7 +848,7 @@ mod tests {
         };
         let q = build_select_list(
             &table,
-            &crud,
+            &ctx,
             &params,
             DatabaseDriver::Sqlite,
             &RequestContext::new(),
@@ -823,6 +867,7 @@ mod tests {
     fn test_filter_multiple_jsonb_fields() {
         let table = test_table_with_jsonb();
         let crud = test_crud_with_jsonb_filtering();
+        let ctx = SelectContext::from(&crud);
         let params = QueryParams {
             // Testing multiple JSONB field filters
             filters: [
@@ -835,7 +880,7 @@ mod tests {
         };
         let q = build_select_list(
             &table,
-            &crud,
+            &ctx,
             &params,
             DatabaseDriver::Sqlite,
             &RequestContext::new(),
@@ -858,6 +903,7 @@ mod tests {
     fn test_sort_jsonb_dot_notation() {
         let table = test_table_with_jsonb();
         let crud = test_crud_with_jsonb_filtering();
+        let ctx = SelectContext::from(&crud);
         let params = QueryParams {
             sort: Some("metadata.role".to_string()),
             order: Some(SortOrder::Asc),
@@ -865,7 +911,7 @@ mod tests {
         };
         let q = build_select_list(
             &table,
-            &crud,
+            &ctx,
             &params,
             DatabaseDriver::Postgres,
             &RequestContext::new(),
@@ -884,6 +930,7 @@ mod tests {
     fn test_sort_jsonb_lhs_brackets() {
         let table = test_table_with_jsonb();
         let crud = test_crud_with_jsonb_filtering();
+        let ctx = SelectContext::from(&crud);
         let params = QueryParams {
             sort: Some("metadata.role".to_string()),
             order: Some(SortOrder::Desc),
@@ -891,7 +938,7 @@ mod tests {
         };
         let q = build_select_list(
             &table,
-            &crud,
+            &ctx,
             &params,
             DatabaseDriver::Postgres,
             &RequestContext::new(),
@@ -907,6 +954,7 @@ mod tests {
     fn test_sort_jsonb_nested_deep() {
         let table = test_table_with_jsonb();
         let crud = test_crud_with_jsonb_filtering();
+        let ctx = SelectContext::from(&crud);
         let params = QueryParams {
             sort: Some("metadata.user.profile.age".to_string()),
             order: Some(SortOrder::Asc),
@@ -914,7 +962,7 @@ mod tests {
         };
         let q = build_select_list(
             &table,
-            &crud,
+            &ctx,
             &params,
             DatabaseDriver::Postgres,
             &RequestContext::new(),
@@ -930,6 +978,7 @@ mod tests {
     fn test_sort_jsonb_mysql() {
         let table = test_table_with_jsonb();
         let crud = test_crud_with_jsonb_filtering();
+        let ctx = SelectContext::from(&crud);
         let params = QueryParams {
             sort: Some("metadata.role".to_string()),
             order: Some(SortOrder::Asc),
@@ -937,7 +986,7 @@ mod tests {
         };
         let q = build_select_list(
             &table,
-            &crud,
+            &ctx,
             &params,
             DatabaseDriver::Mysql,
             &RequestContext::new(),
@@ -954,6 +1003,7 @@ mod tests {
     fn test_sort_jsonb_sqlite() {
         let table = test_table_with_jsonb();
         let crud = test_crud_with_jsonb_filtering();
+        let ctx = SelectContext::from(&crud);
         let params = QueryParams {
             sort: Some("metadata.role".to_string()),
             order: Some(SortOrder::Asc),
@@ -961,7 +1011,7 @@ mod tests {
         };
         let q = build_select_list(
             &table,
-            &crud,
+            &ctx,
             &params,
             DatabaseDriver::Sqlite,
             &RequestContext::new(),
@@ -978,6 +1028,7 @@ mod tests {
     fn test_sort_regular_field() {
         let table = test_table();
         let crud = test_crud();
+        let ctx = SelectContext::from(&crud);
         let params = QueryParams {
             sort: Some("title".to_string()),
             order: Some(SortOrder::Asc),
@@ -985,7 +1036,7 @@ mod tests {
         };
         let q = build_select_list(
             &table,
-            &crud,
+            &ctx,
             &params,
             DatabaseDriver::Sqlite,
             &RequestContext::new(),
@@ -1008,6 +1059,7 @@ mod tests {
     fn test_sort_jsonb_lhs_bracket_notation() {
         let table = test_table_with_jsonb();
         let crud = test_crud_with_jsonb_filtering();
+        let ctx = SelectContext::from(&crud);
         let params = QueryParams {
             sort: Some("metadata[role]".to_string()),
             order: Some(SortOrder::Asc),
@@ -1015,7 +1067,7 @@ mod tests {
         };
         let q = build_select_list(
             &table,
-            &crud,
+            &ctx,
             &params,
             DatabaseDriver::Postgres,
             &RequestContext::new(),
@@ -1033,6 +1085,7 @@ mod tests {
     fn test_sort_jsonb_nested_bracket_notation() {
         let table = test_table_with_jsonb();
         let crud = test_crud_with_jsonb_filtering();
+        let ctx = SelectContext::from(&crud);
         let params = QueryParams {
             sort: Some("metadata[user][profile][email]".to_string()),
             order: Some(SortOrder::Desc),
@@ -1040,7 +1093,7 @@ mod tests {
         };
         let q = build_select_list(
             &table,
-            &crud,
+            &ctx,
             &params,
             DatabaseDriver::Postgres,
             &RequestContext::new(),
@@ -1059,6 +1112,7 @@ mod tests {
     fn test_sort_jsonb_mixed_notation() {
         let table = test_table_with_jsonb();
         let crud = test_crud_with_jsonb_filtering();
+        let ctx = SelectContext::from(&crud);
         let params = QueryParams {
             sort: Some("metadata[user].profile.email".to_string()),
             order: Some(SortOrder::Asc),
@@ -1066,7 +1120,7 @@ mod tests {
         };
         let q = build_select_list(
             &table,
-            &crud,
+            &ctx,
             &params,
             DatabaseDriver::Postgres,
             &RequestContext::new(),
@@ -1088,6 +1142,7 @@ mod tests {
     fn test_filter_nonexistent_column_rejected() {
         let table = test_table_with_jsonb();
         let crud = test_crud_with_jsonb_filtering();
+        let ctx = SelectContext::from(&crud);
         let params = QueryParams {
             filters: [("nonexistent.field".to_string(), "value".to_string())]
                 .into_iter()
@@ -1096,7 +1151,7 @@ mod tests {
         };
         let result = build_select_list(
             &table,
-            &crud,
+            &ctx,
             &params,
             DatabaseDriver::Postgres,
             &RequestContext::new(),
@@ -1112,6 +1167,7 @@ mod tests {
     fn test_sort_nonexistent_column_rejected() {
         let table = test_table_with_jsonb();
         let crud = test_crud_with_jsonb_filtering();
+        let ctx = SelectContext::from(&crud);
         let params = QueryParams {
             sort: Some("nonexistent.field".to_string()),
             order: Some(SortOrder::Asc),
@@ -1119,7 +1175,7 @@ mod tests {
         };
         let result = build_select_list(
             &table,
-            &crud,
+            &ctx,
             &params,
             DatabaseDriver::Postgres,
             &RequestContext::new(),
@@ -1137,6 +1193,7 @@ mod tests {
     fn test_filter_jsonb_contains_postgres() {
         let table = test_table_with_jsonb();
         let crud = test_crud_with_jsonb_filtering();
+        let ctx = SelectContext::from(&crud);
         let params = QueryParams {
             filters: [("metadata.role[contains]".to_string(), "admin".to_string())]
                 .into_iter()
@@ -1145,7 +1202,7 @@ mod tests {
         };
         let q = build_select_list(
             &table,
-            &crud,
+            &ctx,
             &params,
             DatabaseDriver::Postgres,
             &RequestContext::new(),
@@ -1164,6 +1221,7 @@ mod tests {
     fn test_filter_jsonb_contains_sqlite() {
         let table = test_table_with_jsonb();
         let crud = test_crud_with_jsonb_filtering();
+        let ctx = SelectContext::from(&crud);
         let params = QueryParams {
             filters: [("metadata.tags[contains]".to_string(), "rust".to_string())]
                 .into_iter()
@@ -1172,7 +1230,7 @@ mod tests {
         };
         let q = build_select_list(
             &table,
-            &crud,
+            &ctx,
             &params,
             DatabaseDriver::Sqlite,
             &RequestContext::new(),
@@ -1191,6 +1249,7 @@ mod tests {
     fn test_filter_jsonb_contains_mysql() {
         let table = test_table_with_jsonb();
         let crud = test_crud_with_jsonb_filtering();
+        let ctx = SelectContext::from(&crud);
         let params = QueryParams {
             filters: [("metadata.tags[contains]".to_string(), "python".to_string())]
                 .into_iter()
@@ -1199,7 +1258,7 @@ mod tests {
         };
         let q = build_select_list(
             &table,
-            &crud,
+            &ctx,
             &params,
             DatabaseDriver::Mysql,
             &RequestContext::new(),
@@ -1217,6 +1276,7 @@ mod tests {
     fn test_filter_non_jsonb_contains() {
         let table = test_table();
         let crud = test_crud();
+        let ctx = SelectContext::from(&crud);
         let params = QueryParams {
             filters: [("author[contains]".to_string(), "al".to_string())]
                 .into_iter()
@@ -1225,7 +1285,7 @@ mod tests {
         };
         let q = build_select_list(
             &table,
-            &crud,
+            &ctx,
             &params,
             DatabaseDriver::Sqlite,
             &RequestContext::new(),
@@ -1245,6 +1305,7 @@ mod tests {
     fn test_filter_non_jsonb_contains_postgres() {
         let table = test_table();
         let crud = test_crud();
+        let ctx = SelectContext::from(&crud);
         let params = QueryParams {
             filters: [("title[contains]".to_string(), "Hello".to_string())]
                 .into_iter()
@@ -1253,7 +1314,7 @@ mod tests {
         };
         let q = build_select_list(
             &table,
-            &crud,
+            &ctx,
             &params,
             DatabaseDriver::Postgres,
             &RequestContext::new(),
@@ -1271,6 +1332,7 @@ mod tests {
     fn test_filter_jsonb_exists_postgres() {
         let table = test_table_with_jsonb();
         let crud = test_crud_with_jsonb_filtering();
+        let ctx = SelectContext::from(&crud);
         let params = QueryParams {
             filters: [("metadata.role[exists]".to_string(), String::new())]
                 .into_iter()
@@ -1279,7 +1341,7 @@ mod tests {
         };
         let q = build_select_list(
             &table,
-            &crud,
+            &ctx,
             &params,
             DatabaseDriver::Postgres,
             &RequestContext::new(),
@@ -1296,6 +1358,7 @@ mod tests {
     fn test_filter_jsonb_exists_sqlite() {
         let table = test_table_with_jsonb();
         let crud = test_crud_with_jsonb_filtering();
+        let ctx = SelectContext::from(&crud);
         let params = QueryParams {
             filters: [("metadata.status[exists]".to_string(), String::new())]
                 .into_iter()
@@ -1304,7 +1367,7 @@ mod tests {
         };
         let q = build_select_list(
             &table,
-            &crud,
+            &ctx,
             &params,
             DatabaseDriver::Sqlite,
             &RequestContext::new(),
@@ -1319,6 +1382,7 @@ mod tests {
     fn test_filter_non_jsonb_exists_sqlite() {
         let table = test_table();
         let crud = test_crud();
+        let ctx = SelectContext::from(&crud);
         let params = QueryParams {
             filters: [("author[exists]".to_string(), String::new())]
                 .into_iter()
@@ -1327,7 +1391,7 @@ mod tests {
         };
         let q = build_select_list(
             &table,
-            &crud,
+            &ctx,
             &params,
             DatabaseDriver::Sqlite,
             &RequestContext::new(),
@@ -1346,6 +1410,7 @@ mod tests {
     fn test_filter_non_jsonb_exists_postgres() {
         let table = test_table();
         let crud = test_crud();
+        let ctx = SelectContext::from(&crud);
         let params = QueryParams {
             filters: [("title[exists]".to_string(), String::new())]
                 .into_iter()
@@ -1354,7 +1419,7 @@ mod tests {
         };
         let q = build_select_list(
             &table,
-            &crud,
+            &ctx,
             &params,
             DatabaseDriver::Postgres,
             &RequestContext::new(),
@@ -1368,6 +1433,7 @@ mod tests {
     fn test_filter_non_jsonb_exists_mysql() {
         let table = test_table();
         let crud = test_crud();
+        let ctx = SelectContext::from(&crud);
         let params = QueryParams {
             filters: [("author[exists]".to_string(), String::new())]
                 .into_iter()
@@ -1376,7 +1442,7 @@ mod tests {
         };
         let q = build_select_list(
             &table,
-            &crud,
+            &ctx,
             &params,
             DatabaseDriver::Mysql,
             &RequestContext::new(),
@@ -1390,6 +1456,7 @@ mod tests {
     fn test_filter_nonexistent_jsonb_column_rejected() {
         let table = test_table_with_jsonb();
         let crud = test_crud_with_jsonb_filtering();
+        let ctx = SelectContext::from(&crud);
         let params = QueryParams {
             filters: [("other_column.nested".to_string(), "value".to_string())]
                 .into_iter()
@@ -1398,7 +1465,7 @@ mod tests {
         };
         let result = build_select_list(
             &table,
-            &crud,
+            &ctx,
             &params,
             DatabaseDriver::Postgres,
             &RequestContext::new(),

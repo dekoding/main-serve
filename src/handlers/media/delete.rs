@@ -5,8 +5,8 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
 use crate::config::types::{EndpointConfig, MediaConfig, TableConfig};
-use crate::db::migration::quote_object_name;
 use crate::db::query::builders::build_delete;
+use crate::db::query::select_one::build_select_file_path;
 use crate::error::AppError;
 use crate::handlers::media::trash::handle_media_trash_delete;
 use crate::middleware::auth::extractor::RequestContext;
@@ -56,11 +56,8 @@ pub async fn delete_media_permanently(
     table_config: &TableConfig,
 ) -> Result<Response, AppError> {
     let driver = pool.driver();
-    let path_check = format!(
-        "SELECT file_path FROM {} WHERE id = $1",
-        quote_object_name(&config.table, driver)
-    );
-    let row = pool.fetch_optional_json(&path_check, &[id.into()]).await?;
+    let built = build_select_file_path(&config.table, driver);
+    let row = pool.fetch_optional_json(&built.sql, &[id.into()]).await?;
 
     if let Some(row) = row
         && let Some(file_path) = row.get("file_path").and_then(|v| v.as_str())

@@ -1,7 +1,7 @@
 /// CRUD-specific endpoint configuration types.
 use serde::Deserialize;
 
-use super::common::default_join_type;
+use crate::db::query::types::JoinConfig;
 
 /// CRUD-specific configuration for an endpoint.
 #[derive(Debug, Clone, Deserialize)]
@@ -129,36 +129,12 @@ impl Default for SortingConfig {
 }
 
 /// Sort direction.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum SortOrder {
+    #[default]
     Asc,
     Desc,
-}
-
-/// Join configuration for CRUD endpoints.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct JoinConfig {
-    /// Table to join.
-    pub table: String,
-    /// Join condition (e.g. `"users.id = posts.user_id"`).
-    pub on: String,
-    /// SQL join type.
-    #[serde(default = "default_join_type")]
-    pub join_type: JoinType,
-    /// Fields to include from the joined table.
-    #[serde(default)]
-    pub fields: Vec<String>,
-}
-
-/// SQL join type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum JoinType {
-    Inner,
-    Left,
-    Right,
 }
 
 /// A computed (virtual) field defined by a SQL expression.

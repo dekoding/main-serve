@@ -8,7 +8,7 @@ use http::HeaderValue;
 use http::header;
 
 use crate::config::types::MediaConfig;
-use crate::db::migration::quote_object_name;
+use crate::db::query::select_one::build_select_file_path;
 use crate::error::AppError;
 use crate::storage::Storage;
 
@@ -33,12 +33,8 @@ pub async fn handle_media_resize(
     }
 
     // Look up file_path from DB
-    let driver = pool.driver();
-    let sql = format!(
-        "SELECT file_path FROM {} WHERE id = $1",
-        quote_object_name(&config.table, driver)
-    );
-    let row = pool.fetch_optional_json(&sql, &[id.into()]).await?;
+    let built = build_select_file_path(&config.table, pool.driver());
+    let row = pool.fetch_optional_json(&built.sql, &[id.into()]).await?;
 
     let file_path: String = row
         .and_then(|r| {

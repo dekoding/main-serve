@@ -13,7 +13,7 @@ use regex::Regex;
 static INTERPOLATION_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\$\{([^}]+)\}").expect("valid interpolation regex"));
 
-use crate::config::types::{ColumnType, CrudConfig, DatabaseDriver, SortOrder, TableConfig};
+use crate::config::types::{ColumnType, DatabaseDriver, SortOrder, TableConfig};
 use crate::db::query::helpers::{
     FilterExpression, FilterOperator, build_filter_param, extract_base_column, extract_jsonb_path,
     is_bracket_notation, is_jsonb_column, is_jsonb_path, is_valid_expression,
@@ -21,7 +21,7 @@ use crate::db::query::helpers::{
     resolve_single_key,
 };
 use crate::db::query::traits::{FilterBehavior, MysqlFilter, PostgresFilter, SqliteFilter};
-use crate::db::query::types::{BuiltQuery, QueryParams};
+use crate::db::query::types::{BuiltQuery, JoinType, QueryParams, SelectContext};
 use crate::error::AppError;
 use crate::middleware::auth::extractor::RequestContext;
 
@@ -88,17 +88,17 @@ impl SelectBuilder {
     }
 
     /// Append JOIN clauses and their requested fields.
-    pub fn apply_joins(&mut self, crud: &CrudConfig) {
-        if crud.joins.is_empty() {
+    pub fn apply_joins(&mut self, ctx: &SelectContext) {
+        if ctx.joins.is_empty() {
             return;
         }
         self.qualify_main_fields();
 
-        for join in &crud.joins {
+        for join in &ctx.joins {
             let keyword = match join.join_type {
-                crate::config::types::JoinType::Inner => "INNER JOIN",
-                crate::config::types::JoinType::Left => "LEFT JOIN",
-                crate::config::types::JoinType::Right => "RIGHT JOIN",
+                JoinType::Inner => "INNER JOIN",
+                JoinType::Left => "LEFT JOIN",
+                JoinType::Right => "RIGHT JOIN",
             };
             self.joins
                 .push(format!("{} {} ON {}", keyword, join.table, join.on));
@@ -115,8 +115,8 @@ impl SelectBuilder {
     }
 
     /// Append computed (virtual) fields as SQL expressions in the SELECT list.
-    pub fn apply_computed_fields(&mut self, crud: &CrudConfig) {
-        for cf in &crud.computed_fields {
+    pub fn apply_computed_fields(&mut self, ctx: &SelectContext) {
+        for cf in &ctx.computed_fields {
             self.computed
                 .push(format!("{} AS {}", cf.expression, cf.name));
         }
@@ -125,10 +125,10 @@ impl SelectBuilder {
     /// Append the `where_clause` from config, resolving dynamic parameters if present.
     pub fn apply_where_clause(
         &mut self,
-        crud: &CrudConfig,
+        ctx: &SelectContext,
         context: &RequestContext,
     ) -> Result<(), AppError> {
-        if let Some(ref wc) = crud.where_clause {
+        if let Some(ref wc) = ctx.where_clause {
             let interpolated = self.interpolate_where_clause(wc, context)?;
             self.conditions.push(format!("({interpolated})"));
         }
@@ -190,7 +190,7 @@ impl SelectBuilder {
     /// Append user-supplied filter conditions as parameterized WHERE terms.
     pub fn apply_filters(
         &mut self,
-        crud: &CrudConfig,
+        ctx: &SelectContext,
         filters: &HashMap<String, String>,
         table_config: &TableConfig,
     ) -> Result<(), AppError> {
@@ -202,7 +202,7 @@ impl SelectBuilder {
                 .first()
                 .ok_or_else(|| AppError::BadRequest(format!("Invalid filter key: {key}")))?;
 
-            let allowed = &crud.filtering.allowed_fields;
+            let allowed = &ctx.filtering_allowed_fields;
             // For allowed_fields check, extract the base column name
             let allowed_base = extract_base_column(base_column);
             if !allowed.contains(&"*".to_string()) && !allowed.contains(&allowed_base) {
@@ -639,22 +639,22 @@ impl SelectBuilder {
     /// Set the ORDER BY clause from config + request params.
     pub fn apply_sorting(
         &mut self,
-        crud: &CrudConfig,
+        ctx: &SelectContext,
         table_config: &TableConfig,
         query_params: &QueryParams,
     ) -> Result<(), AppError> {
-        if !crud.sorting.enabled {
+        if !ctx.sorting_enabled {
             return Ok(());
         }
         let sort_field = query_params.sort.as_deref().unwrap_or_else(|| {
-            if crud.sorting.default_field.is_empty() {
+            if ctx.sorting_default_field.is_empty() {
                 table_config
                     .columns
                     .iter()
                     .find(|c| c.primary_key)
                     .map_or("id", |c| c.name.as_str())
             } else {
-                &crud.sorting.default_field
+                &ctx.sorting_default_field
             }
         });
 
@@ -671,14 +671,14 @@ impl SelectBuilder {
             )));
         }
 
-        let allowed = &crud.sorting.allowed_fields;
+        let allowed = &ctx.sorting_allowed_fields;
         if !allowed.contains(&"*".to_string()) && !allowed.contains(&sort_field.to_string()) {
             return Err(AppError::BadRequest(format!(
                 "Sorting by '{sort_field}' is not allowed"
             )));
         }
 
-        let order = query_params.order.unwrap_or(crud.sorting.default_order);
+        let order = query_params.order.unwrap_or(ctx.sorting_default_order);
         let order_str = match order {
             SortOrder::Asc => "ASC",
             SortOrder::Desc => "DESC",
@@ -728,14 +728,14 @@ impl SelectBuilder {
     }
 
     /// Set LIMIT/OFFSET from pagination config + request params.
-    pub fn apply_pagination(&mut self, crud: &CrudConfig, query_params: &QueryParams) {
-        if !crud.pagination.enabled {
+    pub fn apply_pagination(&mut self, ctx: &SelectContext, query_params: &QueryParams) {
+        if !ctx.pagination_enabled {
             return;
         }
         let page_size = query_params
             .page_size
-            .unwrap_or(crud.pagination.default_page_size)
-            .min(crud.pagination.max_page_size);
+            .unwrap_or(ctx.pagination_default_page_size)
+            .min(ctx.pagination_max_page_size);
         let page = query_params.page.unwrap_or(1).max(1);
         let offset = (page - 1) * page_size;
 
