@@ -10,6 +10,13 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 /// Compiled regex for interpolating `${key}` patterns in where clauses.
+///
+/// SAFETY: This is a compile-time constant pattern. The regex literal
+/// `\$\{([^}]+)\}` is syntactically valid and has been tested in CI.
+/// If this regex were ever invalid, the program would fail at startup
+/// (first access of the LazyLock), which is the correct behavior for
+/// a programming error in a static pattern.
+#[allow(clippy::expect_used)]
 static INTERPOLATION_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\$\{([^}]+)\}").expect("valid interpolation regex"));
 
