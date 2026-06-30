@@ -22,6 +22,12 @@ use super::validation::validate_config;
 use crate::error::AppError;
 
 /// Pre-compiled regex for env-var interpolation. Matches `${VAR}` and `${VAR:-default}`.
+///
+/// SAFETY: This is a compile-time constant pattern. The regex literal is
+/// syntactically valid and has been tested in CI. If this regex were ever
+/// invalid, the program would fail at startup (first access of the LazyLock),
+/// which is the correct behavior for a programming error in a static pattern.
+#[allow(clippy::expect_used)]
 static ENV_VAR_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-((?:[^}])*))?\}").expect("env var regex is valid")
 });
