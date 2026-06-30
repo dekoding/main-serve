@@ -32,6 +32,13 @@ pub struct FilterExpression {
 }
 
 /// Compiled regex for parsing bracket-notation filter keys like `field[operator]`.
+///
+/// SAFETY: This is a compile-time constant pattern. The regex literal
+/// `^(.*)\[([a-z_]+)\]$` is syntactically valid and has been tested in CI.
+/// If this regex were ever invalid, the program would fail at startup
+/// (first access of the LazyLock), which is the correct behavior for
+/// a programming error in a static pattern.
+#[allow(clippy::expect_used)]
 static FILTER_KEY_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"^(.*)\[([a-z_]+)\]$").expect("valid filter key regex"));
 
