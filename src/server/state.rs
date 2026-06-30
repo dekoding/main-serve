@@ -43,18 +43,10 @@ pub trait RevocationStoreBackend: Send + Sync {
 /// Tracks revoked JWTs by their `jti` claim value until their original
 /// expiry time. Entries are lazily cleaned up during revocation checks
 /// and periodic cleanup runs.
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct InMemoryRevocationStore {
-    /// Map of JTI -> revocation expiry instant.
-    revoked: tokio::sync::Mutex<std::collections::HashMap<String, Instant>>,
-}
-
-impl Clone for InMemoryRevocationStore {
-    fn clone(&self) -> Self {
-        // InMemoryRevocationStore is always held behind Arc in AppState
-        // and RevocationStoreImpl, so this branch should never be reached.
-        unreachable!("InMemoryRevocationStore is always Arc-wrapped in AppState")
-    }
+    /// Map of JTI -> revocation expiry instant, wrapped in Arc for shared cloning.
+    revoked: Arc<tokio::sync::Mutex<std::collections::HashMap<String, Instant>>>,
 }
 
 impl InMemoryRevocationStore {
@@ -85,20 +77,12 @@ impl RevocationStoreBackend for InMemoryRevocationStore {
 /// with columns: `jti` (varchar primary key), `revoked_at` (timestamptz),
 /// `expires_at` (timestamptz). Entries are cleaned up periodically based
 /// on the configured interval.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DatabaseRevocationStore {
     /// The database pool for this store.
     pool: DatabasePool,
     /// Table name for the revocation store (default: "token_blacklist").
     table_name: String,
-}
-
-impl Clone for DatabaseRevocationStore {
-    fn clone(&self) -> Self {
-        // DatabaseRevocationStore is always held behind Arc in AppState
-        // and RevocationStoreImpl, so this branch should never be reached.
-        unreachable!("DatabaseRevocationStore is always Arc-wrapped in AppState")
-    }
 }
 
 impl DatabaseRevocationStore {
@@ -328,14 +312,13 @@ impl AppState {
     /// requires a database pool at construction time. The pool is created
     /// in `build_app()` after `AppState` is initialized.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the revocation store has already been set.
-    #[allow(clippy::expect_used)] // OnceCell::set only fails if already initialized (programming error)
-    pub fn set_revocation_store(&self, store: RevocationStoreImpl) {
+    /// Returns `AppError::Internal` if the revocation store has already been set.
+    pub fn set_revocation_store(&self, store: RevocationStoreImpl) -> Result<(), AppError> {
         self.revocation_store
             .set(store)
-            .expect("Revocation store already initialized");
+            .map_err(|_| AppError::Internal("Revocation store already initialized".to_string()))
     }
 
     /// Get a storage store by name.
