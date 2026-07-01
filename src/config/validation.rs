@@ -34,6 +34,7 @@ fn is_safe_sql_fragment(s: &str) -> bool {
 ///
 /// Returns `AppError::Validation` containing all validation errors joined
 /// into a single message.
+#[must_use = "Result ignored"]
 pub fn validate_config(config: &AppConfig) -> Result<(), AppError> {
     let mut errors: Vec<String> = Vec::new();
 
