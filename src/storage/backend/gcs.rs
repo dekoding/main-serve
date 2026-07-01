@@ -18,6 +18,12 @@ const GCS_API_URL: &str = "https://storage.googleapis.com/storage/v1";
 /// Google OAuth2 token endpoint.
 const OAUTH2_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 
+/// Safety margin subtracted from token expiry to avoid using near-expired tokens.
+const TOKEN_SAFETY_MARGIN_SECS: u64 = 60;
+
+/// Timeout for HTTP client requests to GCS and OAuth2 endpoints.
+const HTTP_TIMEOUT_SECS: u64 = 30;
+
 /// Service account credentials parsed from JSON.
 #[derive(Clone, Deserialize)]
 struct ServiceAccountCredentials {
@@ -46,13 +52,13 @@ struct AuthToken {
 }
 
 impl AuthToken {
-    /// Check if this token is still valid (with 60-second safety margin).
+    /// Check if this token is still valid (with safety margin).
     fn is_valid(&self) -> bool {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-        now < self.expires_at - 60
+        now < self.expires_at - TOKEN_SAFETY_MARGIN_SECS
     }
 }
 
@@ -79,7 +85,7 @@ struct AuthTokenCache {
 impl AuthTokenCache {
     fn new(credentials: ServiceAccountCredentials) -> std::result::Result<Self, StorageError> {
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
+            .timeout(std::time::Duration::from_secs(HTTP_TIMEOUT_SECS))
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|e| StorageError::Internal(format!("Failed to build HTTP client: {e}")))?;
@@ -161,7 +167,7 @@ impl AuthTokenCache {
 
         Ok(AuthToken {
             token: token_resp.access_token,
-            expires_at: now + token_resp.expires_in - 60,
+            expires_at: now + token_resp.expires_in - TOKEN_SAFETY_MARGIN_SECS,
         })
     }
 
@@ -275,7 +281,7 @@ impl GcsStorage {
         let credentials = Self::load_credentials(&gcs.credentials)?;
 
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
+            .timeout(std::time::Duration::from_secs(HTTP_TIMEOUT_SECS))
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|e| StorageError::Internal(format!("Failed to build HTTP client: {e}")))?;

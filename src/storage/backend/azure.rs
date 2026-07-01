@@ -15,6 +15,9 @@ use crate::storage::{DirEntry, FileMetadata, Result, Storage, StorageError};
 
 const AZURE_BLOB_API_VERSION: &str = "2023-11-03";
 
+/// Maximum number of retry attempts for copy status polling.
+const MAX_COPY_RETRIES: u32 = 60;
+
 /// Characters that must be percent-encoded in Azure blob names.
 const BLOB_NAME_ENCODE_SET: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'_')
@@ -806,7 +809,7 @@ impl Storage for AzureStorage {
         self.handle_response(response, &to_blob).await?;
 
         if copy_status == "pending" || copy_status == "success" {
-            for _ in 0..60 {
+            for _ in 0..MAX_COPY_RETRIES {
                 let check_url = self.blob_url(&to_blob, "comp=properties");
                 let check_response = self.client.head(&check_url).send().await;
                 if let Ok(r) = check_response {
