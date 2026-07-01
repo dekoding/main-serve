@@ -2,8 +2,8 @@
 ///
 /// Supports path rewriting, custom header injection, and per-endpoint timeouts.
 /// Uses `reqwest` with `rustls-tls` as the HTTP client.
-use std::sync::LazyLock;
 use std::time::Duration;
+use std::sync::OnceLock;
 
 use axum::body::Body;
 use axum::http::{HeaderName, HeaderValue, StatusCode, Uri};
@@ -18,11 +18,7 @@ use crate::error::AppError;
 /// Reusing a single client across requests enables connection pooling,
 /// reducing latency and resource usage compared to creating a new client
 /// per request.
-static PROXY_CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
-    reqwest::Client::builder()
-        .build()
-        .expect("reqwest::Client::builder().build() should not fail")
-});
+static PROXY_CLIENT: OnceLock<Option<reqwest::Client>> = OnceLock::new();
 
 /// Headers that are hop-by-hop per HTTP spec and must not be forwarded through a proxy.
 const HOP_BY_HOP_HEADERS: &[&str] = &[
@@ -36,6 +32,16 @@ const HOP_BY_HOP_HEADERS: &[&str] = &[
     "te",
     "trailers",
 ];
+
+/// Get a proxy client to use in the proxy handler.
+fn get_proxy_client() -> Result<&'static reqwest::Client, AppError> {
+    PROXY_CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder().build().ok() // Result -> Option
+        })
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("Failed to build proxy HTTP client".to_string()))
+}
 
 /// Handle a proxy endpoint - forwards the request to the configured upstream.
 ///
@@ -96,7 +102,7 @@ pub async fn handle_proxy(
         .map_err(|e| AppError::Internal(format!("Invalid method: {e}")))?;
 
     // Use the shared PROXY_CLIENT for connection pooling; timeouts are applied per-request.
-    let mut upstream_req = PROXY_CLIENT
+    let mut upstream_req = get_proxy_client()?
         .request(reqwest_method, &upstream_url)
         .timeout(Duration::from_secs(proxy.timeouts.total));
 
