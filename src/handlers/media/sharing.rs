@@ -37,7 +37,7 @@ pub async fn handle_media_share_get(
             let headers = response.headers_mut();
             headers.insert(
                 header::CONTENT_TYPE,
-                HeaderValue::from_str(&content_type)
+                HeaderValue::from_str(content_type)
                     .unwrap_or(HeaderValue::from_static("application/octet-stream")),
             );
             headers.insert(

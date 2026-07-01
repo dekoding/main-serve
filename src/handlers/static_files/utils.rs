@@ -6,19 +6,22 @@ use http::header;
 
 use crate::config::types::CacheRuleConfig;
 
-/// Apply Content-Type and Cache-Control headers to a response.
-pub fn apply_static_headers(
-    response: &mut Response,
-    content_type: &str,
-    cache_max_age: u64,
-    path: Option<&Path>,
-    cache_rules: &[CacheRuleConfig],
-) {
+/// Apply Content-Type header to a response.
+pub fn apply_content_type(response: &mut Response, content_type: &str) {
     response.headers_mut().insert(
         header::CONTENT_TYPE,
         HeaderValue::from_str(content_type)
             .unwrap_or(HeaderValue::from_static("application/octet-stream")),
     );
+}
+
+/// Apply Cache-Control header to a response.
+pub fn apply_cache_control(
+    response: &mut Response,
+    cache_max_age: u64,
+    path: Option<&Path>,
+    cache_rules: &[CacheRuleConfig],
+) {
     let cache_control = match (path, cache_rules.is_empty()) {
         (Some(p), false) => get_cache_control(p, cache_max_age, cache_rules),
         _ => format!("public, max-age={cache_max_age}"),
@@ -58,7 +61,7 @@ pub fn get_cache_control(
 
 /// Determine MIME type from file extension.
 #[must_use]
-pub fn mime_from_path(path: &Path) -> String {
+pub fn mime_from_path(path: &Path) -> &'static str {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     match ext {
         "html" | "htm" => "text/html; charset=utf-8",
@@ -85,7 +88,6 @@ pub fn mime_from_path(path: &Path) -> String {
         "ogg" => "audio/ogg",
         _ => "application/octet-stream",
     }
-    .to_string()
 }
 
 /// Minimal HTML escaping for safe inclusion in generated HTML.

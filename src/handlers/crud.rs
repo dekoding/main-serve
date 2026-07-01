@@ -122,7 +122,9 @@ pub async fn handle_crud(
         ("DELETE", Some(_)) => {
             handle_delete(&pool, table_config, crud, &pk_value, driver, &context).await
         }
-        _ => Err(AppError::BadRequest("Unsupported method".to_string())),
+        _ => Err(AppError::MethodNotAllowed(
+            "Unsupported method for CRUD endpoint".to_string(),
+        )),
     }
 }
 
@@ -181,7 +183,10 @@ async fn handle_list(
             Ok(Some(row)) => row.get("count").and_then(|v| v.as_u64()).unwrap_or(0),
             _ => 0,
         },
-        Err(_) => 0,
+        Err(e) => {
+            tracing::debug!("Failed to build count query: {e}");
+            0
+        }
     };
 
     let response = if pagination.enabled {

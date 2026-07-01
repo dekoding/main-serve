@@ -7,7 +7,7 @@ use axum::response::Response;
 
 use crate::error::AppError;
 use crate::handlers::static_files::utils::{
-    apply_static_headers, format_modified, format_size, html_escape,
+    apply_content_type, format_modified, format_size, html_escape,
 };
 use crate::storage::Storage;
 use percent_encoding::percent_decode_str;
@@ -120,7 +120,7 @@ pub(crate) async fn generate_directory_listing(
     html.push_str("</table>\n</body></html>\n");
 
     let mut response = (StatusCode::OK, html).into_response();
-    apply_static_headers(&mut response, "text/html; charset=utf-8", 0, None, &[]);
+    apply_content_type(&mut response, "text/html; charset=utf-8");
     Ok(response)
 }
 

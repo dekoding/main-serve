@@ -482,7 +482,7 @@ async fn handle_custom_response_route(
         .await
         .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
 
-    Ok(handle_custom_response(endpoint).await.into_response())
+    Ok(handle_custom_response(endpoint).await?.into_response())
 }
 
 #[debug_handler]

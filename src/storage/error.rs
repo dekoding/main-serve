@@ -48,7 +48,7 @@ pub enum StorageError {
 
 impl From<StorageError> for crate::error::AppError {
     fn from(err: StorageError) -> Self {
-        match &err {
+        match err {
             StorageError::NotFound(path) => {
                 crate::error::AppError::NotFound(format!("File not found: {}", path.display()))
             }

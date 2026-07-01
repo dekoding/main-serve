@@ -88,6 +88,8 @@ fn load_yaml_with_includes(path: &Path, visited: &mut HashSet<PathBuf>) -> Resul
     })?;
 
     let base_dir = path.parent().unwrap_or(Path::new("."));
+    // SAFETY: path is a canonicalized absolute path from std::fs::canonicalize,
+    // which always returns a path with a parent (at minimum "/").
     resolve_includes(value, base_dir, visited)
 }
 
@@ -121,9 +123,20 @@ fn resolve_mapping_includes(
     let include_key = Value::String("$include".to_string());
 
     if let Some(include_val) = map.get(&include_key) {
-        let pattern = include_val
-            .as_str()
-            .ok_or_else(|| AppError::Config("$include value must be a string".to_string()))?;
+        let pattern = include_val.as_str().ok_or_else(|| {
+            let actual_type = match include_val {
+                Value::Null => "null",
+                Value::Bool(_) => "boolean",
+                Value::Number(_) => "number",
+                Value::Sequence(_) => "sequence",
+                Value::Mapping(_) => "mapping",
+                Value::String(_) => "string",
+                Value::Tagged(_) => "tagged",
+            };
+            AppError::Config(format!(
+                "$include value must be a string, got {actual_type}"
+            ))
+        })?;
 
         // A mapping-level $include should be the only key.
         if map.len() > 1 {
@@ -196,9 +209,20 @@ fn resolve_sequence_includes(
         if let Value::Mapping(ref map) = item
             && let Some(include_val) = map.get(&include_key)
         {
-            let pattern = include_val
-                .as_str()
-                .ok_or_else(|| AppError::Config("$include value must be a string".to_string()))?;
+            let pattern = include_val.as_str().ok_or_else(|| {
+                let actual_type = match include_val {
+                    Value::Null => "null",
+                    Value::Bool(_) => "boolean",
+                    Value::Number(_) => "number",
+                    Value::Sequence(_) => "sequence",
+                    Value::Mapping(_) => "mapping",
+                    Value::String(_) => "string",
+                    Value::Tagged(_) => "tagged",
+                };
+                AppError::Config(format!(
+                    "$include value must be a string, got {actual_type}"
+                ))
+            })?;
 
             if map.len() > 1 {
                 return Err(AppError::Config(

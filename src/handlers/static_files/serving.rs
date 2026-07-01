@@ -16,7 +16,9 @@ use crate::config::types::ImageResizeConfig;
 use crate::config::types::StaticFilesConfig;
 use crate::error::AppError;
 use crate::handlers::static_files::routing::StaticGetContext;
-use crate::handlers::static_files::utils::{apply_static_headers, mime_from_path};
+use crate::handlers::static_files::utils::{
+    apply_cache_control, apply_content_type, mime_from_path,
+};
 use crate::server::AppState;
 use crate::storage::Storage;
 
@@ -133,7 +135,7 @@ pub async fn serve_file(
                 path,
                 range_str,
                 file_size,
-                &content_type,
+                content_type,
                 streaming_config,
                 config.cache_max_age,
             )
@@ -150,7 +152,7 @@ pub async fn serve_file(
             &content,
             file_size,
             range_str,
-            &content_type,
+            content_type,
             config.cache_max_age,
         );
     }
@@ -163,7 +165,7 @@ pub async fn serve_file(
         return handle_streaming(
             storage,
             path,
-            &content_type,
+            content_type,
             streaming_config,
             config.cache_max_age,
             file_size,
@@ -178,9 +180,9 @@ pub async fn serve_file(
         .map_err(|_| AppError::NotFound(format!("File not found: {}", path.display())))?;
 
     let mut response = (StatusCode::OK, content.to_vec()).into_response();
-    apply_static_headers(
+    apply_content_type(&mut response, content_type);
+    apply_cache_control(
         &mut response,
-        &content_type,
         config.cache_max_age,
         Some(path),
         &config.cache_rules,
@@ -440,7 +442,7 @@ pub(crate) async fn handle_image_resize(
     };
 
     let mut response = (StatusCode::OK, output_bytes).into_response();
-    apply_static_headers(&mut response, content_type, 0, None, &[]);
+    apply_content_type(&mut response, content_type);
     Ok(Some(response))
 }
 

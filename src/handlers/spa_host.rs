@@ -12,7 +12,7 @@ use http::header;
 use crate::config::types::{EndpointConfig, SpaHostConfig};
 use crate::error::AppError;
 use crate::handlers::static_files::utils::{
-    apply_static_headers, get_cache_control, mime_from_path,
+    apply_cache_control, apply_content_type, get_cache_control, mime_from_path,
 };
 use crate::server::state::AppState;
 use crate::storage::Storage;
@@ -152,7 +152,7 @@ pub(crate) async fn handle_spa_head(
             *response.status_mut() = StatusCode::OK;
             response.headers_mut().insert(
                 header::CONTENT_TYPE,
-                HeaderValue::from_str(&content_type)
+                HeaderValue::from_str(content_type)
                     .unwrap_or(HeaderValue::from_static("application/octet-stream")),
             );
             response.headers_mut().insert(
@@ -204,7 +204,7 @@ pub(crate) async fn handle_spa_head(
                     *response.status_mut() = status;
                     response.headers_mut().insert(
                         header::CONTENT_TYPE,
-                        HeaderValue::from_str(&content_type)
+                        HeaderValue::from_str(content_type)
                             .unwrap_or(HeaderValue::from_static("application/octet-stream")),
                     );
                     response.headers_mut().insert(
@@ -240,9 +240,9 @@ async fn serve_spa_file(
         .map_err(|_| AppError::NotFound(format!("File not found: {}", path.display())))?;
 
     let mut response = (StatusCode::OK, contents).into_response();
-    apply_static_headers(
+    apply_content_type(&mut response, content_type);
+    apply_cache_control(
         &mut response,
-        &content_type,
         config.cache_max_age,
         Some(path),
         &config.cache_rules,
@@ -307,7 +307,7 @@ async fn serve_spa_fallback(
             let resp_headers = response.headers_mut();
             resp_headers.insert(
                 header::CONTENT_TYPE,
-                HeaderValue::from_str(&content_type)
+                HeaderValue::from_str(content_type)
                     .unwrap_or(HeaderValue::from_static("application/octet-stream")),
             );
             resp_headers.insert(

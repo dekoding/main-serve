@@ -100,7 +100,8 @@ impl Storage for MemoryStorage {
 
         if dirs.remove(path) {
             // Also remove all children
-            let prefix = format!("{}/", path.display());
+            let mut prefix = path.to_path_buf();
+            prefix.push("");
             data.retain(|k, _| !k.starts_with(&prefix));
             dirs.retain(|k| !k.starts_with(&prefix));
             return Ok(());
@@ -238,7 +239,8 @@ impl Storage for MemoryStorage {
         }
 
         // Check if directory is empty
-        let prefix = format!("{}/", path.display());
+        let mut prefix = path.to_path_buf();
+        prefix.push("");
         let has_children = data.keys().any(|k| k.starts_with(&prefix))
             || dirs.iter().any(|k| k.starts_with(&prefix) && *k != path);
 
@@ -254,7 +256,8 @@ impl Storage for MemoryStorage {
         let mut dirs = self.dirs.write().await;
         let mut data = self.data.write().await;
 
-        let prefix = format!("{}/", path.display());
+        let mut prefix = path.to_path_buf();
+        prefix.push("");
 
         // Remove all files and subdirectories
         data.retain(|k, _| !k.starts_with(&prefix));
