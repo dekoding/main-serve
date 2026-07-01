@@ -18,6 +18,56 @@ use crate::middleware::auth::extractor::RequestContext;
 use crate::server::state::AppState;
 use crate::storage::Storage;
 
+/// Context for list operations.
+struct ListContext<'a> {
+    state: &'a AppState,
+    pool: &'a crate::db::pool::DatabasePool,
+    config: &'a FileStoreConfig,
+    table_config: &'a crate::config::types::TableConfig,
+    query_params: &'a HashMap<String, String>,
+    endpoint: &'a EndpointConfig,
+    headers: &'a axum::http::HeaderMap,
+}
+
+/// Context for create operations.
+struct CreateContext<'a> {
+    pool: &'a crate::db::pool::DatabasePool,
+    config: &'a FileStoreConfig,
+    table_config: &'a crate::config::types::TableConfig,
+    endpoint: &'a EndpointConfig,
+    headers: &'a axum::http::HeaderMap,
+    body: &'a serde_json::Value,
+    state: &'a AppState,
+    query_params: &'a HashMap<String, String>,
+}
+
+/// Context for update operations.
+struct UpdateContext<'a> {
+    state: &'a AppState,
+    id: &'a str,
+    config: &'a FileStoreConfig,
+    table_config: &'a crate::config::types::TableConfig,
+    driver: DatabaseDriver,
+    endpoint: &'a EndpointConfig,
+    headers: &'a axum::http::HeaderMap,
+    body: &'a serde_json::Value,
+    query_params: &'a HashMap<String, String>,
+}
+
+/// Context for delete operations.
+struct DeleteContext<'a> {
+    state: &'a AppState,
+    id: &'a str,
+    config: &'a FileStoreConfig,
+    storage: &'a dyn Storage,
+    endpoint: &'a EndpointConfig,
+    pool: &'a crate::db::pool::DatabasePool,
+    driver: DatabaseDriver,
+    table_config: &'a crate::config::types::TableConfig,
+    headers: &'a axum::http::HeaderMap,
+    query_params: &'a HashMap<String, String>,
+}
+
 /// Route handler for file store endpoints.
 pub async fn handle_file_store_route(
     state: axum::extract::State<AppState>,
@@ -41,10 +91,10 @@ pub async fn handle_file_store_route(
         serde_json::from_slice(&body).unwrap_or(serde_json::Value::Object(serde_json::Map::new()))
     };
 
-    handle_file_store(
+    dispatch_file_store(
         &state,
         method,
-        uri,
+        &uri,
         &endpoint,
         headers,
         query.0,
@@ -53,11 +103,11 @@ pub async fn handle_file_store_route(
     .await
 }
 
-/// Core file store handler logic.
-pub async fn handle_file_store(
+/// Dispatch file store requests to the appropriate handler based on method and path.
+async fn dispatch_file_store(
     state: &AppState,
     method: axum::http::Method,
-    uri: axum::http::Uri,
+    uri: &axum::http::Uri,
     endpoint: &EndpointConfig,
     headers: axum::http::HeaderMap,
     query_params: HashMap<String, String>,
@@ -78,74 +128,63 @@ pub async fn handle_file_store(
 
     match method {
         axum::http::Method::GET => {
-            if path.is_empty() || path == "/" || path == config.table {
-                handle_file_store_list(
-                    state,
-                    &pool,
-                    config,
-                    &table_config,
-                    &query_params,
-                    endpoint,
-                    &headers,
-                )
-                .await
-            } else {
-                match extract_file_id(&path) {
-                    Some(id) => handle_file_store_get(&pool, config, &table_config, &id).await,
-                    None => Err(AppError::BadRequest("File ID required".to_string())),
-                }
-            }
+            dispatch_file_store_get(
+                state,
+                &pool,
+                config,
+                &table_config,
+                &path,
+                &query_params,
+                endpoint,
+                &headers,
+            )
+            .await
         }
         axum::http::Method::POST => {
-            if path.is_empty() || path == "/" {
-                handle_file_store_create(
-                    &pool,
-                    config,
-                    &table_config,
-                    endpoint,
-                    &headers,
-                    body,
-                    state,
-                    &query_params,
-                )
-                .await
-            } else {
-                Err(AppError::MethodNotAllowed(
-                    "POST not allowed on this path".to_string(),
-                ))
-            }
+            dispatch_file_store_post(
+                &pool,
+                config,
+                &table_config,
+                endpoint,
+                &headers,
+                body,
+                state,
+                &query_params,
+                &path,
+            )
+            .await
         }
         axum::http::Method::PATCH => match extract_file_id(&path) {
             Some(id) => {
-                handle_file_store_update(
+                handle_file_store_update(&UpdateContext {
                     state,
-                    &id,
+                    id: &id,
                     config,
-                    &table_config,
+                    table_config: &table_config,
                     driver,
                     endpoint,
-                    &headers,
+                    headers: &headers,
                     body,
-                    &query_params,
-                )
+                    query_params: &query_params,
+                })
                 .await
             }
             None => Err(AppError::BadRequest("File ID required".to_string())),
         },
         axum::http::Method::DELETE => match extract_file_id(&path) {
             Some(id) => {
-                handle_file_store_delete(
+                handle_file_store_delete(&DeleteContext {
                     state,
-                    &id,
+                    id: &id,
                     config,
-                    &*storage,
+                    storage: &*storage,
                     endpoint,
-                    &pool,
+                    pool: &pool,
                     driver,
-                    &table_config,
-                    &headers,
-                    &query_params,
-                )
+                    table_config: &table_config,
+                    headers: &headers,
+                    query_params: &query_params,
+                })
                 .await
             }
             None => Err(AppError::BadRequest("File ID required".to_string())),
@@ -156,53 +195,121 @@ pub async fn handle_file_store(
     }
 }
 
-// These functions need access to AppState, pool, configs, headers, and query params.
+/// Dispatch GET requests for file store.
 #[allow(clippy::too_many_arguments)]
-async fn handle_file_store_list(
+async fn dispatch_file_store_get(
     state: &AppState,
     pool: &crate::db::pool::DatabasePool,
     config: &FileStoreConfig,
     table_config: &crate::config::types::TableConfig,
+    path: &str,
     query_params: &HashMap<String, String>,
     endpoint: &EndpointConfig,
     headers: &axum::http::HeaderMap,
 ) -> Result<Response, AppError> {
-    let driver = pool.driver();
-    let mut qp = extract_query_params(query_params);
+    if path.is_empty() || path == "/" || path == config.table {
+        handle_file_store_list(&ListContext {
+            state,
+            pool,
+            config,
+            table_config,
+            query_params,
+            endpoint,
+            headers,
+        })
+        .await
+    } else {
+        match extract_file_id(path) {
+            Some(id) => handle_file_store_get_one(pool, config, table_config, &id).await,
+            None => Err(AppError::BadRequest("File ID required".to_string())),
+        }
+    }
+}
 
-    // Apply default pagination from config when not specified by client.
-    qp.page.get_or_insert(config.pagination.default_page_size);
+/// Dispatch POST requests for file store.
+#[allow(clippy::too_many_arguments)]
+async fn dispatch_file_store_post(
+    pool: &crate::db::pool::DatabasePool,
+    config: &FileStoreConfig,
+    table_config: &crate::config::types::TableConfig,
+    endpoint: &EndpointConfig,
+    headers: &axum::http::HeaderMap,
+    body: &serde_json::Value,
+    state: &AppState,
+    query_params: &HashMap<String, String>,
+    path: &str,
+) -> Result<Response, AppError> {
+    if path.is_empty() || path == "/" {
+        handle_file_store_create(&CreateContext {
+            pool,
+            config,
+            table_config,
+            endpoint,
+            headers,
+            body,
+            state,
+            query_params,
+        })
+        .await
+    } else {
+        Err(AppError::MethodNotAllowed(
+            "POST not allowed on this path".to_string(),
+        ))
+    }
+}
+
+// =============================================================================
+// CRUD handlers
+// =============================================================================
+
+/// Handle listing file store entries.
+async fn handle_file_store_list(ctx: &ListContext<'_>) -> Result<Response, AppError> {
+    let driver = ctx.pool.driver();
+    let mut qp = extract_query_params(ctx.query_params);
+
+    qp.page
+        .get_or_insert(ctx.config.pagination.default_page_size);
     qp.page_size
-        .get_or_insert(config.pagination.default_page_size);
+        .get_or_insert(ctx.config.pagination.default_page_size);
 
-    // Apply default sorting from config when not specified by client.
-    if qp.sort.is_none() && !config.sorting.default_field.is_empty() {
-        qp.sort = Some(config.sorting.default_field.clone());
+    if qp.sort.is_none() && !ctx.config.sorting.default_field.is_empty() {
+        qp.sort = Some(ctx.config.sorting.default_field.clone());
     }
     if qp.order.is_none() {
-        qp.order = Some(config.sorting.default_order);
+        qp.order = Some(ctx.config.sorting.default_order);
     }
 
-    // Apply ownership filter for non-admin users.
-    if config.ownership.as_ref().is_some_and(|o| !o.admin_override) {
+    if ctx
+        .config
+        .ownership
+        .as_ref()
+        .is_some_and(|o| !o.admin_override)
+    {
         qp.filters.insert(
             "owner_id".to_string(),
-            extract_user_id(state, endpoint, headers, query_params).await?,
+            extract_user_id(ctx.state, ctx.endpoint, ctx.headers, ctx.query_params).await?,
         );
     }
 
-    let ctx = SelectContext::permissive();
-    let built = build_select_list(table_config, &ctx, &qp, driver, &RequestContext::default())?;
-    let rows = pool.fetch_all_json(&built.sql, &built.params).await?;
+    let select_ctx = SelectContext::permissive();
+    let built = build_select_list(
+        ctx.table_config,
+        &select_ctx,
+        &qp,
+        driver,
+        &RequestContext::default(),
+    )?;
+    let rows = ctx.pool.fetch_all_json(&built.sql, &built.params).await?;
 
     let count_built = build_select_list_count(
-        &config.table,
+        &ctx.config.table,
         driver,
         &qp,
         &SelectContext::permissive(),
         &RequestContext::default(),
     )?;
-    let count_row = pool
+    let count_row = ctx
+        .pool
         .fetch_optional_json(&count_built.sql, &count_built.params)
         .await?;
     let total: i64 = count_row
@@ -211,11 +318,12 @@ async fn handle_file_store_list(
         .and_then(|v| v.as_i64())
         .unwrap_or(0);
 
-    // Apply field permissions to response rows
-    let rows = apply_row_permissions(&rows, config).await?;
+    let rows = apply_row_permissions(&rows, ctx.config).await?;
 
-    let page = qp.page.unwrap_or(config.pagination.default_page_size);
-    let page_size = qp.page_size.unwrap_or(config.pagination.default_page_size);
+    let page = qp.page.unwrap_or(ctx.config.pagination.default_page_size);
+    let page_size = qp
+        .page_size
+        .unwrap_or(ctx.config.pagination.default_page_size);
 
     let response = serde_json::json!({
         "data": rows,
@@ -230,7 +338,8 @@ async fn handle_file_store_list(
     Ok((StatusCode::OK, axum::Json(response)).into_response())
 }
 
-async fn handle_file_store_get(
+/// Handle getting a single file store entry.
+async fn handle_file_store_get_one(
     pool: &crate::db::pool::DatabasePool,
     config: &FileStoreConfig,
     table_config: &crate::config::types::TableConfig,
@@ -269,29 +378,20 @@ async fn handle_file_store_get(
     }
 }
 
-// These functions need access to pool, configs, headers, query params, and body.
-#[allow(clippy::too_many_arguments)]
-async fn handle_file_store_create(
-    pool: &crate::db::pool::DatabasePool,
-    config: &FileStoreConfig,
-    table_config: &crate::config::types::TableConfig,
-    endpoint: &EndpointConfig,
-    headers: &axum::http::HeaderMap,
-    body: &serde_json::Value,
-    state: &AppState,
-    query_params: &HashMap<String, String>,
-) -> Result<Response, AppError> {
-    let driver = pool.driver();
-    let user_id = extract_user_id(state, endpoint, headers, query_params).await?;
+/// Handle creating a file store entry.
+async fn handle_file_store_create(ctx: &CreateContext<'_>) -> Result<Response, AppError> {
+    let driver = ctx.pool.driver();
+    let user_id = extract_user_id(ctx.state, ctx.endpoint, ctx.headers, ctx.query_params).await?;
 
-    let writable_columns = table_config
+    let writable_columns = ctx
+        .table_config
         .columns
         .iter()
         .map(|c| c.name.clone())
         .collect::<Vec<_>>();
     let mut body_map = serde_json::Map::new();
 
-    if let Some(obj) = body.as_object() {
+    if let Some(obj) = ctx.body.as_object() {
         for (k, v) in obj {
             if writable_columns.contains(&k.to_string()) {
                 body_map.insert(k.clone(), v.clone());
@@ -299,7 +399,7 @@ async fn handle_file_store_create(
         }
     }
 
-    if config.ownership.is_some() {
+    if ctx.config.ownership.is_some() {
         body_map.insert(
             "owner_id".to_string(),
             serde_json::Value::String(user_id.clone()),
@@ -322,7 +422,7 @@ async fn handle_file_store_create(
 
     let json_body = serde_json::Value::Object(body_map);
     let built = build_insert(
-        table_config,
+        ctx.table_config,
         &MutationContext::default(),
         &json_body,
         driver,
@@ -330,14 +430,20 @@ async fn handle_file_store_create(
     )?;
 
     if built.sql.contains("RETURNING") {
-        let row = pool.fetch_optional_json(&built.sql, &built.params).await?;
+        let row = ctx
+            .pool
+            .fetch_optional_json(&built.sql, &built.params)
+            .await?;
         Ok((
             StatusCode::CREATED,
             axum::Json(serde_json::json!({ "data": row })),
         )
             .into_response())
     } else {
-        let rows_affected = pool.execute_with_params(&built.sql, &built.params).await?;
+        let rows_affected = ctx
+            .pool
+            .execute_with_params(&built.sql, &built.params)
+            .await?;
         Ok((
             StatusCode::CREATED,
             axum::Json(serde_json::json!({ "rows_affected": rows_affected })),
@@ -346,39 +452,40 @@ async fn handle_file_store_create(
     }
 }
 
-// These functions need access to state, configs, headers, and query params for ownership checks.
-#[allow(clippy::too_many_arguments)]
-async fn handle_file_store_update(
-    state: &AppState,
-    id: &str,
-    config: &FileStoreConfig,
-    table_config: &crate::config::types::TableConfig,
-    driver: DatabaseDriver,
-    endpoint: &EndpointConfig,
-    headers: &axum::http::HeaderMap,
-    body: &serde_json::Value,
-    query_params: &HashMap<String, String>,
-) -> Result<Response, AppError> {
-    // Check ownership for non-admin users before update.
-    if config.ownership.as_ref().is_some_and(|o| !o.admin_override) {
-        check_file_store_ownership(state, config, id, endpoint, headers, query_params, driver)
-            .await?;
+/// Handle updating a file store entry.
+async fn handle_file_store_update(ctx: &UpdateContext<'_>) -> Result<Response, AppError> {
+    if ctx
+        .config
+        .ownership
+        .as_ref()
+        .is_some_and(|o| !o.admin_override)
+    {
+        check_file_store_ownership(
+            ctx.state,
+            ctx.config,
+            ctx.id,
+            ctx.endpoint,
+            ctx.headers,
+            ctx.query_params,
+            ctx.driver,
+        )
+        .await?;
     }
 
     let pool = {
-        let pools = state.db_pools.read().await;
+        let pools = ctx.state.db_pools.read().await;
         pools
-            .get(&config.database)
+            .get(&ctx.config.database)
             .ok_or_else(|| {
-                AppError::Internal(format!("Database '{}' has no pool", config.database))
+                AppError::Internal(format!("Database '{}' has no pool", ctx.config.database))
             })?
             .clone()
     };
 
     let mut body_map = serde_json::Map::new();
-    if let Some(obj) = body.as_object() {
+    if let Some(obj) = ctx.body.as_object() {
         for (k, v) in obj {
-            if table_config.columns.iter().any(|c| c.name == *k) {
+            if ctx.table_config.columns.iter().any(|c| c.name == *k) {
                 body_map.insert(k.clone(), v.clone());
             }
         }
@@ -388,13 +495,13 @@ async fn handle_file_store_update(
         serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
     );
 
-    let ctx = MutationContext::default();
+    let mutate_ctx = MutationContext::default();
     let built = build_update(
-        table_config,
-        ctx,
-        id,
+        ctx.table_config,
+        mutate_ctx,
+        ctx.id,
         &serde_json::Value::Object(body_map),
-        driver,
+        ctx.driver,
         &RequestContext::default(),
         &None,
     )?;
@@ -403,7 +510,7 @@ async fn handle_file_store_update(
     if rows_affected == 0 {
         return Err(AppError::NotFound(format!(
             "File entry with id '{}' not found",
-            id
+            ctx.id
         )));
     }
 
@@ -414,62 +521,65 @@ async fn handle_file_store_update(
         .into_response())
 }
 
-// These functions need access to state, configs, headers, query params, and storage.
-// collapsible_if suppressed: early-return pattern would obscure trash logic.
-#[allow(clippy::too_many_arguments, clippy::collapsible_if)]
-async fn handle_file_store_delete(
-    state: &AppState,
-    id: &str,
-    config: &FileStoreConfig,
-    storage: &dyn Storage,
-    endpoint: &EndpointConfig,
-    pool: &crate::db::pool::DatabasePool,
-    driver: DatabaseDriver,
-    table_config: &crate::config::types::TableConfig,
-    headers: &axum::http::HeaderMap,
-    query_params: &HashMap<String, String>,
-) -> Result<Response, AppError> {
-    let trash_enabled = config.trash.as_ref().is_some_and(|t| t.enabled);
+/// Handle deleting a file store entry.
+async fn handle_file_store_delete(ctx: &DeleteContext<'_>) -> Result<Response, AppError> {
+    let trash_enabled = ctx.config.trash.as_ref().is_some_and(|t| t.enabled);
 
     if trash_enabled {
-        // Check ownership
-        if config.ownership.as_ref().is_some_and(|o| !o.admin_override) {
-            check_file_store_ownership(state, config, id, endpoint, headers, query_params, driver)
-                .await?;
+        if ctx
+            .config
+            .ownership
+            .as_ref()
+            .is_some_and(|o| !o.admin_override)
+        {
+            check_file_store_ownership(
+                ctx.state,
+                ctx.config,
+                ctx.id,
+                ctx.endpoint,
+                ctx.headers,
+                ctx.query_params,
+                ctx.driver,
+            )
+            .await?;
         }
 
-        // Move file to trash if file_path column exists
-        let built = build_select_file_path(&config.table, driver);
-        let row = pool.fetch_optional_json(&built.sql, &[id.into()]).await?;
-        if let Some(row) = row {
-            if let Some(file_path) = row.get("file_path").and_then(|v| v.as_str()) {
-                let store_root = storage
-                    .root_path()
-                    .unwrap_or(PathBuf::from(&config.storage));
-                let trash_dest = store_root.join(".trash").join(file_path);
-                let source_path = store_root.join(file_path);
+        let built = build_select_file_path(&ctx.config.table, ctx.driver);
+        let row = ctx
+            .pool
+            .fetch_optional_json(&built.sql, &[ctx.id.into()])
+            .await?;
+        if let Some(row) = row
+            && let Some(file_path) = row.get("file_path").and_then(|v| v.as_str())
+        {
+            let store_root = ctx
+                .storage
+                .root_path()
+                .unwrap_or(PathBuf::from(&ctx.config.storage));
+            let trash_dest = store_root.join(".trash").join(file_path);
+            let source_path = store_root.join(file_path);
 
-                if storage.exists(&source_path).await {
-                    if let Some(parent) = trash_dest.parent() {
-                        storage.create_dir_all(parent).await.map_err(|e| {
-                            AppError::FileOperation(format!(
-                                "Failed to create trash directory: {e}"
-                            ))
-                        })?;
-                    }
-                    let _ = storage.rename(&source_path, &trash_dest).await;
+            if ctx.storage.exists(&source_path).await {
+                if let Some(parent) = trash_dest.parent() {
+                    ctx.storage.create_dir_all(parent).await.map_err(|e| {
+                        AppError::FileOperation(format!("Failed to create trash directory: {e}"))
+                    })?;
                 }
+                let _ = ctx.storage.rename(&source_path, &trash_dest).await;
             }
         }
 
-        let built = build_set_deleted_at(&config.table, driver)
+        let built = build_set_deleted_at(&ctx.config.table, ctx.driver)
             .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
-        let rows_affected = pool.execute_with_params(&built.sql, &[id.into()]).await?;
+        let rows_affected = ctx
+            .pool
+            .execute_with_params(&built.sql, &[ctx.id.into()])
+            .await?;
 
         if rows_affected == 0 {
             return Err(AppError::NotFound(format!(
                 "File entry with id '{}' not found",
-                id
+                ctx.id
             )));
         }
 
@@ -483,42 +593,61 @@ async fn handle_file_store_delete(
         )
             .into_response())
     } else {
-        // Permanent delete
-        if config.ownership.as_ref().is_some_and(|o| !o.admin_override) {
-            check_file_store_ownership(state, config, id, endpoint, headers, query_params, driver)
-                .await?;
+        if ctx
+            .config
+            .ownership
+            .as_ref()
+            .is_some_and(|o| !o.admin_override)
+        {
+            check_file_store_ownership(
+                ctx.state,
+                ctx.config,
+                ctx.id,
+                ctx.endpoint,
+                ctx.headers,
+                ctx.query_params,
+                ctx.driver,
+            )
+            .await?;
         }
 
-        // Delete file from storage
-        let built = build_select_file_path(&config.table, driver);
-        let row = pool.fetch_optional_json(&built.sql, &[id.into()]).await?;
-        if let Some(row) = row {
-            if let Some(file_path) = row.get("file_path").and_then(|v| v.as_str()) {
-                let file_path_buf = storage
-                    .root_path()
-                    .unwrap_or(PathBuf::from(&config.storage))
-                    .join(file_path);
-                if storage.exists(&file_path_buf).await {
-                    storage.delete(&file_path_buf).await.map_err(|e| {
-                        AppError::FileOperation(format!("Failed to delete file: {e}"))
-                    })?;
-                }
+        let built = build_select_file_path(&ctx.config.table, ctx.driver);
+        let row = ctx
+            .pool
+            .fetch_optional_json(&built.sql, &[ctx.id.into()])
+            .await?;
+        if let Some(row) = row
+            && let Some(file_path) = row.get("file_path").and_then(|v| v.as_str())
+        {
+            let file_path_buf = ctx
+                .storage
+                .root_path()
+                .unwrap_or(PathBuf::from(&ctx.config.storage))
+                .join(file_path);
+            if ctx.storage.exists(&file_path_buf).await {
+                ctx.storage
+                    .delete(&file_path_buf)
+                    .await
+                    .map_err(|e| AppError::FileOperation(format!("Failed to delete file: {e}")))?;
             }
         }
 
         let built = build_delete(
-            table_config,
-            id,
-            pool.driver(),
+            ctx.table_config,
+            ctx.id,
+            ctx.pool.driver(),
             &RequestContext::default(),
             &None,
         )?;
-        let rows_affected = pool.execute_with_params(&built.sql, &built.params).await?;
+        let rows_affected = ctx
+            .pool
+            .execute_with_params(&built.sql, &built.params)
+            .await?;
 
         if rows_affected == 0 {
             return Err(AppError::NotFound(format!(
                 "File entry with id '{}' not found",
-                id
+                ctx.id
             )));
         }
 
@@ -530,6 +659,11 @@ async fn handle_file_store_delete(
     }
 }
 
+// =============================================================================
+// Shared helpers
+// =============================================================================
+
+/// Check ownership of a file store entry.
 async fn check_file_store_ownership(
     state: &AppState,
     config: &FileStoreConfig,
@@ -567,13 +701,13 @@ async fn check_file_store_ownership(
     Ok(())
 }
 
+/// Extract user ID from the request for ownership checks.
 async fn extract_user_id(
     state: &AppState,
     endpoint: &EndpointConfig,
     headers: &axum::http::HeaderMap,
     query_params: &HashMap<String, String>,
 ) -> Result<String, AppError> {
-    // Reuse auth extraction from media handler
     if endpoint.auth == "none" {
         return Ok(String::new());
     }
@@ -585,6 +719,7 @@ async fn extract_user_id(
     Ok(auth_info.subject)
 }
 
+/// Apply field permissions to response rows.
 async fn apply_row_permissions(
     rows: &[serde_json::Value],
     config: &FileStoreConfig,
@@ -612,6 +747,7 @@ async fn apply_row_permissions(
     Ok(filtered_rows)
 }
 
+/// Check if a field is readable based on permissions.
 async fn is_field_readable(
     field: &str,
     permissions: &HashMap<String, crate::config::types::FileStoreFieldPermissions>,
@@ -631,11 +767,14 @@ async fn is_field_readable(
     false
 }
 
-fn extract_file_id(path: &str) -> Option<String> {
+/// Extract the file ID from a path string.
+#[must_use]
+pub fn extract_file_id(path: &str) -> Option<String> {
     let segments: Vec<&str> = path.trim_matches('/').split('/').collect();
     segments.last().map(|s| s.to_string())
 }
 
+/// Resolve database pool, table config, and driver for a file store config.
 async fn get_db_context(
     state: &AppState,
     config: &FileStoreConfig,

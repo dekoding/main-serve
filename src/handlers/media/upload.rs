@@ -6,11 +6,11 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use uuid::Uuid;
 
-use crate::config::types::{DatabaseDriver, EndpointConfig, MediaConfig, TableConfig};
+use crate::config::types::EndpointConfig;
 use crate::db::query::builders::build_insert;
 use crate::db::query::types::MutationContext;
 use crate::error::AppError;
-use crate::handlers::media::extract_auth_info;
+use crate::handlers::common::{extract_auth_info, get_db_context};
 use crate::handlers::static_files::upload::{build_storage_path, sanitize_filename};
 use crate::handlers::static_files::utils::mime_from_path;
 use crate::middleware::auth::extractor::RequestContext;
@@ -227,37 +227,4 @@ pub async fn handle_media_upload(
         })),
     )
         .into_response())
-}
-
-async fn get_db_context(
-    state: &crate::server::state::AppState,
-    config: &MediaConfig,
-) -> Result<(crate::db::pool::DatabasePool, TableConfig, DatabaseDriver), AppError> {
-    let pool = {
-        let pools = state.db_pools.read().await;
-        pools
-            .get(config.database.as_str())
-            .ok_or_else(|| {
-                AppError::Internal(format!("Database '{}' has no pool", config.database))
-            })?
-            .clone()
-    };
-    let driver = pool.driver();
-
-    let table_config = {
-        let config_guard = state.config.read().await;
-        config_guard
-            .tables
-            .iter()
-            .find(|t| t.name == config.table && t.database == config.database)
-            .ok_or_else(|| {
-                AppError::Internal(format!(
-                    "Table '{}' in database '{}' not found in config",
-                    config.table, config.database
-                ))
-            })?
-            .clone()
-    };
-
-    Ok((pool, table_config, driver))
 }

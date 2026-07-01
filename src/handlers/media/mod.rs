@@ -15,8 +15,9 @@ use std::path::PathBuf;
 
 use axum::response::Response;
 
-use crate::config::types::{DatabaseDriver, EndpointConfig, MediaConfig};
+use crate::config::types::EndpointConfig;
 use crate::error::AppError;
+use crate::handlers::common::get_db_context;
 use crate::handlers::media::content_refs::{handle_media_attach, handle_media_detach};
 use crate::handlers::media::create::handle_media_create;
 use crate::handlers::media::delete::handle_media_delete;
@@ -27,7 +28,6 @@ use crate::handlers::media::sharing::handle_media_share_get;
 use crate::handlers::media::trash::handle_media_trash;
 use crate::handlers::media::update::handle_media_update;
 use crate::handlers::media::upload::handle_media_upload;
-use crate::middleware::auth::extractor::AuthInfo;
 use crate::server::state::AppState;
 
 /// Route handler for media library endpoints.
@@ -105,8 +105,7 @@ pub async fn handle_media_upload_route(
     handle_media_upload(state, multipart, &endpoint, &uri, &headers, query.0).await
 }
 
-/// Core media handler logic.
-// collapsible_if suppressed: early returns improve readability for trash/sharing/resize dispatch.
+/// Core media handler logic - dispatches to specific route handlers.
 #[allow(clippy::collapsible_if)]
 pub(crate) async fn handle_media(
     state: &AppState,
@@ -131,9 +130,10 @@ pub(crate) async fn handle_media(
     let root = storage
         .root_path()
         .unwrap_or(PathBuf::from(&config.storage));
+
     let (pool, table_config, driver) = get_db_context(state, config).await?;
 
-    // Dispatch based on path patterns
+    // Dispatch special-purpose routes (trash, sharing, resize, thumbnail, attach, detach, move, rename)
     if path.starts_with("/_main-serve/media/trash") {
         return handle_media_trash(
             state,
@@ -279,81 +279,9 @@ pub(crate) async fn handle_media(
     }
 }
 
-// =============================================================================
-// Shared helper functions
-// =============================================================================
-
-fn extract_media_id(path: &str) -> Option<String> {
+/// Extract the media ID from a path string.
+#[must_use]
+pub fn extract_media_id(path: &str) -> Option<String> {
     let segments: Vec<&str> = path.trim_matches('/').split('/').collect();
     segments.last().map(|s| s.to_string())
-}
-
-async fn extract_user_id(
-    state: &AppState,
-    endpoint: &EndpointConfig,
-    headers: &axum::http::HeaderMap,
-    query_params: &HashMap<String, String>,
-) -> Result<String, AppError> {
-    let auth_info = extract_auth_info(state, endpoint, headers, query_params).await?;
-    Ok(auth_info.subject)
-}
-
-async fn extract_auth_info(
-    state: &AppState,
-    endpoint: &EndpointConfig,
-    headers: &axum::http::HeaderMap,
-    query_params: &HashMap<String, String>,
-) -> Result<AuthInfo, AppError> {
-    if endpoint.auth == "none" {
-        return Ok(AuthInfo::default());
-    }
-    let auth_config = state.config.read().await.auth.clone();
-    crate::middleware::auth::validate::authenticate::<crate::server::state::InMemoryRevocationStore>(
-        &endpoint.auth,
-        &auth_config,
-        headers,
-        query_params,
-        None,
-    )
-    .await
-}
-
-async fn get_db_context(
-    state: &AppState,
-    config: &MediaConfig,
-) -> Result<
-    (
-        crate::db::pool::DatabasePool,
-        crate::config::types::TableConfig,
-        DatabaseDriver,
-    ),
-    AppError,
-> {
-    let pool = {
-        let pools = state.db_pools.read().await;
-        pools
-            .get(config.database.as_str())
-            .ok_or_else(|| {
-                AppError::Internal(format!("Database '{}' has no pool", config.database))
-            })?
-            .clone()
-    };
-    let driver = pool.driver();
-
-    let table_config = {
-        let config_guard = state.config.read().await;
-        config_guard
-            .tables
-            .iter()
-            .find(|t| t.name == config.table && t.database == config.database)
-            .ok_or_else(|| {
-                AppError::Internal(format!(
-                    "Table '{}' in database '{}' not found in config",
-                    config.table, config.database
-                ))
-            })?
-            .clone()
-    };
-
-    Ok((pool, table_config, driver))
 }

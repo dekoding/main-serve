@@ -13,7 +13,7 @@ use crate::db::query::select_one::{
 };
 use crate::db::query::update::{build_set_restored, build_set_trashed};
 use crate::error::AppError;
-use crate::handlers::media::extract_auth_info;
+use crate::handlers::common::extract_auth_info;
 use crate::middleware::auth::extractor::RequestContext;
 use crate::storage::Storage;
 

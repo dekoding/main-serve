@@ -8,7 +8,7 @@ use crate::config::types::{EndpointConfig, TableConfig};
 use crate::db::query::builders::build_insert;
 use crate::db::query::types::MutationContext;
 use crate::error::AppError;
-use crate::handlers::media::extract_user_id;
+use crate::handlers::common::extract_user_id;
 use crate::middleware::auth::extractor::RequestContext;
 
 // These functions need access to pool, configs, headers, query params, and body.

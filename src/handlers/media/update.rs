@@ -9,6 +9,7 @@ use crate::db::query::builders::build_update;
 use crate::db::query::select_one::build_select_by_id;
 use crate::db::query::types::MutationContext;
 use crate::error::AppError;
+use crate::handlers::common::extract_auth_info;
 use crate::middleware::auth::extractor::RequestContext;
 
 // collapsible_if suppressed: early returns improve readability for ownership checks.
@@ -111,24 +112,4 @@ pub async fn handle_media_update(
         axum::Json(serde_json::json!({ "rows_affected": rows_affected })),
     )
         .into_response())
-}
-
-async fn extract_auth_info(
-    state: &crate::server::state::AppState,
-    endpoint: &EndpointConfig,
-    headers: &axum::http::HeaderMap,
-    query_params: &HashMap<String, String>,
-) -> Result<crate::middleware::auth::extractor::AuthInfo, AppError> {
-    if endpoint.auth == "none" {
-        return Ok(crate::middleware::auth::extractor::AuthInfo::default());
-    }
-    let auth_config = state.config.read().await.auth.clone();
-    crate::middleware::auth::validate::authenticate::<crate::server::state::InMemoryRevocationStore>(
-        &endpoint.auth,
-        &auth_config,
-        headers,
-        query_params,
-        None,
-    )
-    .await
 }
