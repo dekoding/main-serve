@@ -35,7 +35,7 @@ pub(crate) trait LikeOps {
 /// Composed of `EqOps`, `CmpOps`, and `LikeOps` sub-traits for operator
 /// resolution, plus driver-specific methods for JSON extraction and
 /// JSONB operator detection.
-pub(crate) trait FilterBehavior: EqOps + CmpOps + LikeOps {
+pub(crate) trait FilterBehavior: EqOps + CmpOps + LikeOps + std::fmt::Debug {
     /// Generate JSON extraction for nested JSONB/JSON paths.
     fn json_extract_path(&self, column: &str, path: &str) -> String;
 
@@ -44,6 +44,7 @@ pub(crate) trait FilterBehavior: EqOps + CmpOps + LikeOps {
 }
 
 /// PostgreSQL-specific filter behavior.
+#[derive(Debug)]
 pub(crate) struct PostgresFilter;
 
 impl FilterBehavior for PostgresFilter {
@@ -100,6 +101,7 @@ impl LikeOps for PostgresFilter {
 }
 
 /// MySQL-specific filter behavior.
+#[derive(Debug)]
 pub(crate) struct MysqlFilter;
 
 impl FilterBehavior for MysqlFilter {
@@ -157,6 +159,7 @@ impl LikeOps for MysqlFilter {
 }
 
 /// SQLite-specific filter behavior.
+#[derive(Debug)]
 pub(crate) struct SqliteFilter;
 
 impl FilterBehavior for SqliteFilter {
