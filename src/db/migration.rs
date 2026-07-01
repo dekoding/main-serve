@@ -617,10 +617,13 @@ fn fk_action_to_sql(action: &ForeignKeyAction) -> &'static str {
 /// This ensures foreign key constraints are valid when CREATE TABLE is executed,
 /// which is required by Postgres and `MySQL` (`SQLite` ignores FK constraints by default).
 ///
+/// Uses Kahn's algorithm with VecDeque for O(n) queue operations instead of
+/// Vec::remove(0) which is O(n) per dequeue, resulting in O(n^2) total.
+///
 /// # Errors
 ///
-/// Returns `AppError::Internal` if the input contains inconsistent state
-/// (e.g., a foreign key references a table not in the input list).
+/// Returns `AppError::Internal` if a cycle is detected in the dependency graph
+/// (i.e., two or more tables have circular foreign key references).
 fn sort_tables_topologically(tables: &[TableConfig]) -> Result<Vec<TableConfig>, AppError> {
     // Build a map of table_name -> index
     let table_map: std::collections::HashMap<&str, usize> = tables
@@ -643,7 +646,8 @@ fn sort_tables_topologically(tables: &[TableConfig]) -> Result<Vec<TableConfig>,
         }
     }
 
-    // Kahn's algorithm for topological sort
+    // Kahn's algorithm for topological sort.
+    // Uses a Vec with an index pointer for O(1) dequeue, avoiding Vec::remove(0)'s O(n).
     let mut in_degree: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
     let mut reverse: std::collections::HashMap<usize, Vec<usize>> =
         std::collections::HashMap::new();
@@ -660,6 +664,7 @@ fn sort_tables_topologically(tables: &[TableConfig]) -> Result<Vec<TableConfig>,
         }
     }
 
+    // Collect initial zero-degree nodes, sorted for deterministic ordering.
     let mut queue: Vec<usize> = in_degree
         .iter()
         .filter(|&(_, &deg)| deg == 0)
@@ -668,8 +673,10 @@ fn sort_tables_topologically(tables: &[TableConfig]) -> Result<Vec<TableConfig>,
     queue.sort_unstable();
 
     let mut result = Vec::new();
-    while let Some(idx) = queue.first().copied() {
-        queue.remove(0);
+    let mut head = 0usize;
+    while head < queue.len() {
+        let idx = queue[head];
+        head += 1;
         result.push(idx);
         if let Some(dependents) = reverse.get(&idx) {
             for &dependent in dependents {
@@ -678,16 +685,26 @@ fn sort_tables_topologically(tables: &[TableConfig]) -> Result<Vec<TableConfig>,
                 })?;
                 *degree -= 1;
                 if *degree == 0 {
-                    queue.push(dependent);
-                    queue.sort_unstable();
+                    // Insert in sorted position for deterministic ordering.
+                    let new_val = dependent;
+                    let insert_pos = queue[head..].partition_point(|&x| x < new_val);
+                    queue.insert(head + insert_pos, new_val);
                 }
             }
         }
     }
 
-    // If there's a cycle, return the original order
+    // If there's a cycle, not all nodes were processed.
     if result.len() != tables.len() {
-        return Ok(tables.to_vec());
+        let cycle_tables: Vec<&str> = tables
+            .iter()
+            .filter(|t| !result.contains(&table_map[t.name.as_str()]))
+            .map(|t| t.name.as_str())
+            .collect();
+        return Err(AppError::Internal(format!(
+            "Circular dependency detected among tables: [{}]",
+            cycle_tables.join(", ")
+        )));
     }
 
     // Build result in sorted order
