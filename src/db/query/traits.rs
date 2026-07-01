@@ -1,44 +1,46 @@
-/// Trait abstracting driver-specific SQL generation patterns for filtering.
-pub(crate) trait FilterBehavior {
+/// Sub-trait for equality operators (eq / ne).
+///
+/// Default implementations use `=` for equality and `<>` for inequality,
+/// which works for PostgreSQL. MySQL and SQLite override `ne_op` to use `!=`.
+pub(crate) trait EqOps {
+    fn eq_op(&self) -> &'static str;
+    fn ne_op(&self) -> &'static str;
+}
+
+/// Sub-trait for comparison operators (gt, gte, lt, lte).
+///
+/// All three drivers use the same comparison operators.
+pub(crate) trait CmpOps {
+    fn gt_op(&self) -> &'static str;
+    fn gte_op(&self) -> &'static str;
+    fn lt_op(&self) -> &'static str;
+    fn lte_op(&self) -> &'static str;
+}
+
+/// Sub-trait for LIKE operators.
+///
+/// All drivers use `LIKE` for both `like_op` and `ilike_op` (PostgreSQL adds
+/// its own ILIKE support at the query level). `like_pattern_start` and
+/// `like_pattern_end` share the same implementation across all drivers.
+pub(crate) trait LikeOps {
+    fn like_op(&self) -> &'static str;
+    fn ilike_op(&self) -> &'static str;
+    fn like_pattern(&self, param: &str) -> String;
+    fn like_pattern_start(&self, param: &str) -> String;
+    fn like_pattern_end(&self, param: &str) -> String;
+}
+
+/// Core trait abstracting driver-specific SQL generation patterns for filtering.
+///
+/// Composed of `EqOps`, `CmpOps`, and `LikeOps` sub-traits for operator
+/// resolution, plus driver-specific methods for JSON extraction and
+/// JSONB operator detection.
+pub(crate) trait FilterBehavior: EqOps + CmpOps + LikeOps {
     /// Generate JSON extraction for nested JSONB/JSON paths.
     fn json_extract_path(&self, column: &str, path: &str) -> String;
 
-    /// Get the comparison operator for equality.
-    fn eq_op(&self) -> &'static str;
-
-    /// Get the comparison operator for inequality.
-    fn ne_op(&self) -> &'static str;
-
-    /// Get the comparison operator for greater than.
-    fn gt_op(&self) -> &'static str;
-
-    /// Get the comparison operator for greater than or equal.
-    fn gte_op(&self) -> &'static str;
-
-    /// Get the comparison operator for less than.
-    fn lt_op(&self) -> &'static str;
-
-    /// Get the comparison operator for less than or equal.
-    fn lte_op(&self) -> &'static str;
-
-    /// Get the LIKE operator.
-    fn like_op(&self) -> &'static str;
-
-    /// Get the ILIKE operator (case-insensitive LIKE).
-    fn ilike_op(&self) -> &'static str;
-
-    /// Check if driver uses JSONB-specific operators (`PostgreSQL`).
+    /// Check if driver uses JSONB-specific operators (PostgreSQL).
     fn uses_jsonb_ops(&self) -> bool;
-
-    /// Build a LIKE pattern with wildcards using SQL concatenation.
-    /// `param` is the placeholder (e.g., `$1` or `?`).
-    fn like_pattern(&self, param: &str) -> String;
-
-    /// Build a LIKE pattern for STARTS WITH (value at start, wildcard at end).
-    fn like_pattern_start(&self, param: &str) -> String;
-
-    /// Build a LIKE pattern for ENDS WITH (wildcard at start, value at end).
-    fn like_pattern_end(&self, param: &str) -> String;
 }
 
 /// PostgreSQL-specific filter behavior.
@@ -50,12 +52,21 @@ impl FilterBehavior for PostgresFilter {
         format!("({column} #>> '{{{array_syntax}}}')")
     }
 
+    fn uses_jsonb_ops(&self) -> bool {
+        true
+    }
+}
+
+impl EqOps for PostgresFilter {
     fn eq_op(&self) -> &'static str {
         "="
     }
     fn ne_op(&self) -> &'static str {
         "<>"
     }
+}
+
+impl CmpOps for PostgresFilter {
     fn gt_op(&self) -> &'static str {
         ">"
     }
@@ -68,14 +79,14 @@ impl FilterBehavior for PostgresFilter {
     fn lte_op(&self) -> &'static str {
         "<="
     }
+}
+
+impl LikeOps for PostgresFilter {
     fn like_op(&self) -> &'static str {
         "LIKE"
     }
     fn ilike_op(&self) -> &'static str {
         "ILIKE"
-    }
-    fn uses_jsonb_ops(&self) -> bool {
-        true
     }
     fn like_pattern(&self, param: &str) -> String {
         param.to_string()
@@ -98,12 +109,21 @@ impl FilterBehavior for MysqlFilter {
         format!("JSON_UNQUOTE(JSON_EXTRACT({column}, '$.{path}'))")
     }
 
+    fn uses_jsonb_ops(&self) -> bool {
+        false
+    }
+}
+
+impl EqOps for MysqlFilter {
     fn eq_op(&self) -> &'static str {
         "="
     }
     fn ne_op(&self) -> &'static str {
         "!="
     }
+}
+
+impl CmpOps for MysqlFilter {
     fn gt_op(&self) -> &'static str {
         ">"
     }
@@ -116,14 +136,14 @@ impl FilterBehavior for MysqlFilter {
     fn lte_op(&self) -> &'static str {
         "<="
     }
+}
+
+impl LikeOps for MysqlFilter {
     fn like_op(&self) -> &'static str {
         "LIKE"
     }
     fn ilike_op(&self) -> &'static str {
         "LIKE"
-    }
-    fn uses_jsonb_ops(&self) -> bool {
-        false
     }
     fn like_pattern(&self, param: &str) -> String {
         param.to_string()
@@ -144,12 +164,21 @@ impl FilterBehavior for SqliteFilter {
         format!("json_extract({column}, '$.{path}')")
     }
 
+    fn uses_jsonb_ops(&self) -> bool {
+        false
+    }
+}
+
+impl EqOps for SqliteFilter {
     fn eq_op(&self) -> &'static str {
         "="
     }
     fn ne_op(&self) -> &'static str {
         "!="
     }
+}
+
+impl CmpOps for SqliteFilter {
     fn gt_op(&self) -> &'static str {
         ">"
     }
@@ -162,14 +191,14 @@ impl FilterBehavior for SqliteFilter {
     fn lte_op(&self) -> &'static str {
         "<="
     }
+}
+
+impl LikeOps for SqliteFilter {
     fn like_op(&self) -> &'static str {
         "LIKE"
     }
     fn ilike_op(&self) -> &'static str {
         "LIKE"
-    }
-    fn uses_jsonb_ops(&self) -> bool {
-        false
     }
     fn like_pattern(&self, param: &str) -> String {
         param.to_string()
