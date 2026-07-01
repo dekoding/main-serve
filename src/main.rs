@@ -264,11 +264,11 @@ async fn async_main(cli: Cli, config: main_serve::config::AppConfig, config_path
         }
 
         // Set revocation store on state (using OnceLock).
-        if let Some(store) = revocation_store {
-            if let Err(e) = state.set_revocation_store(store) {
-                tracing::error!("Failed to set revocation store: {e}");
-                process::exit(1);
-            }
+        if let Some(store) = revocation_store
+            && let Err(e) = state.set_revocation_store(store)
+        {
+            tracing::error!("Failed to set revocation store: {e}");
+            process::exit(1);
         }
 
         // Spawn a cleanup task for the revocation store (database variant only).
