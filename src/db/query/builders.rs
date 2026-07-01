@@ -144,7 +144,9 @@ pub fn build_insert(
 
     let pk_col = find_pk_column(table_config)?;
     let returning = match driver {
-        DatabaseDriver::Postgres => format!(" RETURNING {pk_col}"),
+        DatabaseDriver::Postgres => {
+            format!(" RETURNING {}", quote_identifier(&pk_col, driver))
+        }
         _ => String::new(),
     };
 
@@ -216,10 +218,13 @@ pub fn build_update(
     let is_coercion_sentinel = pk_val
         .as_number()
         .is_some_and(|n| n.as_i64() == Some(i64::MIN));
+    // "1 = 0" is a sentinel WHERE clause that matches zero rows.
+    // This is used when PK coercion fails (e.g. type mismatch) to prevent
+    // the UPDATE from affecting any row instead of failing silently.
     let mut sql = if is_coercion_sentinel {
         format!(
             "UPDATE {} SET {} WHERE 1 = 0",
-            table_name,
+            quote_identifier(table_name, driver),
             set_parts.join(", ")
         )
     } else {
