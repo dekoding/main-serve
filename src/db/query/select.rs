@@ -32,21 +32,9 @@ use crate::db::query::types::{BuiltQuery, JoinType, QueryParams, SelectContext};
 use crate::error::AppError;
 use crate::middleware::auth::extractor::RequestContext;
 
-impl SelectBuilder {
-    /// Get the filter behavior for this driver.
-    fn filter_behavior(&self) -> Box<dyn FilterBehavior> {
-        match self.driver {
-            DatabaseDriver::Postgres => Box::new(PostgresFilter),
-            DatabaseDriver::Mysql => Box::new(MysqlFilter),
-            DatabaseDriver::Sqlite => Box::new(SqliteFilter),
-        }
-    }
-}
-
-/// Accumulator for building SELECT query clauses.
-///
-/// Collects fields, joins, computed fields, WHERE conditions, ordering,
-/// and pagination parameters before emitting a `BuiltQuery`.
+/// SelectBuilder accumulates the clauses of a SELECT statement so that both
+/// list and single-get queries share the same logic for fields, joins,
+/// computed fields, and WHERE conditions.
 pub struct SelectBuilder {
     table: String,
     select_fields: Vec<String>,
@@ -58,12 +46,18 @@ pub struct SelectBuilder {
     params: Vec<serde_json::Value>,
     param_idx: usize,
     driver: DatabaseDriver,
+    filter_behavior: Box<dyn FilterBehavior>,
 }
 
 impl SelectBuilder {
     /// Start a new SELECT against `table` with the given main-table fields.
     #[must_use]
     pub fn new(table: &str, fields: Vec<String>, driver: DatabaseDriver) -> Self {
+        let filter_behavior: Box<dyn FilterBehavior> = match driver {
+            DatabaseDriver::Postgres => Box::new(PostgresFilter),
+            DatabaseDriver::Mysql => Box::new(MysqlFilter),
+            DatabaseDriver::Sqlite => Box::new(SqliteFilter),
+        };
         Self {
             table: table.to_string(),
             select_fields: fields,
@@ -75,6 +69,7 @@ impl SelectBuilder {
             params: Vec::new(),
             param_idx: 1,
             driver,
+            filter_behavior,
         }
     }
 
@@ -250,68 +245,69 @@ impl SelectBuilder {
     }
 
     /// Applies a single filter expression to the query.
+    ///
+    /// Split into two phases to avoid borrow conflicts between the stored
+    /// `filter_behavior` (immutable) and the mutation targets (mutable).
     fn apply_filter_expression(
         &mut self,
         expr: &FilterExpression,
         value: &str,
         column_type: Option<&crate::config::types::ColumnType>,
     ) -> Result<(), AppError> {
-        let behavior = self.filter_behavior();
-        self.apply_filter_common(expr, value, column_type, &*behavior)
-    }
-
-    /// Unified filter logic using the `FilterBehavior` trait.
-    fn apply_filter_common(
-        &mut self,
-        expr: &FilterExpression,
-        value: &str,
-        column_type: Option<&crate::config::types::ColumnType>,
-        behavior: &dyn FilterBehavior,
-    ) -> Result<(), AppError> {
         let path_str = expr.path.join(".");
         let base_column = expr.path.first().cloned().unwrap_or_default();
         let is_jsonb_field = expr.path.len() > 1
             || column_type.is_some_and(|ct| matches!(ct, ColumnType::Jsonb | ColumnType::Json));
 
-        let values: Vec<String> = match expr.operator {
-            FilterOperator::In | FilterOperator::NotIn => {
-                value.split(',').map(|s| s.trim().to_string()).collect()
-            }
-            FilterOperator::Contains => {
-                if is_jsonb_field {
-                    vec![value.to_string()]
-                } else {
-                    vec![format!("%{}%", value)]
-                }
-            }
-            _ => vec![value.to_string()],
-        };
-        let num_params = values.len();
-
-        // Handle Exists separately (no parameters added).
         if expr.operator == FilterOperator::Exists {
-            let exists_cond =
-                self.build_exists(is_jsonb_field, &base_column, &path_str, behavior)?;
+            // Build condition in a block so fb is dropped before mutating self.
+            let exists_cond = {
+                let fb = &*self.filter_behavior;
+                self.build_exists(is_jsonb_field, &base_column, &path_str, fb)?
+            };
+            // fb is out of scope; borrow on filter_behavior is released.
             self.conditions.push(exists_cond);
             return Ok(());
         }
 
-        let condition = self.build_filter_condition(
-            expr.operator,
-            &base_column,
-            is_jsonb_field,
-            &path_str,
-            num_params,
-            value,
-            behavior,
-        );
+        // Phase 1: Build condition strings (immutable borrow of self).
+        let (condition, values) = {
+            let fb = &*self.filter_behavior;
+            let values: Vec<String> = match expr.operator {
+                FilterOperator::In | FilterOperator::NotIn => {
+                    value.split(',').map(|s| s.trim().to_string()).collect()
+                }
+                FilterOperator::Contains => {
+                    if is_jsonb_field {
+                        vec![value.to_string()]
+                    } else {
+                        vec![format!("%{}%", value)]
+                    }
+                }
+                _ => vec![value.to_string()],
+            };
+
+            let condition = self.build_filter_condition(
+                expr.operator,
+                &base_column,
+                is_jsonb_field,
+                &path_str,
+                values.len(),
+                value,
+                fb,
+            );
+            (condition, values)
+        };
+        // fb is out of scope; borrow on filter_behavior is released.
+
+        // Phase 2: Apply mutations (mutable borrow of self).
         self.conditions.push(condition);
 
         for v in &values {
             let param_value = build_filter_param(v, column_type, self.driver);
             self.params.push(param_value);
         }
-        self.param_idx += num_params;
+        self.param_idx += values.len();
 
         Ok(())
     }
