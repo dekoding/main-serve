@@ -63,8 +63,8 @@ impl From<StorageError> for crate::error::AppError {
             StorageError::InvalidFilename(msg) => {
                 crate::error::AppError::BadRequest(format!("Invalid filename: {msg}"))
             }
-            StorageError::Io(path, _) => crate::error::AppError::FileOperation(format!(
-                "File operation failed: {}",
+            StorageError::Io(path, err) => crate::error::AppError::FileOperation(format!(
+                "File operation failed: {}: {err}",
                 path.display()
             )),
             StorageError::InvalidBackend(msg) => {
