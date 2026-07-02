@@ -4,7 +4,10 @@
 /// modules. They are centralized here to maintain a single source of truth.
 use std::collections::HashMap;
 
-use crate::config::types::{DatabaseDriver, EndpointConfig};
+use axum::extract::State;
+
+use crate::config::types::{DatabaseDriver, EndpointConfig, RegisterConfig};
+use crate::db::pool::DatabasePool;
 use crate::error::AppError;
 use crate::middleware::auth::extractor::AuthInfo;
 use crate::server::state::AppState;
@@ -88,4 +91,34 @@ pub async fn get_db_context(
     };
 
     Ok((pool, table_config, driver))
+}
+
+/// Helper function to get the registration database pool and config.
+pub async fn get_registration_pool(
+    state: State<AppState>,
+) -> Result<(DatabasePool, RegisterConfig), AppError> {
+    let (pool, register_config) = {
+        let register_config =
+            {
+                let config = state.config.read().await;
+                config.auth.register.as_ref().cloned().ok_or_else(|| {
+                    AppError::Config("User registration is not enabled".to_string())
+                })?
+            };
+
+        let pool = {
+            let pools = state.db_pools.read().await;
+            pools
+                .get(&register_config.database)
+                .cloned()
+                .ok_or_else(|| {
+                    AppError::Config(format!(
+                        "Database '{}' referenced by registration config not found",
+                        register_config.database
+                    ))
+                })?
+        };
+        (pool, register_config)
+    };
+    Ok((pool, register_config))
 }

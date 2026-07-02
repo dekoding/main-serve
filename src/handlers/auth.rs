@@ -10,13 +10,16 @@ use http_body_util::BodyExt;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
 
 use crate::config::types::{JwtAlgorithm, JwtConfig};
-use crate::db::query::select_one::{
-    build_insert_user, build_select_by_field, build_select_user_for_login, build_table_columns,
-};
 use crate::error::AppError;
 use crate::middleware::auth::validators::jwt::create_token;
 use crate::server::state::AppState;
 use crate::server::state::RevocationStoreBackend;
+use crate::{
+    db::query::select_one::{
+        build_insert_user, build_select_by_field, build_select_user_for_login, build_table_columns,
+    },
+    handlers::common::get_registration_pool,
+};
 use serde::Deserialize;
 
 /// Handle `POST /_main-serve/auth/revoke`.
@@ -188,15 +191,7 @@ pub async fn handle_register(
     State(state): State<AppState>,
     Json(body): Json<RegisterRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let register_config = {
-        let config = state.config.read().await;
-        config
-            .auth
-            .register
-            .as_ref()
-            .cloned()
-            .ok_or_else(|| AppError::Config("User registration is not enabled".to_string()))?
-    };
+    let (pool, register_config) = get_registration_pool(State(state.clone())).await?;
 
     if !register_config.enabled {
         return Err(AppError::Config(
@@ -211,19 +206,6 @@ pub async fn handle_register(
     }
 
     let password_hash = hash_password(&body.password)?;
-
-    let pool = {
-        let pools = state.db_pools.read().await;
-        pools
-            .get(&register_config.database)
-            .cloned()
-            .ok_or_else(|| {
-                AppError::Config(format!(
-                    "Database '{}' referenced by registration config not found",
-                    register_config.database
-                ))
-            })?
-    };
 
     let driver = pool.driver();
     let table_name = &register_config.table;
@@ -338,30 +320,7 @@ pub async fn handle_login(
     State(state): State<AppState>,
     Json(body): Json<LoginRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let (pool, _register_config) = {
-        let register_config =
-            {
-                let config = state.config.read().await;
-                config.auth.register.as_ref().cloned().ok_or_else(|| {
-                    AppError::Config("User registration is not enabled".to_string())
-                })?
-            };
-
-        let pool = {
-            let pools = state.db_pools.read().await;
-            pools
-                .get(&register_config.database)
-                .cloned()
-                .ok_or_else(|| {
-                    AppError::Config(format!(
-                        "Database '{}' referenced by registration config not found",
-                        register_config.database
-                    ))
-                })?
-        };
-
-        (pool, register_config)
-    };
+    let (pool, _) = get_registration_pool(State(state.clone())).await?;
 
     let driver = pool.driver();
 
