@@ -13,25 +13,19 @@ pub fn extract_id(path: &str) -> Option<String> {
     segments.last().map(|s| s.to_string())
 }
 
-/// Check if a file extension suggests an image file.
-///
-/// Supports common image formats: jpg, jpeg, png, gif, webp, bmp, svg, ico.
+/// Extract the extension from a file path and check if it suggests an image file.
 #[must_use]
 pub fn is_image_path(path: &Path) -> bool {
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-        let ext_lower = ext.to_lowercase();
-        matches!(
-            ext_lower.as_str(),
-            "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" | "svg"
-        )
+        is_image_extension(ext)
     } else {
         false
     }
 }
 
 /// Check if a file extension suggests an image file.
-///
-/// Variant that takes a string extension (useful for upload validation).
+/// 
+/// Supports common image formats: jpg, jpeg, png, gif, webp, bmp, svg, ico.
 #[must_use]
 pub fn is_image_extension(ext: &str) -> bool {
     matches!(
