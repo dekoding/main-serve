@@ -4,12 +4,12 @@ use std::collections::HashMap;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use crate::config::types::{DatabaseDriver, EndpointConfig, MediaConfig, TableConfig};
+use crate::config::types::{EndpointConfig, MediaConfig};
 use crate::db::query::builders::build_update;
 use crate::db::query::select_one::build_select_by_id;
 use crate::db::query::types::MutationContext;
 use crate::error::AppError;
-use crate::handlers::common::utils::extract_auth_info;
+use crate::handlers::common::utils::{DatabaseContext, extract_auth_info};
 use crate::middleware::auth::extractor::RequestContext;
 
 // collapsible_if suppressed: early returns improve readability for ownership checks.
@@ -20,8 +20,7 @@ pub async fn handle_media_update(
     state: &crate::server::state::AppState,
     id: &str,
     config: &MediaConfig,
-    table_config: &TableConfig,
-    driver: DatabaseDriver,
+    db_context: &DatabaseContext,
     endpoint: &EndpointConfig,
     headers: &axum::http::HeaderMap,
     body: &serde_json::Value,
@@ -32,19 +31,12 @@ pub async fn handle_media_update(
             let auth_info = extract_auth_info(state, endpoint, headers, query_params).await?;
             let current_user = auth_info.subject;
 
-            let pool = {
-                let pools = state.db_pools.read().await;
-                pools
-                    .get(&config.database)
-                    .ok_or_else(|| {
-                        AppError::Internal(format!("Database '{}' has no pool", config.database))
-                    })?
-                    .clone()
-            };
-
-            let built = build_select_by_id(&config.table, &["uploader_id"], driver)
+            let built = build_select_by_id(&config.table, &["uploader_id"], db_context.driver)
                 .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
-            let row = pool.fetch_optional_json(&built.sql, &[id.into()]).await?;
+            let row = db_context
+                .pool
+                .fetch_optional_json(&built.sql, &[id.into()])
+                .await?;
             if let Some(row) = row {
                 if let Some(uploader_id) = row.get("uploader_id").and_then(|v| v.as_str()) {
                     if uploader_id != current_user {
@@ -57,28 +49,23 @@ pub async fn handle_media_update(
         }
     }
 
-    let pool = {
-        let pools = state.db_pools.read().await;
-        pools
-            .get(&config.database)
-            .ok_or_else(|| {
-                AppError::Internal(format!("Database '{}' has no pool", config.database))
-            })?
-            .clone()
-    };
-
     let auth_info = extract_auth_info(state, endpoint, headers, query_params).await?;
     let mut body_map = serde_json::Map::new();
 
     if let Some(obj) = body.as_object() {
         for (k, v) in obj {
-            if table_config.columns.iter().any(|c| c.name == *k) {
+            if db_context.table_config.columns.iter().any(|c| c.name == *k) {
                 body_map.insert(k.clone(), v.clone());
             }
         }
     }
 
-    if table_config.columns.iter().any(|c| c.name == "updated_at") {
+    if db_context
+        .table_config
+        .columns
+        .iter()
+        .any(|c| c.name == "updated_at")
+    {
         body_map.insert(
             "updated_at".to_string(),
             serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
@@ -90,15 +77,17 @@ pub async fn handle_media_update(
     );
 
     let built = build_update(
-        table_config,
+        db_context,
         MutationContext::default(),
         id,
         &serde_json::Value::Object(body_map),
-        driver,
         &RequestContext::default(),
         &None,
     )?;
-    let rows_affected = pool.execute_with_params(&built.sql, &built.params).await?;
+    let rows_affected = db_context
+        .pool
+        .execute_with_params(&built.sql, &built.params)
+        .await?;
 
     if rows_affected == 0 {
         return Err(AppError::NotFound(format!(

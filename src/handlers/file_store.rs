@@ -15,7 +15,7 @@ use crate::db::query::types::{MutationContext, SelectContext};
 use crate::db::query::update::build_set_deleted_at;
 use crate::error::AppError;
 use crate::handlers::common::helpers::extract_id;
-use crate::handlers::common::utils::{extract_user_id, get_db_context};
+use crate::handlers::common::utils::{DatabaseContext, extract_user_id, get_db_context, get_db_pool};
 use crate::middleware::auth::extractor::RequestContext;
 use crate::server::state::AppState;
 use crate::storage::Storage;
@@ -126,8 +126,10 @@ async fn dispatch_file_store(
         .get_store(&config.storage)
         .ok_or_else(|| AppError::Internal(format!("Store '{}' not found", config.storage)))?;
 
-    let (pool, table_config, driver) =
-        get_db_context(state, config.database.clone(), config.table.clone()).await?;
+    let db_context = get_db_context(state, config.database.clone(), config.table.clone()).await?;
+    let pool = &db_context.pool;
+    let table_config = &db_context.table_config;
+    let driver = db_context.driver;
 
     match method {
         axum::http::Method::GET => {
@@ -475,15 +477,12 @@ async fn handle_file_store_update(ctx: &UpdateContext<'_>) -> Result<Response, A
         .await?;
     }
 
-    let pool = {
-        let pools = ctx.state.db_pools.read().await;
-        pools
-            .get(&ctx.config.database)
-            .ok_or_else(|| {
-                AppError::Internal(format!("Database '{}' has no pool", ctx.config.database))
-            })?
-            .clone()
-    };
+    let db_context = get_db_context(
+        ctx.state,
+        ctx.table_config.database.clone(),
+        ctx.table_config.name.clone(),
+    )
+    .await?;
 
     let mut body_map = serde_json::Map::new();
     if let Some(obj) = ctx.body.as_object() {
@@ -500,15 +499,17 @@ async fn handle_file_store_update(ctx: &UpdateContext<'_>) -> Result<Response, A
 
     let mutate_ctx = MutationContext::default();
     let built = build_update(
-        ctx.table_config,
+        &db_context,
         mutate_ctx,
         ctx.id,
         &serde_json::Value::Object(body_map),
-        ctx.driver,
         &RequestContext::default(),
         &None,
     )?;
-    let rows_affected = pool.execute_with_params(&built.sql, &built.params).await?;
+    let rows_affected = db_context
+        .pool
+        .execute_with_params(&built.sql, &built.params)
+        .await?;
 
     if rows_affected == 0 {
         return Err(AppError::NotFound(format!(
@@ -636,9 +637,12 @@ async fn handle_file_store_delete(ctx: &DeleteContext<'_>) -> Result<Response, A
         }
 
         let built = build_delete(
-            ctx.table_config,
             ctx.id,
-            ctx.pool.driver(),
+            &DatabaseContext {
+                pool: ctx.pool.clone(),
+                table_config: ctx.table_config.clone(),
+                driver: ctx.pool.driver(),
+            },
             &RequestContext::default(),
             &None,
         )?;
@@ -677,15 +681,7 @@ async fn check_file_store_ownership(
     driver: DatabaseDriver,
 ) -> Result<(), AppError> {
     let user_id = extract_user_id(state, endpoint, headers, query_params).await?;
-    let pool = {
-        let pools = state.db_pools.read().await;
-        pools
-            .get(&config.database)
-            .ok_or_else(|| {
-                AppError::Internal(format!("Database '{}' has no pool", config.database))
-            })?
-            .clone()
-    };
+    let pool = get_db_pool(state, &config.database).await?;
 
     let built = build_select_by_id(&config.table, &["owner_id"], driver)
         .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;

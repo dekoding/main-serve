@@ -8,6 +8,7 @@ use crate::config::types::{EndpointConfig, MediaConfig, TableConfig};
 use crate::db::query::builders::build_delete;
 use crate::db::query::select_one::build_select_file_path;
 use crate::error::AppError;
+use crate::handlers::common::utils::DatabaseContext;
 use crate::handlers::media::trash::handle_media_trash_delete;
 use crate::middleware::auth::extractor::RequestContext;
 use crate::storage::Storage;
@@ -28,6 +29,12 @@ pub async fn handle_media_delete(
 ) -> Result<Response, AppError> {
     let trash_enabled = config.trash.as_ref().is_some_and(|t| t.enabled);
 
+    let db_context = DatabaseContext {
+        pool: pool.clone(),
+        table_config: table_config.clone(),
+        driver: pool.driver(),
+    };
+
     if trash_enabled {
         handle_media_trash_delete(
             state,
@@ -35,14 +42,14 @@ pub async fn handle_media_delete(
             config,
             storage,
             root,
-            pool,
+            &db_context,
             endpoint,
             headers,
             query_params,
         )
         .await
     } else {
-        delete_media_permanently(id, config, storage, root, pool, table_config).await
+        delete_media_permanently(id, config, storage, root, &db_context).await
     }
 }
 
@@ -52,12 +59,14 @@ pub async fn delete_media_permanently(
     config: &MediaConfig,
     storage: &dyn Storage,
     root: &Path,
-    pool: &crate::db::pool::DatabasePool,
-    table_config: &TableConfig,
+    db_context: &DatabaseContext,
 ) -> Result<Response, AppError> {
-    let driver = pool.driver();
+    let driver = db_context.driver;
     let built = build_select_file_path(&config.table, driver);
-    let row = pool.fetch_optional_json(&built.sql, &[id.into()]).await?;
+    let row = db_context
+        .pool
+        .fetch_optional_json(&built.sql, &[id.into()])
+        .await?;
 
     if let Some(row) = row
         && let Some(file_path) = row.get("file_path").and_then(|v| v.as_str())
@@ -71,8 +80,11 @@ pub async fn delete_media_permanently(
         }
     }
 
-    let built = build_delete(table_config, id, driver, &RequestContext::default(), &None)?;
-    let rows_affected = pool.execute_with_params(&built.sql, &built.params).await?;
+    let built = build_delete(id, db_context, &RequestContext::default(), &None)?;
+    let rows_affected = db_context
+        .pool
+        .execute_with_params(&built.sql, &built.params)
+        .await?;
 
     if rows_affected == 0 {
         return Err(AppError::NotFound(format!(

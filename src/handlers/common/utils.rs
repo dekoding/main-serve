@@ -7,7 +7,7 @@ use std::path::Path;
 
 use axum::extract::State;
 
-use crate::config::types::{CacheRuleConfig, DEFAULT_CACHE_MAX_AGE};
+use crate::config::types::{CacheRuleConfig, DEFAULT_CACHE_MAX_AGE, TableConfig};
 use crate::config::types::{DatabaseDriver, EndpointConfig, RegisterConfig};
 use crate::db::pool::DatabasePool;
 use crate::error::AppError;
@@ -58,19 +58,17 @@ pub async fn extract_user_id(
     Ok(auth_info.subject)
 }
 
-/// Resolve database pool, table config, and driver.
-pub async fn get_db_context(
+pub struct DatabaseContext {
+    pub pool: DatabasePool,
+    pub table_config: TableConfig,
+    pub driver: DatabaseDriver,
+}
+
+/// Get database pool from state
+pub async fn get_db_pool(
     state: &AppState,
-    database: String,
-    table: String,
-) -> Result<
-    (
-        crate::db::pool::DatabasePool,
-        crate::config::types::TableConfig,
-        DatabaseDriver,
-    ),
-    AppError,
-> {
+    database: &String
+) -> Result<DatabasePool, AppError> {
     let pool = {
         let pools = state.db_pools.read().await;
         pools
@@ -78,6 +76,16 @@ pub async fn get_db_context(
             .ok_or_else(|| AppError::Internal(format!("Database '{}' has no pool", database)))?
             .clone()
     };
+    Ok(pool)
+}
+
+/// Resolve database pool, table config, and driver.
+pub async fn get_db_context(
+    state: &AppState,
+    database: String,
+    table: String,
+) -> Result<DatabaseContext, AppError> {
+    let pool = get_db_pool(state, &database).await?;
     let driver = pool.driver();
 
     let table_config = {
@@ -95,7 +103,11 @@ pub async fn get_db_context(
             .clone()
     };
 
-    Ok((pool, table_config, driver))
+    Ok(DatabaseContext {
+        pool,
+        table_config,
+        driver,
+    })
 }
 
 /// Helper function to get the registration database pool and config.
@@ -111,18 +123,7 @@ pub async fn get_registration_pool(
                 })?
             };
 
-        let pool = {
-            let pools = state.db_pools.read().await;
-            pools
-                .get(&register_config.database)
-                .cloned()
-                .ok_or_else(|| {
-                    AppError::Config(format!(
-                        "Database '{}' referenced by registration config not found",
-                        register_config.database
-                    ))
-                })?
-        };
+        let pool = get_db_pool(&state, &register_config.database).await?;
         (pool, register_config)
     };
     Ok((pool, register_config))

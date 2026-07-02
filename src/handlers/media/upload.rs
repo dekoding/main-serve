@@ -142,8 +142,7 @@ pub async fn handle_media_upload(
     let mime_type = mime_from_path(&storage_path);
 
     // Insert media record into the database
-    let (pool, table_config, driver) =
-        get_db_context(&state, config.database.clone(), config.table.clone()).await?;
+    let db_context = get_db_context(&state, config.database.clone(), config.table.clone()).await?;
 
     let file_path = storage_path.strip_prefix(&root).map_or_else(
         |_| sanitized_filename.clone(),
@@ -181,7 +180,8 @@ pub async fn handle_media_upload(
         serde_json::Value::String(now.clone()),
     );
 
-    let writable_fields = table_config
+    let writable_fields = db_context
+        .table_config
         .columns
         .iter()
         .map(|c| c.name.clone())
@@ -195,19 +195,25 @@ pub async fn handle_media_upload(
     let ctx = MutationContext::from(&crud_config);
 
     let built = build_insert(
-        &table_config,
+        &db_context.table_config,
         &ctx,
         &serde_json::Value::Object(insert_map),
-        driver,
+        db_context.driver,
         &RequestContext::default(),
     )?;
 
     let returned_id = if built.sql.contains("RETURNING") {
-        let row = pool.fetch_optional_json(&built.sql, &built.params).await?;
+        let row = db_context
+            .pool
+            .fetch_optional_json(&built.sql, &built.params)
+            .await?;
         row.and_then(|r| r.get("id").cloned())
             .and_then(|v| v.as_str().map(String::from))
     } else {
-        pool.execute_with_params(&built.sql, &built.params).await?;
+        db_context
+            .pool
+            .execute_with_params(&built.sql, &built.params)
+            .await?;
         None
     };
 

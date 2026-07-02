@@ -6,6 +6,7 @@ use crate::db::query::helpers::{
 use crate::db::query::select::SelectBuilder;
 use crate::db::query::types::{BuiltQuery, MutationContext, SelectContext};
 use crate::error::AppError;
+use crate::handlers::common::utils::DatabaseContext;
 use crate::middleware::auth::extractor::RequestContext;
 
 impl From<&CrudConfig> for MutationContext {
@@ -169,21 +170,20 @@ pub fn build_insert(
 /// invalid field names, or provides no writable fields.
 /// Returns `AppError::Internal` if the table has no primary key column.
 pub fn build_update(
-    table_config: &TableConfig,
+    db_context: &DatabaseContext,
     ctx: MutationContext,
     pk_value: &str,
     body: &serde_json::Value,
-    driver: DatabaseDriver,
     context: &RequestContext,
     where_clause: &Option<String>,
 ) -> Result<BuiltQuery, AppError> {
-    let table_name = &table_config.name;
+    let table_name = &db_context.table_config.name;
     let obj = body
         .as_object()
         .ok_or_else(|| AppError::BadRequest("Request body must be a JSON object".to_string()))?;
 
-    let writable = resolve_writable_fields(&ctx.writable_fields, table_config);
-    let pk_col = find_pk_column(table_config)?;
+    let writable = resolve_writable_fields(&ctx.writable_fields, &db_context.table_config);
+    let pk_col = find_pk_column(&db_context.table_config)?;
     let mut set_parts: Vec<String> = Vec::new();
     let mut params: Vec<serde_json::Value> = Vec::new();
     let mut param_idx = 1usize;
@@ -203,7 +203,11 @@ pub fn build_update(
             value.clone()
         };
 
-        set_parts.push(format!("{} = {}", key, placeholder(driver, param_idx)));
+        set_parts.push(format!(
+            "{} = {}",
+            key,
+            placeholder(db_context.driver, param_idx)
+        ));
         params.push(final_value);
         param_idx += 1;
     }
@@ -214,7 +218,7 @@ pub fn build_update(
         ));
     }
 
-    let pk_val = coerce_pk_value(table_config, pk_value);
+    let pk_val = coerce_pk_value(&db_context.table_config, pk_value);
     let is_coercion_sentinel = pk_val
         .as_number()
         .is_some_and(|n| n.as_i64() == Some(i64::MIN));
@@ -224,7 +228,7 @@ pub fn build_update(
     let mut sql = if is_coercion_sentinel {
         format!(
             "UPDATE {} SET {} WHERE 1 = 0",
-            quote_identifier(table_name, driver),
+            quote_identifier(table_name, db_context.driver),
             set_parts.join(", ")
         )
     } else {
@@ -233,7 +237,7 @@ pub fn build_update(
             table_name,
             set_parts.join(", "),
             pk_col,
-            placeholder(driver, param_idx)
+            placeholder(db_context.driver, param_idx)
         )
     };
     if !is_coercion_sentinel {
@@ -258,15 +262,14 @@ pub fn build_update(
 ///
 /// Returns `AppError::Internal` if the table has no primary key column.
 pub fn build_delete(
-    table_config: &TableConfig,
     pk_value: &str,
-    driver: DatabaseDriver,
+    db_context: &DatabaseContext,
     context: &RequestContext,
     where_clause: &Option<String>,
 ) -> Result<BuiltQuery, AppError> {
-    let table_name = &table_config.name;
-    let pk_col = find_pk_column(table_config)?;
-    let pk_val = coerce_pk_value(table_config, pk_value);
+    let table_name = &db_context.table_config.name;
+    let pk_col = find_pk_column(&db_context.table_config)?;
+    let pk_val = coerce_pk_value(&db_context.table_config, pk_value);
     let is_coercion_sentinel = pk_val
         .as_number()
         .is_some_and(|n| n.as_i64() == Some(i64::MIN));
@@ -280,12 +283,12 @@ pub fn build_delete(
             };
             format!(
                 "DELETE FROM {} WHERE 1 = 0 AND {wc_str}",
-                quote_identifier(table_name, driver)
+                quote_identifier(table_name, db_context.driver)
             )
         } else {
             format!(
                 "DELETE FROM {} WHERE 1 = 0",
-                quote_identifier(table_name, driver)
+                quote_identifier(table_name, db_context.driver)
             )
         };
         return Ok(BuiltQuery {
@@ -299,7 +302,7 @@ pub fn build_delete(
         "DELETE FROM {} WHERE {} = {}",
         table_name,
         pk_col,
-        placeholder(driver, 1)
+        placeholder(db_context.driver, 1)
     );
 
     if let Some(wc) = where_clause {
@@ -413,6 +416,32 @@ mod tests {
             fields: vec!["id".to_string(), "title".to_string(), "author".to_string()],
             writable_fields: vec!["title".to_string(), "author".to_string()],
             ..Default::default()
+        }
+    }
+
+    /// Helper function to create a database context for testing.
+    fn test_db_context(table: TableConfig, driver: DatabaseDriver) -> DatabaseContext {
+        use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+
+        let pool = rt.block_on(async {
+            let options = SqliteConnectOptions::new().filename(":memory:");
+            let pool = SqlitePoolOptions::new()
+                .max_connections(1)
+                .connect_with(options)
+                .await
+                .unwrap();
+            crate::db::pool::DatabasePool::Sqlite(pool)
+        });
+
+        DatabaseContext {
+            pool,
+            table_config: table,
+            driver,
         }
     }
 
@@ -611,20 +640,12 @@ mod tests {
     #[test]
     fn test_build_update() {
         let table = test_table();
+        let db_context = test_db_context(table, DatabaseDriver::Sqlite);
         let crud = test_crud();
         let ctx = MutationContext::from(&crud);
         let body = serde_json::json!({"title": "Updated"});
         let context = RequestContext::new();
-        let q = build_update(
-            &table,
-            ctx,
-            "42",
-            &body,
-            DatabaseDriver::Sqlite,
-            &context,
-            &None,
-        )
-        .unwrap();
+        let q = build_update(&db_context, ctx, "42", &body, &context, &None).unwrap();
         assert_eq!(q.sql, "UPDATE posts SET title = ? WHERE id = ?");
         assert_eq!(
             q.params,
@@ -636,7 +657,8 @@ mod tests {
     fn test_build_delete() {
         let table = test_table();
         let context = RequestContext::new();
-        let q = build_delete(&table, "42", DatabaseDriver::Sqlite, &context, &None).unwrap();
+        let db_context = test_db_context(table, DatabaseDriver::Sqlite);
+        let q = build_delete("42", &db_context, &context, &None).unwrap();
         assert_eq!(q.sql, "DELETE FROM posts WHERE id = ?");
         assert_eq!(q.params, vec![serde_json::json!(42)]);
     }
@@ -646,14 +668,8 @@ mod tests {
         let table = test_table();
         let context = RequestContext::new();
         let where_clause = Some("author = ${request.user.id}".to_string());
-        let q = build_delete(
-            &table,
-            "42",
-            DatabaseDriver::Sqlite,
-            &context,
-            &where_clause,
-        )
-        .unwrap();
+        let db_context = test_db_context(table, DatabaseDriver::Sqlite);
+        let q = build_delete("42", &db_context, &context, &where_clause).unwrap();
         assert_eq!(
             q.sql,
             "DELETE FROM posts WHERE id = ? AND author = ${request.user.id}"
@@ -671,14 +687,8 @@ mod tests {
             role: None,
         });
         let where_clause = Some("author = ${request.user.id}".to_string());
-        let q = build_delete(
-            &table,
-            "42",
-            DatabaseDriver::Sqlite,
-            &context,
-            &where_clause,
-        )
-        .unwrap();
+        let db_context = test_db_context(table, DatabaseDriver::Sqlite);
+        let q = build_delete("42", &db_context, &context, &where_clause).unwrap();
         assert_eq!(
             q.sql,
             "DELETE FROM posts WHERE id = ? AND author = user-123"
@@ -693,17 +703,9 @@ mod tests {
         let ctx = MutationContext::from(&crud);
         let body = serde_json::json!({"title": "Updated"});
         let context = RequestContext::new();
+        let db_context = test_db_context(table, DatabaseDriver::Sqlite);
         let where_clause = Some("author = ${request.user.id}".to_string());
-        let q = build_update(
-            &table,
-            ctx,
-            "42",
-            &body,
-            DatabaseDriver::Sqlite,
-            &context,
-            &where_clause,
-        )
-        .unwrap();
+        let q = build_update(&db_context, ctx, "42", &body, &context, &where_clause).unwrap();
         assert_eq!(
             q.sql,
             "UPDATE posts SET title = ? WHERE id = ? AND author = ${request.user.id}"

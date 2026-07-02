@@ -135,8 +135,7 @@ pub(crate) async fn handle_media(
         .root_path()
         .unwrap_or(PathBuf::from(&config.storage));
 
-    let (pool, table_config, driver) =
-        get_db_context(state, config.database.clone(), config.table.clone()).await?;
+    let db_context = get_db_context(state, config.database.clone(), config.table.clone()).await?;
 
     // Dispatch special-purpose routes (trash, sharing, resize, thumbnail, attach, detach, move, rename)
     if path.starts_with("/_main-serve/media/trash") {
@@ -148,8 +147,7 @@ pub(crate) async fn handle_media(
             config,
             &*storage,
             &root,
-            &pool,
-            &table_config,
+            &db_context,
             endpoint,
             &headers,
             &query_params,
@@ -166,40 +164,49 @@ pub(crate) async fn handle_media(
     if path.contains("/resize") {
         if let Some(id) = extract_id(&path) {
             let (storage, root) = resolve_store(state, &config.storage)?;
-            return handle_media_resize(&*storage, &root, &id, config, &query_params, &pool).await;
+            return handle_media_resize(
+                &*storage,
+                &root,
+                &id,
+                config,
+                &query_params,
+                &db_context.pool,
+            )
+            .await;
         }
     }
 
     if path.contains("/thumbnail") {
         if let Some(id) = extract_id(&path) {
             let (storage, root) = resolve_store(state, &config.storage)?;
-            return handle_media_thumbnail(&*storage, &root, &id, config, &pool).await;
+            return handle_media_thumbnail(&*storage, &root, &id, config, &db_context.pool).await;
         }
     }
 
     if path.contains("/attach") {
         if let Some(id) = extract_id(&path) {
-            return handle_media_attach(&id, config, &pool, body).await;
+            return handle_media_attach(&id, config, &db_context.pool, body).await;
         }
     }
 
     if path.contains("/detach") {
         if let Some(id) = extract_id(&path) {
-            return handle_media_detach(&id, config, &pool, body).await;
+            return handle_media_detach(&id, config, &db_context.pool, body).await;
         }
     }
 
     if path.contains("/move") {
         if let Some(id) = extract_id(&path) {
             let (storage, root) = resolve_store(state, &config.storage)?;
-            return handle_media_move(&id, config, &pool, &*storage, &root, body).await;
+            return handle_media_move(&id, config, &db_context.pool, &*storage, &root, body).await;
         }
     }
 
     if path.contains("/rename") {
         if let Some(id) = extract_id(&path) {
             let (storage, root) = resolve_store(state, &config.storage)?;
-            return handle_media_rename(&id, config, &pool, &*storage, &root, body).await;
+            return handle_media_rename(&id, config, &db_context.pool, &*storage, &root, body)
+                .await;
         }
     }
 
@@ -223,10 +230,18 @@ pub(crate) async fn handle_media(
     match method {
         axum::http::Method::GET => {
             if is_list_request {
-                handle_media_list(&pool, config, &table_config, &query_params).await
+                handle_media_list(
+                    &db_context.pool,
+                    config,
+                    &db_context.table_config,
+                    &query_params,
+                )
+                .await
             } else {
                 match extract_id(&path) {
-                    Some(id) => handle_media_get(&pool, &table_config, &id).await,
+                    Some(id) => {
+                        handle_media_get(&db_context.pool, &db_context.table_config, &id).await
+                    }
                     None => Err(AppError::BadRequest("Media ID required".to_string())),
                 }
             }
@@ -234,8 +249,8 @@ pub(crate) async fn handle_media(
         axum::http::Method::POST => {
             if path.is_empty() || path == "/" {
                 handle_media_create(
-                    &pool,
-                    &table_config,
+                    &db_context.pool,
+                    &db_context.table_config,
                     endpoint,
                     &headers,
                     body,
@@ -255,8 +270,7 @@ pub(crate) async fn handle_media(
                     state,
                     &id,
                     config,
-                    &table_config,
-                    driver,
+                    &db_context,
                     endpoint,
                     &headers,
                     body,
@@ -269,13 +283,13 @@ pub(crate) async fn handle_media(
         axum::http::Method::DELETE => match extract_id(&path) {
             Some(id) => {
                 handle_media_delete(
-                    &table_config,
+                    &db_context.table_config,
                     state,
                     &id,
                     config,
                     &*storage,
                     &root,
-                    &pool,
+                    &db_context.pool,
                     endpoint,
                     &headers,
                     &query_params,

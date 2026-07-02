@@ -4,12 +4,14 @@
 /// and subdirectory pattern expansion used by uploads across media and
 /// static_files handlers.
 use std::path::Path;
+use std::sync::Arc;
 
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use uuid::Uuid;
 
 use crate::error::AppError;
+use crate::storage::Storage;
 
 /// Generate a sanitized filename for uploads.
 ///
@@ -139,7 +141,7 @@ pub async fn build_upload_response(
     storage_path: &Path,
     root: &Path,
     file_content: &[u8],
-    storage: &dyn crate::storage::Storage,
+    storage: Arc<dyn Storage>,
     sanitized_filename: &str,
 ) -> Result<axum::http::Response<axum::body::Body>, AppError> {
     let metadata = storage

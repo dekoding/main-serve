@@ -4,14 +4,14 @@ use std::sync::Arc;
 
 use axum::body::Body;
 use axum::extract::State;
-use axum::http::StatusCode;
-use axum::response::IntoResponse;
 use http::header::CONTENT_LENGTH;
 
-use crate::config::types::{EndpointConfig, StaticFilesConfig, UploadConfig, mime_from_path};
+use crate::config::types::{EndpointConfig, StaticFilesConfig, UploadConfig};
 use crate::error::AppError;
-use crate::handlers::common::helpers::is_image_extension;
-use crate::handlers::common::path::{build_storage_path, generate_upload_filename};
+use crate::handlers::common::helpers::{is_image_extension, validate_image_magic_bytes};
+use crate::handlers::common::path::{
+    build_storage_path, build_upload_response, generate_upload_filename,
+};
 use crate::handlers::common::utils::extract_auth_info;
 use crate::server::state::AppState;
 use crate::storage::{FileMetadata, Storage};
@@ -85,7 +85,14 @@ pub async fn handle_file_upload(
 
     store_file(&ctx).await?;
 
-    build_response(&ctx, &sanitized_filename).await
+    build_upload_response(
+        &ctx.storage_path,
+        &ctx.root,
+        &ctx.file_content,
+        ctx.storage,
+        &sanitized_filename,
+    )
+    .await
 }
 
 /// Validate configuration, auth, and size limits before processing the upload.
@@ -251,90 +258,4 @@ async fn store_file(ctx: &FileUploadContext) -> Result<FileMetadata, AppError> {
         .metadata(storage_path)
         .await
         .map_err(|e| AppError::FileOperation(format!("Failed to read file metadata: {e}")))
-}
-
-/// Build the HTTP response for a successful file upload.
-///
-/// Returns a 201 CREATED response with JSON body containing file metadata.
-async fn build_response(
-    ctx: &FileUploadContext,
-    sanitized_filename: &str,
-) -> Result<axum::http::Response<Body>, AppError> {
-    let metadata = ctx
-        .storage
-        .metadata(&ctx.storage_path)
-        .await
-        .map_err(|e| AppError::FileOperation(format!("Failed to read file metadata: {e}")))?;
-
-    let created = metadata.created.map_or_else(
-        || chrono::Utc::now().to_rfc3339(),
-        |t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339(),
-    );
-
-    let modified = metadata
-        .modified
-        .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339())
-        .unwrap_or(created.clone());
-
-    let mime_type = mime_from_path(&ctx.storage_path);
-
-    let relative_path = ctx.storage_path.strip_prefix(&ctx.root).map_or_else(
-        |_| format!("/{sanitized_filename}"),
-        |p| format!("/{}", p.to_string_lossy()),
-    );
-
-    Ok((
-        StatusCode::CREATED,
-        axum::Json(serde_json::json!({
-            "success": true,
-            "path": relative_path,
-            "name": sanitized_filename,
-            "size": ctx.file_content.len(),
-            "type": mime_type,
-            "created": created,
-            "modified": modified,
-            "message": "File uploaded successfully"
-        })),
-    )
-        .into_response())
-}
-
-/// Validate magic bytes for image files.
-///
-/// This provides an extra layer of security by checking the actual file
-/// format rather than relying solely on file extension.
-fn validate_image_magic_bytes(data: &[u8]) -> Result<(), AppError> {
-    // PNG signature
-    if data.len() >= 8 && &data[0..8] == b"\x89PNG\r\n\x1a\n" {
-        return Ok(());
-    }
-
-    // JPEG signature: must be 0xFF 0xD8 0xFF (SOI + start of marker)
-    if data.len() >= 3 && &data[0..3] == b"\xFF\xD8\xFF" {
-        return Ok(());
-    }
-
-    // GIF signature
-    if data.len() >= 6 && (&data[0..6] == b"GIF87a" || &data[0..6] == b"GIF89a") {
-        return Ok(());
-    }
-
-    // BMP signature
-    if data.len() >= 2 && &data[0..2] == b"BM" {
-        return Ok(());
-    }
-
-    // WebP signature
-    if data.len() >= 12 && &data[0..4] == b"RIFF" && &data[8..12] == b"WEBP" {
-        return Ok(());
-    }
-
-    // SVG signature (XML-based)
-    if data.len() >= 4 && data[0] == b'<' && data[1] == b'?' {
-        return Ok(());
-    }
-
-    Err(AppError::BadRequest(
-        "File does not appear to be a valid image based on magic bytes".to_string(),
-    ))
 }
