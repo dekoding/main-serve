@@ -2,8 +2,8 @@
 ///
 /// Supports path rewriting, custom header injection, and per-endpoint timeouts.
 /// Uses `reqwest` with `rustls-tls` as the HTTP client.
-use std::time::Duration;
 use std::sync::OnceLock;
+use std::time::Duration;
 
 use axum::body::Body;
 use axum::http::{HeaderName, HeaderValue, StatusCode, Uri};

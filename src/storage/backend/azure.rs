@@ -3,7 +3,6 @@ use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use async_trait::async_trait;
 use base64::Engine;
 use chrono::{DateTime, FixedOffset, Utc};
 use http::Method;
@@ -385,7 +384,7 @@ fn base64_encode(data: &[u8]) -> String {
     base64::engine::general_purpose::STANDARD.encode(data)
 }
 
-#[async_trait]
+#[async_trait::async_trait]
 impl Storage for AzureStorage {
     async fn exists(&self, path: &Path) -> bool {
         let blob_name = self.path_to_blob_name(path);

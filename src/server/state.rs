@@ -8,7 +8,6 @@ use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
-use async_trait::async_trait;
 use tokio::sync::{Mutex, RwLock};
 
 use crate::config::AppConfig;
@@ -28,7 +27,7 @@ use crate::storage::{Storage, create_store};
 /// Both the in-memory and database-backed revocation stores implement
 /// this trait, allowing `AppState` to hold either variant behind a
 /// single type.
-#[async_trait]
+#[async_trait::async_trait]
 pub trait RevocationStoreBackend: Send + Sync {
     /// Check whether the given JTI has been revoked.
     async fn is_revoked(&self, jti: &str) -> bool;

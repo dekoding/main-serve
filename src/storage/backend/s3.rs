@@ -6,7 +6,6 @@
 /// objects for empty directories.
 use std::path::{Path, PathBuf};
 
-use async_trait::async_trait;
 use aws_credential_types::Credentials;
 use aws_sdk_s3::Client as S3Client;
 use aws_smithy_types::byte_stream::ByteStream;
@@ -126,7 +125,7 @@ impl S3Storage {
     }
 }
 
-#[async_trait]
+#[async_trait::async_trait]
 impl Storage for S3Storage {
     async fn exists(&self, path: &Path) -> bool {
         let key = self.path_to_key(path);

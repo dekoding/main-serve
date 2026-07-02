@@ -47,7 +47,7 @@ impl Default for NativeStorage {
 impl Storage for NativeStorage {
     async fn exists(&self, path: &Path) -> bool {
         let resolved = self.resolve(path);
-        fs::try_exists(&resolved).await.unwrap_or(false)
+        fs::try_exists(&resolved).await.is_ok_and(|exists| exists)
     }
 
     async fn is_file(&self, path: &Path) -> bool {
