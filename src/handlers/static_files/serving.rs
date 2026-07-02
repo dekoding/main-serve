@@ -123,25 +123,19 @@ pub async fn serve_file(
             .unwrap_or(u64::MAX);
 
         if file_size > streaming_threshold {
-            // Use streaming for large files.
-            #[allow(clippy::expect_used)]
-            // streaming_config is guaranteed: if streaming_threshold < u64::MAX then config.streaming was Some
-            let streaming_config = config
-                .streaming
-                .as_ref()
-                .expect("streaming enabled when threshold < u64::MAX");
-            return handle_range_streaming(
-                storage,
-                path,
-                range_str,
-                file_size,
-                content_type,
-                streaming_config,
-                config.cache_max_age,
-            )
-            .await;
+            if let Some(streaming_config) = config.streaming.as_ref() {
+                return handle_range_streaming(
+                    storage,
+                    path,
+                    range_str,
+                    file_size,
+                    content_type,
+                    streaming_config,
+                    config.cache_max_age,
+                )
+                .await;
+            }
         }
-
         // For small files, read full content and extract range.
         let content = storage
             .read(path)
