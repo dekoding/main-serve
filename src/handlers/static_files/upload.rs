@@ -7,12 +7,12 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use http::header::CONTENT_LENGTH;
-use uuid::Uuid;
 
-use crate::config::types::{EndpointConfig, StaticFilesConfig, UploadConfig};
+use crate::config::types::{EndpointConfig, StaticFilesConfig, UploadConfig, mime_from_path};
 use crate::error::AppError;
-use crate::handlers::static_files::routing::extract_auth_info;
-use crate::handlers::static_files::utils::mime_from_path;
+use crate::handlers::common::helpers::is_image_extension;
+use crate::handlers::common::path::{build_storage_path, generate_upload_filename};
+use crate::handlers::common::utils::extract_auth_info;
 use crate::server::state::AppState;
 use crate::storage::{FileMetadata, Storage};
 
@@ -297,119 +297,6 @@ async fn build_response(
         })),
     )
         .into_response())
-}
-
-/// Generate a sanitized filename for uploads.
-///
-/// If the original filename is provided and has a valid extension,
-/// generates a UUID-based filename to prevent collisions and overwrites.
-/// Falls back to the relative path if no original filename is available.
-fn generate_upload_filename(
-    original_filename: &str,
-    allowed_extensions: &[String],
-) -> Result<String, AppError> {
-    let extension = std::path::Path::new(original_filename)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("")
-        .to_lowercase();
-
-    if !extension.is_empty()
-        && !allowed_extensions.is_empty()
-        && !allowed_extensions.iter().any(|ext| ext == &extension)
-    {
-        return Err(AppError::BadRequest(format!(
-            "File extension .{} is not allowed. Allowed: {}",
-            extension,
-            allowed_extensions.join(", ")
-        )));
-    }
-
-    let uuid = Uuid::new_v4();
-
-    if extension.is_empty() {
-        Ok(uuid.to_string())
-    } else {
-        Ok(format!("{uuid}.{extension}"))
-    }
-}
-
-/// Sanitize filename to prevent path traversal and special characters.
-///
-/// When `is_upload` is true (file upload), generates a UUID-based filename
-/// to prevent overwrites and collisions. When false (GET requests), returns
-/// the sanitized name for path resolution.
-pub(crate) fn sanitize_filename(name: &str, is_upload: bool) -> Result<String, AppError> {
-    if name.contains('/') || name.contains('\\') || name.contains("..") {
-        return Err(AppError::BadRequest("Invalid filename".to_string()));
-    }
-
-    let sanitized: String = name
-        .chars()
-        .filter(|c| !c.is_ascii_control() && *c != '\0')
-        .collect();
-
-    if sanitized.is_empty() {
-        return Err(AppError::BadRequest("Filename cannot be empty".to_string()));
-    }
-
-    if is_upload {
-        let uuid = Uuid::new_v4();
-        return Ok(format!("{uuid}.{sanitized}").to_lowercase());
-    }
-
-    Ok(sanitized.to_lowercase())
-}
-
-/// Build storage path with subdirectory pattern.
-pub fn build_storage_path(
-    root: &Path,
-    filename: &str,
-    user_id: &str,
-    subdirectory_pattern: &Option<String>,
-) -> Result<PathBuf, AppError> {
-    let final_path = if let Some(pattern) = subdirectory_pattern {
-        let expanded = expand_subdirectory_pattern(pattern, user_id)?;
-        root.join(&expanded).join(filename)
-    } else {
-        root.join(filename)
-    };
-
-    if final_path
-        .components()
-        .any(|c| matches!(c, std::path::Component::ParentDir))
-    {
-        return Err(AppError::Forbidden("Invalid path".to_string()));
-    }
-
-    Ok(final_path)
-}
-
-/// Expand subdirectory pattern with placeholders.
-pub fn expand_subdirectory_pattern(pattern: &str, user_id: &str) -> Result<String, AppError> {
-    let now = chrono::Utc::now();
-    let expanded = pattern
-        .replace("{user_id}", user_id)
-        .replace("{year}", &now.format("%Y").to_string())
-        .replace("{month}", &now.format("%m").to_string())
-        .replace("{day}", &now.format("%d").to_string())
-        .replace("{uuid}", &Uuid::new_v4().to_string());
-
-    if expanded.split('/').any(|seg| seg == "..") {
-        return Err(AppError::Forbidden(
-            "Invalid subdirectory pattern".to_string(),
-        ));
-    }
-
-    Ok(expanded)
-}
-
-/// Check if a file extension suggests an image file.
-fn is_image_extension(ext: &str) -> bool {
-    matches!(
-        ext.to_lowercase().as_str(),
-        "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" | "svg" | "ico"
-    )
 }
 
 /// Validate magic bytes for image files.

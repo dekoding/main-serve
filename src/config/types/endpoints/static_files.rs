@@ -1,6 +1,8 @@
 /// Static file serving and upload configuration types.
 use serde::Deserialize;
 
+use crate::config::types::DEFAULT_CACHE_MAX_AGE;
+
 use super::common::{
     default_cache_max_age, default_index, default_true, deserialize_allowed_extensions,
 };
@@ -60,7 +62,7 @@ impl Default for StaticFilesConfig {
             storage: String::new(),
             index: "index.html".to_string(),
             directory_listing: false,
-            cache_max_age: 3600,
+            cache_max_age: DEFAULT_CACHE_MAX_AGE,
             etag: true,
             range_requests: true,
             head_support: true,

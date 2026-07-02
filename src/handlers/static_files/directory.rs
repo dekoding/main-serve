@@ -5,10 +5,9 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::response::Response;
 
+use crate::config::types::html_escape;
 use crate::error::AppError;
-use crate::handlers::static_files::utils::{
-    apply_content_type, format_modified, format_size, html_escape,
-};
+use crate::handlers::common::utils::{apply_content_type, format_modified, format_size};
 use crate::storage::Storage;
 use percent_encoding::percent_decode_str;
 

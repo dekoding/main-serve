@@ -6,13 +6,12 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use uuid::Uuid;
 
-use crate::config::types::EndpointConfig;
+use crate::config::types::{EndpointConfig, mime_from_path};
 use crate::db::query::builders::build_insert;
 use crate::db::query::types::MutationContext;
 use crate::error::AppError;
-use crate::handlers::common::{extract_auth_info, get_db_context};
-use crate::handlers::static_files::upload::{build_storage_path, sanitize_filename};
-use crate::handlers::static_files::utils::mime_from_path;
+use crate::handlers::common::path::{build_storage_path, sanitize_filename};
+use crate::handlers::common::utils::{extract_auth_info, get_db_context};
 use crate::middleware::auth::extractor::RequestContext;
 
 /// Handle media upload.
@@ -46,7 +45,7 @@ pub async fn handle_media_upload(
 
     let root = storage
         .root_path()
-        .unwrap_or(PathBuf::from(&config.storage));
+        .unwrap_or_else(|| PathBuf::from(&config.storage));
 
     let auth_info = extract_auth_info(&state, endpoint, headers, &query_params).await?;
     let user_id = &auth_info.subject;
@@ -143,7 +142,8 @@ pub async fn handle_media_upload(
     let mime_type = mime_from_path(&storage_path);
 
     // Insert media record into the database
-    let (pool, table_config, driver) = get_db_context(&state, config).await?;
+    let (pool, table_config, driver) =
+        get_db_context(&state, config.database.clone(), config.table.clone()).await?;
 
     let file_path = storage_path.strip_prefix(&root).map_or_else(
         |_| sanitized_filename.clone(),

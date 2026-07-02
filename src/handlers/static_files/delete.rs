@@ -6,7 +6,7 @@ use axum::response::{IntoResponse, Response};
 
 use crate::config::types::StaticFilesConfig;
 use crate::error::AppError;
-use crate::handlers::static_files::upload::sanitize_filename;
+use crate::handlers::common::path::sanitize_filename;
 use crate::server::state::AppState;
 use crate::storage::Storage;
 

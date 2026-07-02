@@ -9,7 +9,7 @@ use crate::db::query::builders::build_update;
 use crate::db::query::select_one::build_select_by_id;
 use crate::db::query::types::MutationContext;
 use crate::error::AppError;
-use crate::handlers::common::extract_auth_info;
+use crate::handlers::common::utils::extract_auth_info;
 use crate::middleware::auth::extractor::RequestContext;
 
 // collapsible_if suppressed: early returns improve readability for ownership checks.

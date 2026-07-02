@@ -1,15 +1,12 @@
 /// Media resize and thumbnail handlers.
-use std::collections::HashMap;
 use std::path::Path;
 
-use axum::http::StatusCode;
-use axum::response::{IntoResponse, Response};
-use http::HeaderValue;
-use http::header;
+use axum::response::Response;
 
 use crate::config::types::MediaConfig;
 use crate::db::query::select_one::build_select_file_path;
 use crate::error::AppError;
+use crate::handlers::common::resize::{build_resize_response, parse_resize_params, resize_image};
 use crate::storage::Storage;
 
 /// Handle media resize.
@@ -18,7 +15,7 @@ pub async fn handle_media_resize(
     root: &Path,
     id: &str,
     config: &MediaConfig,
-    query_params: &HashMap<String, String>,
+    query_params: &std::collections::HashMap<String, String>,
     pool: &crate::db::pool::DatabasePool,
 ) -> Result<Response, AppError> {
     let image_resize = config
@@ -50,77 +47,23 @@ pub async fn handle_media_resize(
         .await
         .map_err(|_| AppError::NotFound(format!("Media file not found: {}", file_path)))?;
 
-    let format = image::ImageFormat::from_extension("jpg").unwrap_or(image::ImageFormat::Png);
-    let img = image::load_from_memory(&image_data)
-        .map_err(|_| AppError::BadRequest("Invalid image data".to_string()))?;
+    let params = parse_resize_params(query_params);
 
-    let width = query_params.get("w").and_then(|w| w.parse().ok());
-    let height = query_params.get("h").and_then(|h| h.parse().ok());
-    let fit = query_params.get("fit").map(std::string::String::as_str);
+    // Determine default format from file content
+    let default_format = image::guess_format(&image_data).unwrap_or(image::ImageFormat::Png);
 
-    let (target_width, target_height) = match (width, height, fit) {
-        (Some(w), None, _) => (Some(w), None),
-        (None, Some(h), _) => (None, Some(h)),
-        (Some(w), Some(h), Some("cover")) => {
-            let ratio = img.width() as f64 / img.height() as f64;
-            let h_ratio = h as f64 / w as f64;
-            if ratio > h_ratio {
-                let new_h = (w as f64 / ratio) as u32;
-                (Some(w), Some(new_h))
-            } else {
-                let new_w = (h as f64 * ratio) as u32;
-                (Some(new_w), Some(h))
-            }
-        }
-        (Some(w), Some(h), _) => {
-            let max_dim = u32::try_from(image_resize.max_dimension).unwrap_or(u32::MAX);
-            (Some(w.clamp(1, max_dim)), Some(h.clamp(1, max_dim)))
-        }
-        _ => (Some(img.width()), Some(img.height())),
-    };
+    let (resized_bytes, content_type) = resize_image(
+        &image_data,
+        &params,
+        default_format,
+        u32::try_from(image_resize.max_dimension).unwrap_or(u32::MAX),
+    )?;
 
-    let resized = if let (Some(w), Some(h)) = (target_width, target_height) {
-        img.resize(w, h, image::imageops::FilterType::Lanczos3)
-    } else if let Some(w) = target_width {
-        img.resize_to_fill(w, img.height(), image::imageops::FilterType::Lanczos3)
-    } else if let Some(h) = target_height {
-        img.resize_to_fill(img.width(), h, image::imageops::FilterType::Lanczos3)
-    } else {
-        img
-    };
-
-    let output_format = query_params
-        .get("format")
-        .and_then(image::ImageFormat::from_extension)
-        .unwrap_or(format);
-
-    let mut output_bytes = Vec::new();
-    resized
-        .write_to(&mut std::io::Cursor::new(&mut output_bytes), output_format)
-        .map_err(|_| AppError::Internal("Failed to encode resized image".to_string()))?;
-
-    let content_type = match output_format {
-        image::ImageFormat::Png => "image/png",
-        image::ImageFormat::Jpeg => "image/jpeg",
-        image::ImageFormat::Gif => "image/gif",
-        image::ImageFormat::WebP => "image/webp",
-        _ => "application/octet-stream",
-    };
-
-    let mut response = (StatusCode::OK, output_bytes).into_response();
-    let headers = response.headers_mut();
-    headers.insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_str(content_type)
-            .unwrap_or(HeaderValue::from_static("application/octet-stream")),
-    );
-    headers.insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_str("public, max-age=86400")
-            .unwrap_or(HeaderValue::from_static("public, max-age=3600")),
-    );
-
-    Ok(response)
+    Ok(build_resize_response(
+        resized_bytes,
+        content_type,
+        Some(86400),
+    ))
 }
 
 pub async fn handle_media_thumbnail(
@@ -142,7 +85,7 @@ pub async fn handle_media_thumbnail(
         .map(|s| s.max_width.min(s.max_height))
         .unwrap_or(150);
 
-    let mut params = HashMap::new();
+    let mut params = std::collections::HashMap::new();
     params.insert("w".to_string(), default_size.to_string());
     params.insert("h".to_string(), default_size.to_string());
 

@@ -1,10 +1,54 @@
 /// Common endpoint configuration types shared across all action types.
 use serde::Deserialize;
+use std::path::Path;
 
 use crate::config::types::{CorsConfig, RateLimitConfig};
 
 /// Maximum allowed dimension for image resizing.
 pub const IMAGE_MAX_DIMENSION: usize = 4096;
+
+/// Default maximum cache size
+pub const DEFAULT_CACHE_MAX_AGE: u64 = 3600;
+
+/// Determine MIME type from file extension.
+#[must_use]
+pub fn mime_from_path(path: &Path) -> &'static str {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    match ext {
+        "html" | "htm" => "text/html; charset=utf-8",
+        "css" => "text/css; charset=utf-8",
+        "js" | "mjs" => "application/javascript; charset=utf-8",
+        "json" => "application/json; charset=utf-8",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "svg" => "image/svg+xml",
+        "ico" => "image/x-icon",
+        "woff" => "font/woff",
+        "woff2" => "font/woff2",
+        "ttf" => "font/ttf",
+        "otf" => "font/otf",
+        "pdf" => "application/pdf",
+        "xml" => "application/xml; charset=utf-8",
+        "txt" | "text" | "md" => "text/plain; charset=utf-8",
+        "wasm" => "application/wasm",
+        "webp" => "image/webp",
+        "mp4" => "video/mp4",
+        "webm" => "video/webm",
+        "mp3" => "audio/mpeg",
+        "ogg" => "audio/ogg",
+        _ => "application/octet-stream",
+    }
+}
+
+/// Minimal HTML escaping for safe inclusion in generated HTML.
+#[must_use]
+pub fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
 
 /// A single endpoint definition - the core unit of Main Serve's behaviour.
 #[derive(Debug, Clone, Deserialize)]

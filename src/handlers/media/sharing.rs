@@ -6,9 +6,8 @@ use axum::response::{IntoResponse, Response};
 use http::HeaderValue;
 use http::header;
 
-use crate::config::types::MediaConfig;
+use crate::config::types::{MediaConfig, mime_from_path};
 use crate::error::AppError;
-use crate::handlers::static_files::utils::mime_from_path;
 use crate::storage::Storage;
 
 /// Handle sharing: GET /shared/:token.

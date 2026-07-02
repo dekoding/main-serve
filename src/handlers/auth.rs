@@ -18,7 +18,7 @@ use crate::{
     db::query::select_one::{
         build_insert_user, build_select_by_field, build_select_user_for_login, build_table_columns,
     },
-    handlers::common::get_registration_pool,
+    handlers::common::utils::get_registration_pool,
 };
 use serde::Deserialize;
 

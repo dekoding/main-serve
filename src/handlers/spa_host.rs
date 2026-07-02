@@ -4,16 +4,14 @@
 /// the index file with the configured fallback status code. Read-only (GET/HEAD only).
 use std::path::{Path, PathBuf};
 
-use axum::http::HeaderValue;
-use axum::http::StatusCode;
+use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use http::header;
 
+use crate::config::types::mime_from_path;
 use crate::config::types::{EndpointConfig, SpaHostConfig};
 use crate::error::AppError;
-use crate::handlers::static_files::utils::{
-    apply_cache_control, apply_content_type, get_cache_control, mime_from_path,
-};
+use crate::handlers::common::utils::{apply_cache_control, apply_content_type};
 use crate::server::state::AppState;
 use crate::storage::Storage;
 
@@ -145,25 +143,20 @@ pub(crate) async fn handle_spa_head(
     match store.metadata(&resolved).await {
         Ok(meta) => {
             let content_type = mime_from_path(&resolved);
-            let cache_control =
-                get_cache_control(&resolved, config.cache_max_age, &config.cache_rules);
 
             let mut response = Response::new(axum::body::Body::empty());
             *response.status_mut() = StatusCode::OK;
-            response.headers_mut().insert(
-                header::CONTENT_TYPE,
-                HeaderValue::from_str(content_type)
-                    .unwrap_or(HeaderValue::from_static("application/octet-stream")),
+            apply_content_type(&mut response, content_type);
+            apply_cache_control(
+                &mut response,
+                config.cache_max_age,
+                Some(&resolved),
+                &config.cache_rules,
             );
             response.headers_mut().insert(
                 header::CONTENT_LENGTH,
                 HeaderValue::from_str(&meta.size.to_string())
                     .unwrap_or(HeaderValue::from_static("0")),
-            );
-            response.headers_mut().insert(
-                header::CACHE_CONTROL,
-                HeaderValue::from_str(&cache_control)
-                    .unwrap_or(HeaderValue::from_static("public, max-age=3600")),
             );
 
             if config.etag {
@@ -295,35 +288,29 @@ async fn serve_spa_fallback(
     match storage.metadata(&index_path).await {
         Ok(meta) => {
             let content_type = mime_from_path(&index_path);
-            let cache_control =
-                get_cache_control(&index_path, config.cache_max_age, &config.cache_rules);
-
             let contents = storage.read(&index_path).await.map_err(|_| {
                 AppError::NotFound(format!("Index file not found: {}", index_path.display()))
             })?;
 
             let status = StatusCode::from_u16(config.fallback_status).unwrap_or(StatusCode::OK);
             let mut response = (status, contents).into_response();
-            let resp_headers = response.headers_mut();
-            resp_headers.insert(
-                header::CONTENT_TYPE,
-                HeaderValue::from_str(content_type)
-                    .unwrap_or(HeaderValue::from_static("application/octet-stream")),
+            apply_content_type(&mut response, content_type);
+            apply_cache_control(
+                &mut response,
+                config.cache_max_age,
+                Some(&index_path),
+                &config.cache_rules,
             );
-            resp_headers.insert(
+
+            response.headers_mut().insert(
                 header::CONTENT_LENGTH,
                 HeaderValue::from_str(&meta.size.to_string())
                     .unwrap_or(HeaderValue::from_static("0")),
             );
-            resp_headers.insert(
-                header::CACHE_CONTROL,
-                HeaderValue::from_str(&cache_control)
-                    .unwrap_or(HeaderValue::from_static("public, max-age=3600")),
-            );
 
             if config.etag {
                 let etag_value = format!("\"{}-{}\"", index_path.display(), meta.size);
-                resp_headers.insert(
+                response.headers_mut().insert(
                     header::ETAG,
                     HeaderValue::from_str(&etag_value)
                         .unwrap_or(HeaderValue::from_static("\"none\"")),

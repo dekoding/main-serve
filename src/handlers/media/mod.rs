@@ -13,11 +13,15 @@ pub mod upload;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use axum::extract::{MatchedPath, Query, State};
+use axum::http::{HeaderMap, Method, Uri};
 use axum::response::Response;
 
 use crate::config::types::EndpointConfig;
 use crate::error::AppError;
-use crate::handlers::common::get_db_context;
+use crate::handlers::common::helpers::extract_id;
+use crate::handlers::common::store::resolve_store;
+use crate::handlers::common::utils::get_db_context;
 use crate::handlers::media::content_refs::{handle_media_attach, handle_media_detach};
 use crate::handlers::media::create::handle_media_create;
 use crate::handlers::media::delete::handle_media_delete;
@@ -32,12 +36,12 @@ use crate::server::state::AppState;
 
 /// Route handler for media library endpoints.
 pub async fn handle_media_route(
-    state: axum::extract::State<AppState>,
-    matched_path: axum::extract::MatchedPath,
-    method: axum::http::Method,
-    uri: axum::http::Uri,
-    headers: axum::http::HeaderMap,
-    query: axum::extract::Query<HashMap<String, String>>,
+    state: State<AppState>,
+    matched_path: MatchedPath,
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+    query: Query<HashMap<String, String>>,
     body: axum::body::Bytes,
 ) -> Result<Response, AppError> {
     let path_str = matched_path.as_str();
@@ -131,10 +135,12 @@ pub(crate) async fn handle_media(
         .root_path()
         .unwrap_or(PathBuf::from(&config.storage));
 
-    let (pool, table_config, driver) = get_db_context(state, config).await?;
+    let (pool, table_config, driver) =
+        get_db_context(state, config.database.clone(), config.table.clone()).await?;
 
     // Dispatch special-purpose routes (trash, sharing, resize, thumbnail, attach, detach, move, rename)
     if path.starts_with("/_main-serve/media/trash") {
+        let (storage, root) = resolve_store(state, &config.storage)?;
         return handle_media_trash(
             state,
             method,
@@ -153,41 +159,46 @@ pub(crate) async fn handle_media(
 
     if path.starts_with("/shared/") {
         let token = path.strip_prefix("/shared/").unwrap_or("");
+        let (storage, root) = resolve_store(state, &config.storage)?;
         return handle_media_share_get(token, config, &*storage, &root).await;
     }
 
     if path.contains("/resize") {
-        if let Some(id) = extract_media_id(&path) {
+        if let Some(id) = extract_id(&path) {
+            let (storage, root) = resolve_store(state, &config.storage)?;
             return handle_media_resize(&*storage, &root, &id, config, &query_params, &pool).await;
         }
     }
 
     if path.contains("/thumbnail") {
-        if let Some(id) = extract_media_id(&path) {
+        if let Some(id) = extract_id(&path) {
+            let (storage, root) = resolve_store(state, &config.storage)?;
             return handle_media_thumbnail(&*storage, &root, &id, config, &pool).await;
         }
     }
 
     if path.contains("/attach") {
-        if let Some(id) = extract_media_id(&path) {
+        if let Some(id) = extract_id(&path) {
             return handle_media_attach(&id, config, &pool, body).await;
         }
     }
 
     if path.contains("/detach") {
-        if let Some(id) = extract_media_id(&path) {
+        if let Some(id) = extract_id(&path) {
             return handle_media_detach(&id, config, &pool, body).await;
         }
     }
 
     if path.contains("/move") {
-        if let Some(id) = extract_media_id(&path) {
+        if let Some(id) = extract_id(&path) {
+            let (storage, root) = resolve_store(state, &config.storage)?;
             return handle_media_move(&id, config, &pool, &*storage, &root, body).await;
         }
     }
 
     if path.contains("/rename") {
-        if let Some(id) = extract_media_id(&path) {
+        if let Some(id) = extract_id(&path) {
+            let (storage, root) = resolve_store(state, &config.storage)?;
             return handle_media_rename(&id, config, &pool, &*storage, &root, body).await;
         }
     }
@@ -214,7 +225,7 @@ pub(crate) async fn handle_media(
             if is_list_request {
                 handle_media_list(&pool, config, &table_config, &query_params).await
             } else {
-                match extract_media_id(&path) {
+                match extract_id(&path) {
                     Some(id) => handle_media_get(&pool, &table_config, &id).await,
                     None => Err(AppError::BadRequest("Media ID required".to_string())),
                 }
@@ -238,7 +249,7 @@ pub(crate) async fn handle_media(
                 ))
             }
         }
-        axum::http::Method::PATCH => match extract_media_id(&path) {
+        axum::http::Method::PATCH => match extract_id(&path) {
             Some(id) => {
                 handle_media_update(
                     state,
@@ -255,7 +266,7 @@ pub(crate) async fn handle_media(
             }
             None => Err(AppError::BadRequest("Media ID required".to_string())),
         },
-        axum::http::Method::DELETE => match extract_media_id(&path) {
+        axum::http::Method::DELETE => match extract_id(&path) {
             Some(id) => {
                 handle_media_delete(
                     &table_config,
@@ -277,11 +288,4 @@ pub(crate) async fn handle_media(
             "Method not allowed for media endpoint".to_string(),
         )),
     }
-}
-
-/// Extract the media ID from a path string.
-#[must_use]
-pub fn extract_media_id(path: &str) -> Option<String> {
-    let segments: Vec<&str> = path.trim_matches('/').split('/').collect();
-    segments.last().map(|s| s.to_string())
 }

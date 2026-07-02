@@ -14,6 +14,8 @@ use crate::db::query::select_one::{build_select_by_id, build_select_file_path};
 use crate::db::query::types::{MutationContext, SelectContext};
 use crate::db::query::update::build_set_deleted_at;
 use crate::error::AppError;
+use crate::handlers::common::helpers::extract_id;
+use crate::handlers::common::utils::{extract_user_id, get_db_context};
 use crate::middleware::auth::extractor::RequestContext;
 use crate::server::state::AppState;
 use crate::storage::Storage;
@@ -124,7 +126,8 @@ async fn dispatch_file_store(
         .get_store(&config.storage)
         .ok_or_else(|| AppError::Internal(format!("Store '{}' not found", config.storage)))?;
 
-    let (pool, table_config, driver) = get_db_context(state, config).await?;
+    let (pool, table_config, driver) =
+        get_db_context(state, config.database.clone(), config.table.clone()).await?;
 
     match method {
         axum::http::Method::GET => {
@@ -154,7 +157,7 @@ async fn dispatch_file_store(
             )
             .await
         }
-        axum::http::Method::PATCH => match extract_file_id(&path) {
+        axum::http::Method::PATCH => match extract_id(&path) {
             Some(id) => {
                 handle_file_store_update(&UpdateContext {
                     state,
@@ -171,7 +174,7 @@ async fn dispatch_file_store(
             }
             None => Err(AppError::BadRequest("File ID required".to_string())),
         },
-        axum::http::Method::DELETE => match extract_file_id(&path) {
+        axum::http::Method::DELETE => match extract_id(&path) {
             Some(id) => {
                 handle_file_store_delete(&DeleteContext {
                     state,
@@ -219,7 +222,7 @@ async fn dispatch_file_store_get(
         })
         .await
     } else {
-        match extract_file_id(path) {
+        match extract_id(path) {
             Some(id) => handle_file_store_get_one(pool, config, table_config, &id).await,
             None => Err(AppError::BadRequest("File ID required".to_string())),
         }
@@ -701,24 +704,6 @@ async fn check_file_store_ownership(
     Ok(())
 }
 
-/// Extract user ID from the request for ownership checks.
-async fn extract_user_id(
-    state: &AppState,
-    endpoint: &EndpointConfig,
-    headers: &axum::http::HeaderMap,
-    query_params: &HashMap<String, String>,
-) -> Result<String, AppError> {
-    if endpoint.auth == "none" {
-        return Ok(String::new());
-    }
-    let auth_config = state.config.read().await.auth.clone();
-    let auth_info = crate::middleware::auth::validate::authenticate::<
-        crate::server::state::InMemoryRevocationStore,
-    >(&endpoint.auth, &auth_config, headers, query_params, None)
-    .await?;
-    Ok(auth_info.subject)
-}
-
 /// Apply field permissions to response rows.
 async fn apply_row_permissions(
     rows: &[serde_json::Value],
@@ -765,52 +750,4 @@ async fn is_field_readable(
     }
 
     false
-}
-
-/// Extract the file ID from a path string.
-#[must_use]
-pub fn extract_file_id(path: &str) -> Option<String> {
-    let segments: Vec<&str> = path.trim_matches('/').split('/').collect();
-    segments.last().map(|s| s.to_string())
-}
-
-/// Resolve database pool, table config, and driver for a file store config.
-async fn get_db_context(
-    state: &AppState,
-    config: &FileStoreConfig,
-) -> Result<
-    (
-        crate::db::pool::DatabasePool,
-        crate::config::types::TableConfig,
-        DatabaseDriver,
-    ),
-    AppError,
-> {
-    let pool = {
-        let pools = state.db_pools.read().await;
-        pools
-            .get(config.database.as_str())
-            .ok_or_else(|| {
-                AppError::Internal(format!("Database '{}' has no pool", config.database))
-            })?
-            .clone()
-    };
-    let driver = pool.driver();
-
-    let table_config = {
-        let config_guard = state.config.read().await;
-        config_guard
-            .tables
-            .iter()
-            .find(|t| t.name == config.table && t.database == config.database)
-            .ok_or_else(|| {
-                AppError::Internal(format!(
-                    "Table '{}' in database '{}' not found in config",
-                    config.table, config.database
-                ))
-            })?
-            .clone()
-    };
-
-    Ok((pool, table_config, driver))
 }

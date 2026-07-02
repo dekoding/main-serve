@@ -1,6 +1,8 @@
 /// SPA hosting configuration types.
 use serde::Deserialize;
 
+use crate::config::types::DEFAULT_CACHE_MAX_AGE;
+
 use super::common::{default_cache_max_age, default_fallback_status, default_index, default_true};
 use super::static_files::CacheRuleConfig;
 
@@ -35,7 +37,7 @@ impl Default for SpaHostConfig {
         Self {
             storage: String::new(),
             index: "index.html".to_string(),
-            cache_max_age: 3600,
+            cache_max_age: DEFAULT_CACHE_MAX_AGE,
             cache_rules: Vec::new(),
             etag: true,
             head_support: true,
