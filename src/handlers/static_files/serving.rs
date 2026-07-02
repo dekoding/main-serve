@@ -122,19 +122,19 @@ pub async fn serve_file(
             .and_then(|s| s.enabled.then_some(s.threshold))
             .unwrap_or(u64::MAX);
 
-        if file_size > streaming_threshold {
-            if let Some(streaming_config) = config.streaming.as_ref() {
-                return handle_range_streaming(
-                    storage,
-                    path,
-                    range_str,
-                    file_size,
-                    content_type,
-                    streaming_config,
-                    config.cache_max_age,
-                )
-                .await;
-            }
+        if file_size > streaming_threshold
+            && let Some(streaming_config) = config.streaming.as_ref()
+        {
+            return handle_range_streaming(
+                storage,
+                path,
+                range_str,
+                file_size,
+                content_type,
+                streaming_config,
+                config.cache_max_age,
+            )
+            .await;
         }
         // For small files, read full content and extract range.
         let content = storage
