@@ -1,29 +1,25 @@
 /// Media upload handler.
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use uuid::Uuid;
 
-use crate::config::types::{EndpointConfig, mime_from_path};
+use crate::config::types::mime_from_path;
 use crate::db::query::builders::build_insert;
 use crate::db::query::types::MutationContext;
 use crate::error::AppError;
 use crate::handlers::common::path::{build_storage_path, sanitize_filename};
-use crate::handlers::common::utils::{extract_auth_info, get_db_context};
+use crate::handlers::common::utils::{HandlerContext, get_db_context};
 use crate::middleware::auth::extractor::RequestContext;
 
 /// Handle media upload.
 pub async fn handle_media_upload(
-    state: axum::extract::State<crate::server::state::AppState>,
+    handler_ctx: &HandlerContext<'_>,
     mut multipart: axum::extract::Multipart,
-    endpoint: &EndpointConfig,
     _uri: &axum::http::Uri,
-    headers: &axum::http::HeaderMap,
-    query_params: HashMap<String, String>,
 ) -> Result<Response, AppError> {
-    let config = endpoint
+    let config = &handler_ctx.endpoint
         .media
         .as_ref()
         .ok_or_else(|| AppError::NotFound("Media config not found".to_string()))?;
@@ -39,7 +35,7 @@ pub async fn handle_media_upload(
         ));
     }
 
-    let storage = state
+    let storage = handler_ctx.state
         .get_store(&config.storage)
         .ok_or_else(|| AppError::Internal(format!("Store '{}' not found", config.storage)))?;
 
@@ -47,7 +43,7 @@ pub async fn handle_media_upload(
         .root_path()
         .unwrap_or_else(|| PathBuf::from(&config.storage));
 
-    let auth_info = extract_auth_info(&state, endpoint, headers, &query_params).await?;
+    let auth_info = handler_ctx.extract_auth_info().await?;
     let user_id = &auth_info.subject;
 
     let mut file_content = Vec::new();
@@ -142,7 +138,7 @@ pub async fn handle_media_upload(
     let mime_type = mime_from_path(&storage_path);
 
     // Insert media record into the database
-    let db_context = get_db_context(&state, config.database.clone(), config.table.clone()).await?;
+    let db_context = get_db_context(&handler_ctx.state, config.database.clone(), config.table.clone()).await?;
 
     let file_path = storage_path.strip_prefix(&root).map_or_else(
         |_| sanitized_filename.clone(),

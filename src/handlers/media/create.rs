@@ -1,27 +1,19 @@
 /// Media create handler.
-use std::collections::HashMap;
-
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use crate::config::types::EndpointConfig;
 use crate::db::query::builders::build_insert;
 use crate::db::query::types::MutationContext;
 use crate::error::AppError;
-use crate::handlers::common::utils::{DatabaseContext, extract_user_id};
+use crate::handlers::common::utils::{DatabaseContext, HandlerContext};
 use crate::middleware::auth::extractor::RequestContext;
 
-// These functions need access to pool, configs, headers, query params, and body.
-#[allow(clippy::too_many_arguments)]
 pub async fn handle_media_create(
     db_context: &DatabaseContext,
-    endpoint: &EndpointConfig,
-    headers: &axum::http::HeaderMap,
+    handler_ctx: &HandlerContext<'_>,
     body: &serde_json::Value,
-    state: &crate::server::state::AppState,
-    query_params: &HashMap<String, String>,
 ) -> Result<Response, AppError> {
-    let user_id = extract_user_id(state, endpoint, headers, query_params).await?;
+    let user_id = handler_ctx.extract_user_id().await?;
 
     let writable_columns = db_context
         .table_config

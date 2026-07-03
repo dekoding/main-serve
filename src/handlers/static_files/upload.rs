@@ -12,7 +12,7 @@ use crate::handlers::common::helpers::{is_image_extension, validate_image_magic_
 use crate::handlers::common::path::{
     build_storage_path, build_upload_response, generate_upload_filename,
 };
-use crate::handlers::common::utils::extract_auth_info;
+use crate::handlers::common::utils::HandlerContext;
 use crate::server::state::AppState;
 use crate::storage::{FileMetadata, Storage};
 
@@ -131,7 +131,15 @@ async fn validate_input(
                 .collect()
         })
         .unwrap_or_default();
-    let auth_info = extract_auth_info(state, endpoint, headers, &query_params).await?;
+
+    let handler_ctx = HandlerContext {
+        state: &state,
+        endpoint: &endpoint,
+        headers: &headers,
+        query_params: &query_params
+    };
+
+    let auth_info = handler_ctx.extract_auth_info().await?;
     let user_id = auth_info.subject;
 
     if let Some(content_length) = headers.get(CONTENT_LENGTH)

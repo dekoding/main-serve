@@ -1,11 +1,10 @@
 /// Media trash management handlers.
-use std::collections::HashMap;
 use std::path::Path;
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use crate::config::types::{EndpointConfig, MediaConfig};
+use crate::config::types::MediaConfig;
 use crate::db::query::builders::build_delete;
 use crate::db::query::select_one::{
     build_select_file_path, build_select_trashed, build_select_trashed_ids,
@@ -13,24 +12,19 @@ use crate::db::query::select_one::{
 };
 use crate::db::query::update::{build_set_restored, build_set_trashed};
 use crate::error::AppError;
-use crate::handlers::common::utils::{DatabaseContext, extract_auth_info};
+use crate::handlers::common::utils::{DatabaseContext, HandlerContext};
 use crate::middleware::auth::extractor::RequestContext;
 use crate::storage::Storage;
 
 /// Handle trash management routes.
-// These functions need access to state, configs, headers, query params, and storage.
-#[allow(clippy::too_many_arguments)]
 pub async fn handle_media_trash(
-    state: &crate::server::state::AppState,
+    handler_ctx: &HandlerContext<'_>,
     method: axum::http::Method,
     path: &str,
     config: &MediaConfig,
     storage: &dyn Storage,
     root: &Path,
     db_context: &DatabaseContext,
-    endpoint: &EndpointConfig,
-    headers: &axum::http::HeaderMap,
-    query_params: &HashMap<String, String>,
 ) -> Result<Response, AppError> {
     let trash_config = config
         .trash
@@ -42,10 +36,6 @@ pub async fn handle_media_trash(
             "Trash is not enabled".to_string(),
         ));
     }
-
-    let _pool = &db_context.pool;
-    let _table_config = &db_context.table_config;
-    let _driver = db_context.driver;
 
     match method {
         axum::http::Method::GET => handle_media_trash_list(db_context).await,
@@ -60,15 +50,12 @@ pub async fn handle_media_trash(
                 .and_then(|p| p.strip_suffix("/restore"))
             {
                 handle_media_trash_restore(
-                    state,
+                    handler_ctx,
                     id,
                     config,
                     storage,
                     root,
                     db_context,
-                    endpoint,
-                    headers,
-                    query_params,
                 )
                 .await
             } else {
@@ -80,15 +67,12 @@ pub async fn handle_media_trash(
         axum::http::Method::DELETE => {
             if let Some(id) = path.strip_prefix("/_main-serve/media/trash/") {
                 handle_media_trash_permanent_delete(
-                    state,
+                    handler_ctx,
                     id,
                     config,
                     storage,
                     root,
                     db_context,
-                    endpoint,
-                    headers,
-                    query_params,
                 )
                 .await
             } else {
@@ -110,18 +94,13 @@ pub async fn handle_media_trash_list(db_context: &DatabaseContext) -> Result<Res
     Ok((StatusCode::OK, axum::Json(rows)).into_response())
 }
 
-// These functions need access to state, configs, headers, query params, and storage.
-#[allow(clippy::too_many_arguments)]
 pub async fn handle_media_trash_restore(
-    state: &crate::server::state::AppState,
+    handler_ctx: &HandlerContext<'_>,
     id: &str,
     config: &MediaConfig,
     storage: &dyn Storage,
     root: &Path,
     db_context: &DatabaseContext,
-    endpoint: &EndpointConfig,
-    headers: &axum::http::HeaderMap,
-    query_params: &HashMap<String, String>,
 ) -> Result<Response, AppError> {
     let trash_config = config
         .trash
@@ -146,7 +125,7 @@ pub async fn handle_media_trash_restore(
         }
     };
 
-    let auth_info = extract_auth_info(state, endpoint, headers, query_params).await?;
+    let auth_info = handler_ctx.extract_auth_info().await?;
     let user_path = auth_info.subject;
 
     let trash_path = root
@@ -218,18 +197,13 @@ pub async fn handle_media_trash_empty(
         .into_response())
 }
 
-// These functions need access to state, configs, headers, query params, and storage.
-#[allow(clippy::too_many_arguments)]
 pub async fn handle_media_trash_permanent_delete(
-    state: &crate::server::state::AppState,
+    handler_ctx: &HandlerContext<'_>,
     id: &str,
     config: &MediaConfig,
     storage: &dyn Storage,
     root: &Path,
     db_context: &DatabaseContext,
-    endpoint: &EndpointConfig,
-    headers: &axum::http::HeaderMap,
-    query_params: &HashMap<String, String>,
 ) -> Result<Response, AppError> {
     let trash_config = config
         .trash
@@ -251,7 +225,7 @@ pub async fn handle_media_trash_permanent_delete(
     };
 
     if !file_path.is_empty() {
-        let auth_info = extract_auth_info(state, endpoint, headers, query_params).await?;
+        let auth_info = handler_ctx.extract_auth_info().await?;
         let trash_path = root
             .join(&trash_config.prefix)
             .join(&auth_info.subject)
@@ -284,25 +258,20 @@ pub async fn handle_media_trash_permanent_delete(
         .into_response())
 }
 
-// These functions need access to state, configs, headers, query params, and storage.
-#[allow(clippy::too_many_arguments)]
 pub async fn handle_media_trash_delete(
-    state: &crate::server::state::AppState,
+    handler_ctx: &HandlerContext<'_>,
     id: &str,
     config: &MediaConfig,
     storage: &dyn Storage,
     root: &Path,
     db_context: &DatabaseContext,
-    endpoint: &EndpointConfig,
-    headers: &axum::http::HeaderMap,
-    query_params: &HashMap<String, String>,
 ) -> Result<Response, AppError> {
     let trash_config = config
         .trash
         .as_ref()
         .ok_or_else(|| AppError::Internal("Trash not enabled but delete was called".to_string()))?;
 
-    let auth_info = extract_auth_info(state, endpoint, headers, query_params).await?;
+    let auth_info = handler_ctx.extract_auth_info().await?;
     let user_id = auth_info.subject;
 
     let built = build_select_file_path(&config.table, db_context.driver);

@@ -21,7 +21,7 @@ use crate::config::types::EndpointConfig;
 use crate::error::AppError;
 use crate::handlers::common::helpers::extract_id;
 use crate::handlers::common::store::resolve_store;
-use crate::handlers::common::utils::get_db_context;
+use crate::handlers::common::utils::{HandlerContext, get_db_context};
 use crate::handlers::media::content_refs::{handle_media_attach, handle_media_detach};
 use crate::handlers::media::create::handle_media_create;
 use crate::handlers::media::delete::handle_media_delete;
@@ -106,7 +106,14 @@ pub async fn handle_media_upload_route(
         ));
     }
 
-    handle_media_upload(state, multipart, &endpoint, &uri, &headers, query.0).await
+    let handler_ctx = HandlerContext {
+        state: &state,
+        endpoint: &endpoint,
+        headers: &headers,
+        query_params: &query.0,
+    };
+
+    handle_media_upload(&handler_ctx, multipart, &uri).await
 }
 
 /// Core media handler logic - dispatches to specific route handlers.
@@ -137,20 +144,24 @@ pub(crate) async fn handle_media(
 
     let db_context = get_db_context(state, config.database.clone(), config.table.clone()).await?;
 
+    let handler_ctx = HandlerContext {
+        state,
+        endpoint,
+        headers: &headers,
+        query_params: &query_params,
+    };
+
     // Dispatch special-purpose routes (trash, sharing, resize, thumbnail, attach, detach, move, rename)
     if path.starts_with("/_main-serve/media/trash") {
         let (storage, root) = resolve_store(state, &config.storage)?;
         return handle_media_trash(
-            state,
+            &handler_ctx,
             method,
             &path,
             config,
             &*storage,
             &root,
             &db_context,
-            endpoint,
-            &headers,
-            &query_params,
         )
         .await;
     }
@@ -240,8 +251,7 @@ pub(crate) async fn handle_media(
         }
         axum::http::Method::POST => {
             if path.is_empty() || path == "/" {
-                handle_media_create(&db_context, endpoint, &headers, body, state, &query_params)
-                    .await
+                handle_media_create(&db_context, &handler_ctx, body).await
             } else {
                 Err(AppError::MethodNotAllowed(
                     "POST not allowed on this path".to_string(),
@@ -251,14 +261,11 @@ pub(crate) async fn handle_media(
         axum::http::Method::PATCH => match extract_id(&path) {
             Some(id) => {
                 handle_media_update(
-                    state,
+                    &handler_ctx,
                     &id,
                     config,
                     &db_context,
-                    endpoint,
-                    &headers,
                     body,
-                    &query_params,
                 )
                 .await
             }
@@ -268,14 +275,11 @@ pub(crate) async fn handle_media(
             Some(id) => {
                 handle_media_delete(
                     &db_context,
-                    state,
+                    &handler_ctx,
                     &id,
                     config,
                     &*storage,
                     &root,
-                    endpoint,
-                    &headers,
-                    &query_params,
                 )
                 .await
             }

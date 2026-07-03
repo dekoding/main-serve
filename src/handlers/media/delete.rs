@@ -8,7 +8,7 @@ use crate::config::types::{EndpointConfig, MediaConfig};
 use crate::db::query::builders::build_delete;
 use crate::db::query::select_one::build_select_file_path;
 use crate::error::AppError;
-use crate::handlers::common::utils::DatabaseContext;
+use crate::handlers::common::utils::{DatabaseContext, HandlerContext};
 use crate::handlers::media::trash::handle_media_trash_delete;
 use crate::middleware::auth::extractor::RequestContext;
 use crate::storage::Storage;
@@ -17,28 +17,22 @@ use crate::storage::Storage;
 #[allow(clippy::too_many_arguments)]
 pub async fn handle_media_delete(
     db_context: &DatabaseContext,
-    state: &crate::server::state::AppState,
+    handler_ctx: &HandlerContext<'_>,
     id: &str,
     config: &MediaConfig,
     storage: &dyn Storage,
     root: &Path,
-    endpoint: &EndpointConfig,
-    headers: &axum::http::HeaderMap,
-    query_params: &std::collections::HashMap<String, String>,
 ) -> Result<Response, AppError> {
     let trash_enabled = config.trash.as_ref().is_some_and(|t| t.enabled);
 
     if trash_enabled {
         handle_media_trash_delete(
-            state,
+            &handler_ctx,
             id,
             config,
             storage,
             root,
-            db_context,
-            endpoint,
-            headers,
-            query_params,
+            db_context
         )
         .await
     } else {

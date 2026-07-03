@@ -1,34 +1,27 @@
 /// Media update handler.
-use std::collections::HashMap;
-
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use crate::config::types::{EndpointConfig, MediaConfig};
+use crate::config::types::MediaConfig;
 use crate::db::query::builders::build_update;
 use crate::db::query::select_one::build_select_by_id;
 use crate::db::query::types::MutationContext;
 use crate::error::AppError;
-use crate::handlers::common::utils::{DatabaseContext, extract_auth_info};
+use crate::handlers::common::utils::{DatabaseContext, HandlerContext, extract_auth_info};
 use crate::middleware::auth::extractor::RequestContext;
 
 // collapsible_if suppressed: early returns improve readability for ownership checks.
-// These functions need access to state, configs, headers, query params, and body.
 #[allow(clippy::collapsible_if)]
-#[allow(clippy::too_many_arguments)]
 pub async fn handle_media_update(
-    state: &crate::server::state::AppState,
+    handler_ctx: &HandlerContext<'_>,
     id: &str,
     config: &MediaConfig,
     db_context: &DatabaseContext,
-    endpoint: &EndpointConfig,
-    headers: &axum::http::HeaderMap,
     body: &serde_json::Value,
-    query_params: &HashMap<String, String>,
 ) -> Result<Response, AppError> {
     if let Some(user_scope) = &config.user_scope {
         if user_scope.enabled && !user_scope.allow_cross_user_browse {
-            let auth_info = extract_auth_info(state, endpoint, headers, query_params).await?;
+            let auth_info = handler_ctx.extract_auth_info().await?;
             let current_user = auth_info.subject;
 
             let built = build_select_by_id(&config.table, &["uploader_id"], db_context.driver)
@@ -49,7 +42,7 @@ pub async fn handle_media_update(
         }
     }
 
-    let auth_info = extract_auth_info(state, endpoint, headers, query_params).await?;
+    let auth_info = handler_ctx.extract_auth_info().await?;
     let mut body_map = serde_json::Map::new();
 
     if let Some(obj) = body.as_object() {

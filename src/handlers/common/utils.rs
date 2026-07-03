@@ -18,6 +18,30 @@ use axum::http::HeaderValue;
 use axum::response::Response;
 use http::header;
 
+pub struct HandlerContext<'a> {
+    pub state: &'a AppState,
+    pub endpoint: &'a EndpointConfig,
+    pub headers: &'a axum::http::HeaderMap,
+    pub query_params: &'a HashMap<String, String>,
+}
+
+impl<'a> HandlerContext<'a> {
+    pub async fn extract_auth_info(&self) -> Result<AuthInfo, AppError> {
+        extract_auth_info(self.state, self.endpoint, self.headers, self.query_params).await
+    }
+
+    /// Extract authenticated user ID for ownership checks.
+    ///
+    /// Returns an empty string when auth is disabled.
+    ///
+    /// # Errors
+    ///
+    /// Returns `AppError::Auth` if authentication fails.
+    pub async fn extract_user_id(&self) -> Result<String, AppError> {
+        Ok(self.extract_auth_info().await?.subject)
+    }
+}
+
 /// Extract authentication info from request.
 ///
 /// # Errors
