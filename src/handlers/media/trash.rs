@@ -80,7 +80,7 @@ pub async fn handle_media_trash(
 }
 
 pub async fn handle_media_trash_list(db_context: &DatabaseContext) -> Result<Response, AppError> {
-    let built = build_select_trashed(&db_context.table_config.name, db_context.driver);
+    let built = build_select_trashed(&db_context.table_config.name, db_context.pool.driver());
     let rows = db_context.pool.fetch_all_json(&built.sql, &[]).await?;
 
     Ok((StatusCode::OK, axum::Json(rows)).into_response())
@@ -99,7 +99,7 @@ pub async fn handle_media_trash_restore(
         .as_ref()
         .ok_or_else(|| AppError::Internal("Trash not enabled".to_string()))?;
 
-    let built = build_select_trashed_item(&config.table, db_context.driver);
+    let built = build_select_trashed_item(&config.table, db_context.pool.driver());
     let row = db_context
         .pool
         .fetch_optional_json(&built.sql, &[id.into()])
@@ -139,7 +139,7 @@ pub async fn handle_media_trash_restore(
             .map_err(|e| AppError::FileOperation(format!("Failed to restore file: {e}")))?;
     }
 
-    let built = build_set_restored(&config.table, db_context.driver)
+    let built = build_set_restored(&config.table, db_context.pool.driver())
         .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
     db_context
         .pool
@@ -162,7 +162,7 @@ pub async fn handle_media_trash_empty(
     config: &MediaConfig,
     db_context: &DatabaseContext,
 ) -> Result<Response, AppError> {
-    let built = build_select_trashed_ids(&config.table, db_context.driver);
+    let built = build_select_trashed_ids(&config.table, db_context.pool.driver());
     let rows = db_context.pool.fetch_all_json(&built.sql, &[]).await?;
 
     let mut deleted_count = 0u64;
@@ -202,7 +202,7 @@ pub async fn handle_media_trash_permanent_delete(
         .as_ref()
         .ok_or_else(|| AppError::Internal("Trash not enabled".to_string()))?;
 
-    let built = build_select_trashed_item(&config.table, db_context.driver);
+    let built = build_select_trashed_item(&config.table, db_context.pool.driver());
     let row = db_context
         .pool
         .fetch_optional_json(&built.sql, &[id.into()])
@@ -266,7 +266,7 @@ pub async fn handle_media_trash_delete(
     let auth_info = handler_ctx.extract_auth_info().await?;
     let user_id = auth_info.subject;
 
-    let built = build_select_file_path(&config.table, db_context.driver);
+    let built = build_select_file_path(&config.table, db_context.pool.driver());
     let row = db_context
         .pool
         .fetch_optional_json(&built.sql, &[id.into()])
@@ -299,7 +299,7 @@ pub async fn handle_media_trash_delete(
             .map_err(|e| AppError::FileOperation(format!("Failed to move file to trash: {e}")))?;
     }
 
-    let built = build_set_trashed(&config.table, db_context.driver)
+    let built = build_set_trashed(&config.table, db_context.pool.driver())
         .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
     let rows_affected = db_context
         .pool

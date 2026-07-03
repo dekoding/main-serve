@@ -58,7 +58,7 @@ pub fn build_insert(
     context: &RequestContext,
 ) -> Result<BuiltQuery, AppError> {
     let table_config = &db_context.table_config;
-    let driver = db_context.driver;
+    let driver = db_context.pool.driver();
     let obj = body
         .as_object()
         .ok_or_else(|| AppError::BadRequest("Request body must be a JSON object".to_string()))?;
@@ -84,7 +84,7 @@ pub fn build_insert(
             .map(|c| &c.column_type);
 
         let coerced = match owner_col_type {
-            Some(ct) => coerce_filter_value_by_type(user_id, ct, db_context.driver),
+            Some(ct) => coerce_filter_value_by_type(user_id, ct, db_context.pool.driver()),
             None => serde_json::Value::String(user_id.to_string()),
         };
         columns.push(owner_field.clone());
@@ -206,7 +206,7 @@ pub fn build_update(
         set_parts.push(format!(
             "{} = {}",
             key,
-            placeholder(db_context.driver, param_idx)
+            placeholder(db_context.pool.driver(), param_idx)
         ));
         params.push(final_value);
         param_idx += 1;
@@ -228,7 +228,7 @@ pub fn build_update(
     let mut sql = if is_coercion_sentinel {
         format!(
             "UPDATE {} SET {} WHERE 1 = 0",
-            quote_identifier(table_name, db_context.driver),
+            quote_identifier(table_name, db_context.pool.driver()),
             set_parts.join(", ")
         )
     } else {
@@ -237,7 +237,7 @@ pub fn build_update(
             table_name,
             set_parts.join(", "),
             pk_col,
-            placeholder(db_context.driver, param_idx)
+            placeholder(db_context.pool.driver(), param_idx)
         )
     };
     if !is_coercion_sentinel {
@@ -283,12 +283,12 @@ pub fn build_delete(
             };
             format!(
                 "DELETE FROM {} WHERE 1 = 0 AND {wc_str}",
-                quote_identifier(table_name, db_context.driver)
+                quote_identifier(table_name, db_context.pool.driver())
             )
         } else {
             format!(
                 "DELETE FROM {} WHERE 1 = 0",
-                quote_identifier(table_name, db_context.driver)
+                quote_identifier(table_name, db_context.pool.driver())
             )
         };
         return Ok(BuiltQuery {
@@ -302,7 +302,7 @@ pub fn build_delete(
         "DELETE FROM {} WHERE {} = {}",
         table_name,
         pk_col,
-        placeholder(db_context.driver, 1)
+        placeholder(db_context.pool.driver(), 1)
     );
 
     if let Some(wc) = where_clause {
@@ -335,7 +335,7 @@ pub fn build_select_list(
     use crate::db::query::helpers::resolve_fields;
 
     let fields = resolve_fields(&ctx.fields, &db_context.table_config);
-    let mut sb = SelectBuilder::new(table_name, fields, db_context.driver);
+    let mut sb = SelectBuilder::new(table_name, fields, db_context.pool.driver());
 
     sb.apply_joins(ctx);
     sb.apply_computed_fields(ctx);
@@ -364,7 +364,7 @@ pub fn build_select_one(
 
     let fields = resolve_fields(&ctx.fields, table_config);
     let pk_col = find_pk_column(table_config)?;
-    let mut sb = SelectBuilder::new(table_name, fields, db_context.driver);
+    let mut sb = SelectBuilder::new(table_name, fields, db_context.pool.driver());
 
     sb.apply_pk_condition(&pk_col, coerce_pk_value(table_config, pk_value));
     sb.apply_where_clause(ctx, context)?;
@@ -440,7 +440,6 @@ mod tests {
         DatabaseContext {
             pool,
             table_config: table,
-            driver,
         }
     }
 

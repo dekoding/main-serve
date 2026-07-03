@@ -24,8 +24,9 @@ pub async fn handle_media_update(
             let auth_info = handler_ctx.extract_auth_info().await?;
             let current_user = auth_info.subject;
 
-            let built = build_select_by_id(&config.table, &["uploader_id"], db_context.driver)
-                .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
+            let built =
+                build_select_by_id(&config.table, &["uploader_id"], db_context.pool.driver())
+                    .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
             let row = db_context
                 .pool
                 .fetch_optional_json(&built.sql, &[id.into()])

@@ -8,7 +8,7 @@ use std::path::Path;
 use axum::extract::State;
 
 use crate::config::types::{CacheRuleConfig, DEFAULT_CACHE_MAX_AGE, TableConfig};
-use crate::config::types::{DatabaseDriver, EndpointConfig, RegisterConfig};
+use crate::config::types::{EndpointConfig, RegisterConfig};
 use crate::db::pool::DatabasePool;
 use crate::error::AppError;
 use crate::middleware::auth::extractor::AuthInfo;
@@ -85,7 +85,6 @@ pub async fn extract_user_id(
 pub struct DatabaseContext {
     pub pool: DatabasePool,
     pub table_config: TableConfig,
-    pub driver: DatabaseDriver,
 }
 
 /// Get database pool from state
@@ -107,7 +106,6 @@ pub async fn get_db_context(
     table: String,
 ) -> Result<DatabaseContext, AppError> {
     let pool = get_db_pool(state, &database).await?;
-    let driver = pool.driver();
 
     let table_config = {
         let config_guard = state.config.read().await;
@@ -124,11 +122,7 @@ pub async fn get_db_context(
             .clone()
     };
 
-    Ok(DatabaseContext {
-        pool,
-        table_config,
-        driver,
-    })
+    Ok(DatabaseContext { pool, table_config })
 }
 
 /// Helper function to get the registration database pool and config.

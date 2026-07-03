@@ -183,7 +183,7 @@ async fn dispatch_file_store_post(
 /// Handle listing file store entries.
 async fn handle_file_store_list(ctx: &FileStoreContext<'_>) -> Result<Response, AppError> {
     let pool = &ctx.db_context.pool;
-    let driver = ctx.db_context.driver;
+    let driver = ctx.db_context.pool.driver();
     let mut qp = extract_query_params(ctx.handler_ctx.query_params);
 
     qp.page
@@ -362,7 +362,7 @@ async fn handle_file_store_create(ctx: &FileStoreContext<'_>) -> Result<Response
 async fn handle_file_store_update(ctx: &FileStoreContext<'_>) -> Result<Response, AppError> {
     let pool = &ctx.db_context.pool;
     let table_config = &ctx.db_context.table_config;
-    let driver = &ctx.db_context.driver;
+    let driver = &ctx.db_context.pool.driver();
     if ctx
         .config
         .ownership
@@ -413,7 +413,7 @@ async fn handle_file_store_update(ctx: &FileStoreContext<'_>) -> Result<Response
 /// Handle deleting a file store entry.
 async fn handle_file_store_delete(ctx: &FileStoreContext<'_>) -> Result<Response, AppError> {
     let pool = &ctx.db_context.pool;
-    let driver = &ctx.db_context.driver;
+    let driver = &ctx.db_context.pool.driver();
     let storage = ctx.storage.unwrap();
     let id = ctx.id.unwrap();
     let trash_enabled = ctx.config.trash.as_ref().is_some_and(|t| t.enabled);
@@ -428,7 +428,7 @@ async fn handle_file_store_delete(ctx: &FileStoreContext<'_>) -> Result<Response
             check_file_store_ownership(ctx.handler_ctx, ctx.config, id, driver).await?;
         }
 
-        let built = build_select_file_path(&ctx.config.table, ctx.db_context.driver);
+        let built = build_select_file_path(&ctx.config.table, ctx.db_context.pool.driver());
         let row = pool.fetch_optional_json(&built.sql, &[id.into()]).await?;
         if let Some(row) = row
             && let Some(file_path) = row.get("file_path").and_then(|v| v.as_str())
@@ -449,7 +449,7 @@ async fn handle_file_store_delete(ctx: &FileStoreContext<'_>) -> Result<Response
             }
         }
 
-        let built = build_set_deleted_at(&ctx.config.table, ctx.db_context.driver)
+        let built = build_set_deleted_at(&ctx.config.table, ctx.db_context.pool.driver())
             .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
         let rows_affected = pool.execute_with_params(&built.sql, &[id.into()]).await?;
 
@@ -479,7 +479,7 @@ async fn handle_file_store_delete(ctx: &FileStoreContext<'_>) -> Result<Response
             check_file_store_ownership(ctx.handler_ctx, ctx.config, id, driver).await?;
         }
 
-        let built = build_select_file_path(&ctx.config.table, ctx.db_context.driver);
+        let built = build_select_file_path(&ctx.config.table, ctx.db_context.pool.driver());
         let row = pool.fetch_optional_json(&built.sql, &[id.into()]).await?;
         if let Some(row) = row
             && let Some(file_path) = row.get("file_path").and_then(|v| v.as_str())

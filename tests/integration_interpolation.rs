@@ -96,7 +96,6 @@ async fn test_db_context(table: TableConfig, driver: DatabaseDriver) -> Database
     DatabaseContext {
         pool: DatabasePool::Sqlite(pool),
         table_config: table,
-        driver,
     }
 }
 

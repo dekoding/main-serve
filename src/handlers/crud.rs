@@ -118,7 +118,7 @@ async fn handle_list(
 
     let count_q = build_select_list_count(
         &db_context.table_config.name,
-        db_context.driver,
+        db_context.pool.driver(),
         &qp,
         select_ctx,
         context,

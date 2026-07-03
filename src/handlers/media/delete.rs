@@ -40,7 +40,7 @@ pub async fn delete_media_permanently(
     root: &Path,
     db_context: &DatabaseContext,
 ) -> Result<Response, AppError> {
-    let driver = db_context.driver;
+    let driver = db_context.pool.driver();
     let built = build_select_file_path(&config.table, driver);
     let row = db_context
         .pool

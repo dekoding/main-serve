@@ -67,7 +67,7 @@ pub async fn handle_media_list(
 
     let count_built = build_select_list_count(
         &config.table,
-        db_context.driver,
+        db_context.pool.driver(),
         &qp,
         &SelectContext::permissive(),
         &RequestContext::default(),
