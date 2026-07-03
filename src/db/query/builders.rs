@@ -420,6 +420,7 @@ mod tests {
 
     /// Helper function to create a database context for testing.
     fn test_db_context(table: TableConfig, driver: DatabaseDriver) -> DatabaseContext {
+        use crate::db::pool::DatabasePool;
         use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
         let rt = tokio::runtime::Builder::new_current_thread()
@@ -428,13 +429,38 @@ mod tests {
             .unwrap();
 
         let pool = rt.block_on(async {
-            let options = SqliteConnectOptions::new().filename(":memory:");
-            let pool = SqlitePoolOptions::new()
-                .max_connections(1)
-                .connect_with(options)
-                .await
-                .unwrap();
-            crate::db::pool::DatabasePool::Sqlite(pool)
+            match driver {
+                DatabaseDriver::Sqlite => {
+                    let options = SqliteConnectOptions::new().filename(":memory:");
+                    let pool = SqlitePoolOptions::new()
+                        .max_connections(1)
+                        .connect_with(options)
+                        .await
+                        .unwrap();
+                    DatabasePool::Sqlite(pool)
+                }
+                DatabaseDriver::Postgres => {
+                    use sqlx::postgres::PgPoolOptions;
+                    let url = std::env::var("TEST_POSTGRES_URL").unwrap_or_else(|_| {
+                        "postgres://localhost:5432/main_serve_test".to_string()
+                    });
+                    let pool = PgPoolOptions::new()
+                        .max_connections(1)
+                        .connect_lazy(&url)
+                        .unwrap();
+                    DatabasePool::Postgres(pool)
+                }
+                DatabaseDriver::Mysql => {
+                    use sqlx::mysql::MySqlPoolOptions;
+                    let url = std::env::var("TEST_MYSQL_URL")
+                        .unwrap_or_else(|_| "mysql://localhost:3306/main_serve_test".to_string());
+                    let pool = MySqlPoolOptions::new()
+                        .max_connections(1)
+                        .connect_lazy(&url)
+                        .unwrap();
+                    DatabasePool::Mysql(pool)
+                }
+            }
         });
 
         DatabaseContext {
