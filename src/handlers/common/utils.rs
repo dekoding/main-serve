@@ -26,8 +26,28 @@ pub struct HandlerContext<'a> {
 }
 
 impl<'a> HandlerContext<'a> {
+    /// Extract authentication info from request.
+    ///
+    /// # Errors
+    ///
+    /// Returns `AppError::Auth` if authentication fails.
+    /// Returns `AppError::Config` if the auth config is missing.
     pub async fn extract_auth_info(&self) -> Result<AuthInfo, AppError> {
-        extract_auth_info(self.state, self.endpoint, self.headers, self.query_params).await
+        // extract_auth_info(self.state, self.endpoint, self.headers, self.query_params).await
+        if self.endpoint.auth == "none" {
+            return Ok(AuthInfo::default());
+        }
+        let auth_config = self.state.config.read().await.auth.clone();
+        crate::middleware::auth::validate::authenticate::<
+            crate::server::state::InMemoryRevocationStore,
+        >(
+            &self.endpoint.auth,
+            &auth_config,
+            self.headers,
+            self.query_params,
+            None,
+        )
+        .await
     }
 
     /// Extract authenticated user ID for ownership checks.
@@ -40,46 +60,6 @@ impl<'a> HandlerContext<'a> {
     pub async fn extract_user_id(&self) -> Result<String, AppError> {
         Ok(self.extract_auth_info().await?.subject)
     }
-}
-
-/// Extract authentication info from request.
-///
-/// # Errors
-///
-/// Returns `AppError::Auth` if authentication fails.
-/// Returns `AppError::Config` if the auth config is missing.
-#[allow(clippy::implicit_hasher)]
-pub async fn extract_auth_info(
-    state: &AppState,
-    endpoint: &EndpointConfig,
-    headers: &axum::http::HeaderMap,
-    query_params: &HashMap<String, String>,
-) -> Result<AuthInfo, AppError> {
-    if endpoint.auth == "none" {
-        return Ok(AuthInfo::default());
-    }
-    let auth_config = state.config.read().await.auth.clone();
-    crate::middleware::auth::validate::authenticate::<crate::server::state::InMemoryRevocationStore>(
-        &endpoint.auth,
-        &auth_config,
-        headers,
-        query_params,
-        None,
-    )
-    .await
-}
-
-/// Extract user ID from auth info for ownership checks.
-///
-/// Returns an empty string when auth is disabled.
-pub async fn extract_user_id(
-    state: &AppState,
-    endpoint: &EndpointConfig,
-    headers: &axum::http::HeaderMap,
-    query_params: &HashMap<String, String>,
-) -> Result<String, AppError> {
-    let auth_info = extract_auth_info(state, endpoint, headers, query_params).await?;
-    Ok(auth_info.subject)
 }
 
 pub struct DatabaseContext {
