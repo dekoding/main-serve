@@ -57,7 +57,8 @@ pub fn build_insert(
     body: &serde_json::Value,
     context: &RequestContext,
 ) -> Result<BuiltQuery, AppError> {
-    let table_name = &db_context.table_config.name;
+    let table_config = &db_context.table_config;
+    let driver = db_context.driver;
     let obj = body
         .as_object()
         .ok_or_else(|| AppError::BadRequest("Request body must be a JSON object".to_string()))?;
@@ -76,8 +77,7 @@ pub fn build_insert(
     if let Some(ref owner_field) = owner_col
         && let Some(user_id) = &context.user_id
     {
-        let owner_col_type = db_context
-            .table_config
+        let owner_col_type = table_config
             .columns
             .iter()
             .find(|c| c.name == *owner_field)
@@ -88,7 +88,7 @@ pub fn build_insert(
             None => serde_json::Value::String(user_id.to_string()),
         };
         columns.push(owner_field.clone());
-        let placeholder = placeholder(db_context.driver, param_idx);
+        let placeholder = placeholder(driver, param_idx);
         placeholders.push(placeholder);
         params.push(coerced);
         param_idx += 1;
@@ -117,20 +117,19 @@ pub fn build_insert(
             value.clone()
         };
 
-        let placeholder = if db_context.driver == DatabaseDriver::Postgres {
+        let placeholder = if driver == DatabaseDriver::Postgres {
             // Check if this column is a JSONB type
-            let is_jsonb = db_context
-                .table_config
+            let is_jsonb = table_config
                 .columns
                 .iter()
                 .any(|c| c.name == *key && matches!(c.column_type, ColumnType::Jsonb));
             if is_jsonb {
-                format!("{}::jsonb", placeholder(db_context.driver, param_idx))
+                format!("{}::jsonb", placeholder(driver, param_idx))
             } else {
-                placeholder(db_context.driver, param_idx)
+                placeholder(driver, param_idx)
             }
         } else {
-            placeholder(db_context.driver, param_idx)
+            placeholder(driver, param_idx)
         };
 
         placeholders.push(placeholder);
@@ -144,12 +143,12 @@ pub fn build_insert(
         ));
     }
 
-    let pk_col = find_pk_column(&db_context.table_config)?;
-    let returning = match db_context.driver {
+    let pk_col = find_pk_column(table_config)?;
+    let returning = match driver {
         DatabaseDriver::Postgres => {
             format!(
                 " RETURNING {}",
-                quote_identifier(&pk_col, db_context.driver)
+                quote_identifier(&pk_col, driver)
             )
         }
         _ => String::new(),
@@ -157,7 +156,7 @@ pub fn build_insert(
 
     let sql = format!(
         "INSERT INTO {} ({}) VALUES ({}){}",
-        table_name,
+        table_config.name,
         columns.join(", "),
         placeholders.join(", "),
         returning
