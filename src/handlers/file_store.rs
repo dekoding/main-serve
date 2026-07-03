@@ -253,7 +253,8 @@ async fn dispatch_file_store_post(
 
 /// Handle listing file store entries.
 async fn handle_file_store_list(ctx: &ListContext<'_>) -> Result<Response, AppError> {
-    let driver = ctx.db_context.pool.driver();
+    let pool = &ctx.db_context.pool;
+    let driver = ctx.db_context.driver;
     let mut qp = extract_query_params(ctx.query_params);
 
     qp.page
@@ -282,9 +283,7 @@ async fn handle_file_store_list(ctx: &ListContext<'_>) -> Result<Response, AppEr
 
     let select_ctx = SelectContext::permissive();
     let built = build_select_list(ctx.db_context, &select_ctx, &qp, &RequestContext::default())?;
-    let rows = ctx
-        .db_context
-        .pool
+    let rows = pool
         .fetch_all_json(&built.sql, &built.params)
         .await?;
 
@@ -295,9 +294,7 @@ async fn handle_file_store_list(ctx: &ListContext<'_>) -> Result<Response, AppEr
         &SelectContext::permissive(),
         &RequestContext::default(),
     )?;
-    let count_row = ctx
-        .db_context
-        .pool
+    let count_row = pool
         .fetch_optional_json(&count_built.sql, &count_built.params)
         .await?;
     let total: i64 = count_row
@@ -369,12 +366,11 @@ async fn handle_file_store_get_one(
 
 /// Handle creating a file store entry.
 async fn handle_file_store_create(ctx: &CreateContext<'_>) -> Result<Response, AppError> {
-    let _driver = ctx.db_context.pool.driver();
+    let pool = &ctx.db_context.pool;
+    let table_config = &ctx.db_context.table_config;
     let user_id = extract_user_id(ctx.state, ctx.endpoint, ctx.headers, ctx.query_params).await?;
 
-    let writable_columns = ctx
-        .db_context
-        .table_config
+    let writable_columns = table_config
         .columns
         .iter()
         .map(|c| c.name.clone())
@@ -419,9 +415,7 @@ async fn handle_file_store_create(ctx: &CreateContext<'_>) -> Result<Response, A
     )?;
 
     if built.sql.contains("RETURNING") {
-        let row = ctx
-            .db_context
-            .pool
+        let row = pool
             .fetch_optional_json(&built.sql, &built.params)
             .await?;
         Ok((
@@ -430,9 +424,7 @@ async fn handle_file_store_create(ctx: &CreateContext<'_>) -> Result<Response, A
         )
             .into_response())
     } else {
-        let rows_affected = ctx
-            .db_context
-            .pool
+        let rows_affected = pool
             .execute_with_params(&built.sql, &built.params)
             .await?;
         Ok((
@@ -445,6 +437,9 @@ async fn handle_file_store_create(ctx: &CreateContext<'_>) -> Result<Response, A
 
 /// Handle updating a file store entry.
 async fn handle_file_store_update(ctx: &UpdateContext<'_>) -> Result<Response, AppError> {
+    let pool = &ctx.db_context.pool;
+    let table_config = &ctx.db_context.table_config;
+    let driver = &ctx.db_context.driver;
     if ctx
         .config
         .ownership
@@ -458,7 +453,7 @@ async fn handle_file_store_update(ctx: &UpdateContext<'_>) -> Result<Response, A
             ctx.endpoint,
             ctx.headers,
             ctx.query_params,
-            ctx.db_context.driver,
+            driver,
         )
         .await?;
     }
@@ -466,9 +461,7 @@ async fn handle_file_store_update(ctx: &UpdateContext<'_>) -> Result<Response, A
     let mut body_map = serde_json::Map::new();
     if let Some(obj) = ctx.body.as_object() {
         for (k, v) in obj {
-            if ctx
-                .db_context
-                .table_config
+            if table_config
                 .columns
                 .iter()
                 .any(|c| c.name == *k)
@@ -491,9 +484,7 @@ async fn handle_file_store_update(ctx: &UpdateContext<'_>) -> Result<Response, A
         &RequestContext::default(),
         &None,
     )?;
-    let rows_affected = ctx
-        .db_context
-        .pool
+    let rows_affected = pool
         .execute_with_params(&built.sql, &built.params)
         .await?;
 
@@ -513,6 +504,8 @@ async fn handle_file_store_update(ctx: &UpdateContext<'_>) -> Result<Response, A
 
 /// Handle deleting a file store entry.
 async fn handle_file_store_delete(ctx: &DeleteContext<'_>) -> Result<Response, AppError> {
+    let pool = &ctx.db_context.pool;
+    let driver = &ctx.db_context.driver;
     let trash_enabled = ctx.config.trash.as_ref().is_some_and(|t| t.enabled);
 
     if trash_enabled {
@@ -529,15 +522,13 @@ async fn handle_file_store_delete(ctx: &DeleteContext<'_>) -> Result<Response, A
                 ctx.endpoint,
                 ctx.headers,
                 ctx.query_params,
-                ctx.db_context.driver,
+                &driver,
             )
             .await?;
         }
 
         let built = build_select_file_path(&ctx.config.table, ctx.db_context.driver);
-        let row = ctx
-            .db_context
-            .pool
+        let row = pool
             .fetch_optional_json(&built.sql, &[ctx.id.into()])
             .await?;
         if let Some(row) = row
@@ -562,9 +553,7 @@ async fn handle_file_store_delete(ctx: &DeleteContext<'_>) -> Result<Response, A
 
         let built = build_set_deleted_at(&ctx.config.table, ctx.db_context.driver)
             .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
-        let rows_affected = ctx
-            .db_context
-            .pool
+        let rows_affected = pool
             .execute_with_params(&built.sql, &[ctx.id.into()])
             .await?;
 
@@ -598,15 +587,13 @@ async fn handle_file_store_delete(ctx: &DeleteContext<'_>) -> Result<Response, A
                 ctx.endpoint,
                 ctx.headers,
                 ctx.query_params,
-                ctx.db_context.driver,
+                &driver,
             )
             .await?;
         }
 
         let built = build_select_file_path(&ctx.config.table, ctx.db_context.driver);
-        let row = ctx
-            .db_context
-            .pool
+        let row = pool
             .fetch_optional_json(&built.sql, &[ctx.id.into()])
             .await?;
         if let Some(row) = row
@@ -627,17 +614,11 @@ async fn handle_file_store_delete(ctx: &DeleteContext<'_>) -> Result<Response, A
 
         let built = build_delete(
             ctx.id,
-            &DatabaseContext {
-                pool: ctx.db_context.pool.clone(),
-                table_config: ctx.db_context.table_config.clone(),
-                driver: ctx.db_context.driver,
-            },
+            ctx.db_context,
             &RequestContext::default(),
             &None,
         )?;
-        let rows_affected = ctx
-            .db_context
-            .pool
+        let rows_affected = pool
             .execute_with_params(&built.sql, &built.params)
             .await?;
 
@@ -668,12 +649,12 @@ async fn check_file_store_ownership(
     endpoint: &EndpointConfig,
     headers: &axum::http::HeaderMap,
     query_params: &HashMap<String, String>,
-    driver: DatabaseDriver,
+    driver: &DatabaseDriver,
 ) -> Result<(), AppError> {
     let user_id = extract_user_id(state, endpoint, headers, query_params).await?;
     let pool = get_db_pool(state, &config.database).await?;
 
-    let built = build_select_by_id(&config.table, &["owner_id"], driver)
+    let built = build_select_by_id(&config.table, &["owner_id"], *driver)
         .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
     let row = pool.fetch_optional_json(&built.sql, &[id.into()]).await?;
 
