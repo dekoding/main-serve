@@ -10,11 +10,11 @@ use main_serve::config::types::ColumnType;
 use main_serve::config::types::CrudConfig;
 use main_serve::config::types::DatabaseDriver;
 use main_serve::config::types::TableConfig;
+use main_serve::db::pool::DatabasePool;
 use main_serve::db::query::builders::{build_insert, build_select_list, build_update};
 use main_serve::db::query::types::MutationContext;
 use main_serve::db::query::types::QueryParams;
 use main_serve::db::query::types::SelectContext;
-use main_serve::db::pool::DatabasePool;
 use main_serve::handlers::common::utils::DatabaseContext;
 use main_serve::middleware::auth::extractor::RequestContext;
 
@@ -109,10 +109,9 @@ async fn test_interpolation_in_where_clause() {
     };
 
     let q = build_select_list(
-        &table,
+        &test_db_context(table, DatabaseDriver::Sqlite).await,
         &select_ctx,
         &QueryParams::default(),
-        DatabaseDriver::Sqlite,
         &context,
     )
     .unwrap();
@@ -135,7 +134,13 @@ async fn test_interpolation_in_insert_body() {
         "author_name": "Admin"
     });
 
-    let q = build_insert(&table, &mutate_ctx, &body, DatabaseDriver::Sqlite, &context).unwrap();
+    let q = build_insert(
+        &test_db_context(table, DatabaseDriver::Sqlite).await,
+        &mutate_ctx,
+        &body,
+        &context,
+    )
+    .unwrap();
 
     // Note: Sqlite/Mysql order might vary due to BTreeMap in serde_json
     // But we check if "456" is in params.
@@ -156,15 +161,7 @@ async fn test_interpolation_in_update_body() {
         "content": "Updated content by ${request.user.id}"
     });
 
-    let q = build_update(
-        &db_context,
-        mutate_ctx,
-        "1",
-        &body,
-        &context,
-        &None,
-    )
-    .unwrap();
+    let q = build_update(&db_context, mutate_ctx, "1", &body, &context, &None).unwrap();
 
     assert!(
         q.params
@@ -181,7 +178,13 @@ async fn test_interpolation_with_default_value() {
         "author_name": "${request.user.name:-Anonymous}"
     });
 
-    let q = build_insert(&table, &mutate_ctx, &body, DatabaseDriver::Sqlite, &context).unwrap();
+    let q = build_insert(
+        &test_db_context(table, DatabaseDriver::Sqlite).await,
+        &mutate_ctx,
+        &body,
+        &context,
+    )
+    .unwrap();
 
     assert!(q.params.contains(&serde_json::json!("Anonymous")));
 }

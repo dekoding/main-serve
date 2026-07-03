@@ -230,34 +230,18 @@ pub(crate) async fn handle_media(
     match method {
         axum::http::Method::GET => {
             if is_list_request {
-                handle_media_list(
-                    &db_context.pool,
-                    config,
-                    &db_context.table_config,
-                    &query_params,
-                )
-                .await
+                handle_media_list(&db_context, config, &query_params).await
             } else {
                 match extract_id(&path) {
-                    Some(id) => {
-                        handle_media_get(&db_context.pool, &db_context.table_config, &id).await
-                    }
+                    Some(id) => handle_media_get(&db_context, &id).await,
                     None => Err(AppError::BadRequest("Media ID required".to_string())),
                 }
             }
         }
         axum::http::Method::POST => {
             if path.is_empty() || path == "/" {
-                handle_media_create(
-                    &db_context.pool,
-                    &db_context.table_config,
-                    endpoint,
-                    &headers,
-                    body,
-                    state,
-                    &query_params,
-                )
-                .await
+                handle_media_create(&db_context, endpoint, &headers, body, state, &query_params)
+                    .await
             } else {
                 Err(AppError::MethodNotAllowed(
                     "POST not allowed on this path".to_string(),
@@ -283,13 +267,12 @@ pub(crate) async fn handle_media(
         axum::http::Method::DELETE => match extract_id(&path) {
             Some(id) => {
                 handle_media_delete(
-                    &db_context.table_config,
+                    &db_context,
                     state,
                     &id,
                     config,
                     &*storage,
                     &root,
-                    &db_context.pool,
                     endpoint,
                     &headers,
                     &query_params,

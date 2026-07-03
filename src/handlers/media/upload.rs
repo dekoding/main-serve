@@ -195,10 +195,9 @@ pub async fn handle_media_upload(
     let ctx = MutationContext::from(&crud_config);
 
     let built = build_insert(
-        &db_context.table_config,
+        &db_context,
         &ctx,
         &serde_json::Value::Object(insert_map),
-        db_context.driver,
         &RequestContext::default(),
     )?;
 

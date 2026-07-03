@@ -40,7 +40,6 @@ pub fn is_image_extension(ext: &str) -> bool {
 ///
 /// This provides an extra layer of security by checking the actual file
 /// format rather than relying solely on file extension.
-#[must_use]
 pub fn validate_image_magic_bytes(data: &[u8]) -> Result<(), AppError> {
     // PNG signature
     if data.len() >= 8 && &data[0..8] == b"\x89PNG\r\n\x1a\n" {

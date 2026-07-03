@@ -65,10 +65,7 @@ pub struct DatabaseContext {
 }
 
 /// Get database pool from state
-pub async fn get_db_pool(
-    state: &AppState,
-    database: &String
-) -> Result<DatabasePool, AppError> {
+pub async fn get_db_pool(state: &AppState, database: &String) -> Result<DatabasePool, AppError> {
     let pool = {
         let pools = state.db_pools.read().await;
         pools

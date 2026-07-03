@@ -9,16 +9,15 @@ use crate::db::query::builders::{build_select_list, build_select_one};
 use crate::db::query::helpers::build_select_list_count;
 use crate::db::query::types::{QueryParams, SelectContext};
 use crate::error::AppError;
+use crate::handlers::common::utils::DatabaseContext;
 use crate::middleware::auth::extractor::RequestContext;
 
 /// Handle media list (GET /).
 pub async fn handle_media_list(
-    pool: &crate::db::pool::DatabasePool,
+    db_context: &DatabaseContext,
     config: &MediaConfig,
-    table_config: &crate::config::types::TableConfig,
     query_params: &HashMap<String, String>,
 ) -> Result<Response, AppError> {
-    let driver = pool.driver();
     let page = query_params
         .get("page")
         .and_then(|v| v.parse::<u64>().ok())
@@ -56,22 +55,25 @@ pub async fn handle_media_list(
     };
 
     let built = build_select_list(
-        table_config,
+        db_context,
         &SelectContext::permissive(),
         &qp,
-        driver,
         &RequestContext::default(),
     )?;
-    let rows = pool.fetch_all_json(&built.sql, &built.params).await?;
+    let rows = db_context
+        .pool
+        .fetch_all_json(&built.sql, &built.params)
+        .await?;
 
     let count_built = build_select_list_count(
         &config.table,
-        driver,
+        db_context.driver,
         &qp,
         &SelectContext::permissive(),
         &RequestContext::default(),
     )?;
-    let count_row = pool
+    let count_row = db_context
+        .pool
         .fetch_optional_json(&count_built.sql, &count_built.params)
         .await?;
     let total: i64 = count_row
@@ -95,19 +97,20 @@ pub async fn handle_media_list(
 
 /// Handle media get by ID.
 pub async fn handle_media_get(
-    pool: &crate::db::pool::DatabasePool,
-    table_config: &crate::config::types::TableConfig,
+    db_context: &DatabaseContext,
     id: &str,
 ) -> Result<Response, AppError> {
-    let driver = pool.driver();
     let built = build_select_one(
-        table_config,
+        db_context,
         &SelectContext::permissive(),
         id,
-        driver,
         &RequestContext::default(),
     )?;
-    match pool.fetch_optional_json(&built.sql, &built.params).await? {
+    match db_context
+        .pool
+        .fetch_optional_json(&built.sql, &built.params)
+        .await?
+    {
         Some(row) => Ok((StatusCode::OK, axum::Json(row)).into_response()),
         None => Err(AppError::NotFound(format!(
             "Media item with id '{}' not found",

@@ -4,28 +4,27 @@ use std::collections::HashMap;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use crate::config::types::{EndpointConfig, TableConfig};
+use crate::config::types::EndpointConfig;
 use crate::db::query::builders::build_insert;
 use crate::db::query::types::MutationContext;
 use crate::error::AppError;
-use crate::handlers::common::utils::extract_user_id;
+use crate::handlers::common::utils::{DatabaseContext, extract_user_id};
 use crate::middleware::auth::extractor::RequestContext;
 
 // These functions need access to pool, configs, headers, query params, and body.
 #[allow(clippy::too_many_arguments)]
 pub async fn handle_media_create(
-    pool: &crate::db::pool::DatabasePool,
-    table_config: &TableConfig,
+    db_context: &DatabaseContext,
     endpoint: &EndpointConfig,
     headers: &axum::http::HeaderMap,
     body: &serde_json::Value,
     state: &crate::server::state::AppState,
     query_params: &HashMap<String, String>,
 ) -> Result<Response, AppError> {
-    let driver = pool.driver();
     let user_id = extract_user_id(state, endpoint, headers, query_params).await?;
 
-    let writable_columns = table_config
+    let writable_columns = db_context
+        .table_config
         .columns
         .iter()
         .map(|c| c.name.clone())
@@ -56,22 +55,27 @@ pub async fn handle_media_create(
 
     let json_body = serde_json::Value::Object(body_map);
     let built = build_insert(
-        table_config,
+        db_context,
         &MutationContext::default(),
         &json_body,
-        driver,
         &RequestContext::default(),
     )?;
 
     if built.sql.contains("RETURNING") {
-        let row = pool.fetch_optional_json(&built.sql, &built.params).await?;
+        let row = db_context
+            .pool
+            .fetch_optional_json(&built.sql, &built.params)
+            .await?;
         Ok((
             StatusCode::CREATED,
             axum::Json(serde_json::json!({ "data": row })),
         )
             .into_response())
     } else {
-        let rows_affected = pool.execute_with_params(&built.sql, &built.params).await?;
+        let rows_affected = db_context
+            .pool
+            .execute_with_params(&built.sql, &built.params)
+            .await?;
         Ok((
             StatusCode::CREATED,
             axum::Json(serde_json::json!({ "rows_affected": rows_affected })),

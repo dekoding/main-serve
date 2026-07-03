@@ -4,7 +4,7 @@ use std::path::Path;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use crate::config::types::{EndpointConfig, MediaConfig, TableConfig};
+use crate::config::types::{EndpointConfig, MediaConfig};
 use crate::db::query::builders::build_delete;
 use crate::db::query::select_one::build_select_file_path;
 use crate::error::AppError;
@@ -16,24 +16,17 @@ use crate::storage::Storage;
 // These functions need access to configs, state, storage, and database pool.
 #[allow(clippy::too_many_arguments)]
 pub async fn handle_media_delete(
-    table_config: &TableConfig,
+    db_context: &DatabaseContext,
     state: &crate::server::state::AppState,
     id: &str,
     config: &MediaConfig,
     storage: &dyn Storage,
     root: &Path,
-    pool: &crate::db::pool::DatabasePool,
     endpoint: &EndpointConfig,
     headers: &axum::http::HeaderMap,
     query_params: &std::collections::HashMap<String, String>,
 ) -> Result<Response, AppError> {
     let trash_enabled = config.trash.as_ref().is_some_and(|t| t.enabled);
-
-    let db_context = DatabaseContext {
-        pool: pool.clone(),
-        table_config: table_config.clone(),
-        driver: pool.driver(),
-    };
 
     if trash_enabled {
         handle_media_trash_delete(
@@ -42,14 +35,14 @@ pub async fn handle_media_delete(
             config,
             storage,
             root,
-            &db_context,
+            db_context,
             endpoint,
             headers,
             query_params,
         )
         .await
     } else {
-        delete_media_permanently(id, config, storage, root, &db_context).await
+        delete_media_permanently(id, config, storage, root, db_context).await
     }
 }
 

@@ -81,13 +81,7 @@ async fn handle_list(
     context: &RequestContext,
 ) -> Result<Response, AppError> {
     let qp = extract_query_params(query_string);
-    let built = match build_select_list(
-        &db_context.table_config,
-        select_ctx,
-        &qp,
-        db_context.driver,
-        context,
-    ) {
+    let built = match build_select_list(db_context, select_ctx, &qp, context) {
         Ok(q) => q,
         Err(e) => {
             tracing::error!("build_select_list failed: {:?}", e);
@@ -180,13 +174,7 @@ async fn handle_get_one(
     let pk = pk_value
         .as_deref()
         .ok_or_else(|| AppError::BadRequest("ID parameter required".to_string()))?;
-    let built = build_select_one(
-        &db_context.table_config,
-        select_ctx,
-        pk,
-        db_context.driver,
-        context,
-    )?;
+    let built = build_select_one(db_context, select_ctx, pk, context)?;
     match db_context
         .pool
         .fetch_optional_json(&built.sql, &built.params)
@@ -215,13 +203,7 @@ async fn handle_create(
     let body = body
         .as_deref()
         .ok_or_else(|| AppError::BadRequest("Request body required".to_string()))?;
-    let built = match build_insert(
-        &db_context.table_config,
-        mutate_ctx,
-        body,
-        db_context.driver,
-        context,
-    ) {
+    let built = match build_insert(db_context, mutate_ctx, body, context) {
         Ok(q) => q,
         Err(e) => return Err(e),
     };
@@ -271,7 +253,7 @@ async fn handle_update(
         .as_deref()
         .ok_or_else(|| AppError::BadRequest("Request body required".to_string()))?;
     let built = build_update(
-        &db_context,
+        db_context,
         mutate_ctx,
         pk,
         body,
@@ -311,7 +293,7 @@ async fn handle_delete(
         .as_deref()
         .ok_or_else(|| AppError::BadRequest("ID parameter required".to_string()))?;
 
-    let built = build_delete(pk, &db_context, context, &crud.delete_where_clause)?;
+    let built = build_delete(pk, db_context, context, &crud.delete_where_clause)?;
     let rows_affected = db_context
         .pool
         .execute_with_params(&built.sql, &built.params)
