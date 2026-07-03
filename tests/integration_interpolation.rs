@@ -14,6 +14,8 @@ use main_serve::db::query::builders::{build_insert, build_select_list, build_upd
 use main_serve::db::query::types::MutationContext;
 use main_serve::db::query::types::QueryParams;
 use main_serve::db::query::types::SelectContext;
+use main_serve::db::pool::DatabasePool;
+use main_serve::handlers::common::utils::DatabaseContext;
 use main_serve::middleware::auth::extractor::RequestContext;
 
 // =============================================================================
@@ -81,6 +83,23 @@ fn setup_test_env() -> (TableConfig, SelectContext, MutationContext) {
     (table, select_ctx, mutate_ctx)
 }
 
+async fn test_db_context(table: TableConfig, driver: DatabaseDriver) -> DatabaseContext {
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+
+    let options = SqliteConnectOptions::new().filename(":memory:");
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .unwrap();
+
+    DatabaseContext {
+        pool: DatabasePool::Sqlite(pool),
+        table_config: table,
+        driver,
+    }
+}
+
 #[tokio::test]
 async fn test_interpolation_in_where_clause() {
     let (table, select_ctx, _) = setup_test_env();
@@ -127,6 +146,7 @@ async fn test_interpolation_in_insert_body() {
 #[tokio::test]
 async fn test_interpolation_in_update_body() {
     let (table, _, mutate_ctx) = setup_test_env();
+    let db_context = test_db_context(table, DatabaseDriver::Sqlite).await;
     let context = RequestContext {
         user_id: Some("789".to_string()),
         ..Default::default()
@@ -137,11 +157,10 @@ async fn test_interpolation_in_update_body() {
     });
 
     let q = build_update(
-        &table,
+        &db_context,
         mutate_ctx,
         "1",
         &body,
-        DatabaseDriver::Sqlite,
         &context,
         &None,
     )
