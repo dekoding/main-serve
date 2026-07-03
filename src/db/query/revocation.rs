@@ -71,7 +71,7 @@ pub fn build_revoke_insert(
     let (sql, _param_count) = match driver {
         DatabaseDriver::Sqlite => (
             format!(
-                "INSERT OR REPLACE INTO {} (jti, revoked_at, expires_at) VALUES ($1, $2, $3)",
+                "INSERT OR REPLACE INTO {} (jti, revoked_at, expires_at) VALUES (?, ?, ?)",
                 table
             ),
             3,

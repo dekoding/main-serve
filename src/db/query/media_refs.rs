@@ -53,8 +53,6 @@ pub fn build_media_ref_insert(
     }
 }
 
-/// Build `SELECT * FROM {table} WHERE {media_id_col} = $1 AND {entity_id_col} = $2 AND {content_type_col} = $3`.
-///
 /// Used to retrieve a content reference after insertion.
 pub fn build_media_ref_select(
     table_name: &str,
@@ -69,15 +67,15 @@ pub fn build_media_ref_select(
     let ctc = quote_identifier(content_type_col, driver);
     BuiltQuery {
         sql: format!(
-            "SELECT * FROM {} WHERE {} = $1 AND {} = $2 AND {} = $3",
-            table, mid, eid, ctc
+            "SELECT * FROM {table} WHERE {mid} = {} AND {eid} = {} AND {ctc} = {}",
+            placeholder(driver, 1),
+            placeholder(driver, 2),
+            placeholder(driver, 3)
         ),
         params: Vec::new(),
     }
 }
 
-/// Build `DELETE FROM {table} WHERE {media_id_col} = $1 AND {entity_id_col} = $2 AND {content_type_col} = $3`.
-///
 /// Used for detaching media items from content entities.
 pub fn build_media_ref_delete(
     table_name: &str,
@@ -92,8 +90,10 @@ pub fn build_media_ref_delete(
     let ctc = quote_identifier(content_type_col, driver);
     BuiltQuery {
         sql: format!(
-            "DELETE FROM {} WHERE {} = $1 AND {} = $2 AND {} = $3",
-            table, mid, eid, ctc
+            "DELETE FROM {table} WHERE {mid} = {} AND {eid} = {} AND {ctc} = {}",
+            placeholder(driver, 1),
+            placeholder(driver, 2),
+            placeholder(driver, 3)
         ),
         params: Vec::new(),
     }
