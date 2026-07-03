@@ -259,29 +259,12 @@ pub(crate) async fn handle_media(
             }
         }
         axum::http::Method::PATCH => match extract_id(&path) {
-            Some(id) => {
-                handle_media_update(
-                    &handler_ctx,
-                    &id,
-                    config,
-                    &db_context,
-                    body,
-                )
-                .await
-            }
+            Some(id) => handle_media_update(&handler_ctx, &id, config, &db_context, body).await,
             None => Err(AppError::BadRequest("Media ID required".to_string())),
         },
         axum::http::Method::DELETE => match extract_id(&path) {
             Some(id) => {
-                handle_media_delete(
-                    &db_context,
-                    &handler_ctx,
-                    &id,
-                    config,
-                    &*storage,
-                    &root,
-                )
-                .await
+                handle_media_delete(&handler_ctx, &id, config, &*storage, &root, &db_context).await
             }
             None => Err(AppError::BadRequest("Media ID required".to_string())),
         },

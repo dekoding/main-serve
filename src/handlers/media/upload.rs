@@ -19,7 +19,8 @@ pub async fn handle_media_upload(
     mut multipart: axum::extract::Multipart,
     _uri: &axum::http::Uri,
 ) -> Result<Response, AppError> {
-    let config = &handler_ctx.endpoint
+    let config = &handler_ctx
+        .endpoint
         .media
         .as_ref()
         .ok_or_else(|| AppError::NotFound("Media config not found".to_string()))?;
@@ -35,7 +36,8 @@ pub async fn handle_media_upload(
         ));
     }
 
-    let storage = handler_ctx.state
+    let storage = handler_ctx
+        .state
         .get_store(&config.storage)
         .ok_or_else(|| AppError::Internal(format!("Store '{}' not found", config.storage)))?;
 
@@ -138,7 +140,12 @@ pub async fn handle_media_upload(
     let mime_type = mime_from_path(&storage_path);
 
     // Insert media record into the database
-    let db_context = get_db_context(&handler_ctx.state, config.database.clone(), config.table.clone()).await?;
+    let db_context = get_db_context(
+        &handler_ctx.state,
+        config.database.clone(),
+        config.table.clone(),
+    )
+    .await?;
 
     let file_path = storage_path.strip_prefix(&root).map_or_else(
         |_| sanitized_filename.clone(),

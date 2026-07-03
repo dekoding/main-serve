@@ -136,7 +136,7 @@ async fn validate_input(
         state: &state,
         endpoint: &endpoint,
         headers: &headers,
-        query_params: &query_params
+        query_params: &query_params,
     };
 
     let auth_info = handler_ctx.extract_auth_info().await?;

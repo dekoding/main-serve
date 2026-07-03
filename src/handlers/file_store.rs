@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use crate::config::types::{DatabaseDriver, EndpointConfig, FileStoreConfig};
+use crate::config::types::{DatabaseDriver, FileStoreConfig};
 use crate::db::query::builders::{
     build_delete, build_insert, build_select_list, build_select_one, build_update,
 };
@@ -16,7 +16,7 @@ use crate::db::query::update::build_set_deleted_at;
 use crate::error::AppError;
 use crate::handlers::common::helpers::extract_id;
 use crate::handlers::common::utils::{
-    DatabaseContext, HandlerContext, extract_user_id, get_db_context, get_db_pool
+    DatabaseContext, HandlerContext, get_db_context, get_db_pool,
 };
 use crate::middleware::auth::extractor::RequestContext;
 use crate::server::state::AppState;
@@ -62,13 +62,7 @@ pub async fn handle_file_store_route(
         query_params: &query.0,
     };
 
-    dispatch_file_store(
-        &handler_ctx,
-        method,
-        &uri,
-        &body_value,
-    )
-    .await
+    dispatch_file_store(&handler_ctx, method, &uri, &body_value).await
 }
 
 /// Dispatch file store requests to the appropriate handler based on method and path.
@@ -78,7 +72,8 @@ async fn dispatch_file_store(
     uri: &axum::http::Uri,
     body: &serde_json::Value,
 ) -> Result<Response, AppError> {
-    let config = &handler_ctx.endpoint
+    let config = &handler_ctx
+        .endpoint
         .file_store
         .as_ref()
         .ok_or_else(|| AppError::NotFound("File store config not found".to_string()))?;
@@ -93,23 +88,10 @@ async fn dispatch_file_store(
     let db_context = get_db_context(state, config.database.clone(), config.table.clone()).await?;
     match method {
         axum::http::Method::GET => {
-            dispatch_file_store_get(
-                handler_ctx,
-                &db_context,
-                config,
-                &path,
-            )
-            .await
+            dispatch_file_store_get(handler_ctx, &db_context, config, &path).await
         }
         axum::http::Method::POST => {
-            dispatch_file_store_post(
-                handler_ctx,
-                &db_context,
-                config,
-                body,
-                &path,
-            )
-            .await
+            dispatch_file_store_post(handler_ctx, &db_context, config, body, &path).await
         }
         axum::http::Method::PATCH => match extract_id(&path) {
             Some(id) => {
@@ -387,13 +369,7 @@ async fn handle_file_store_update(ctx: &FileStoreContext<'_>) -> Result<Response
         .as_ref()
         .is_some_and(|o| !o.admin_override)
     {
-        check_file_store_ownership(
-            ctx.handler_ctx,
-            ctx.config,
-            ctx.id.unwrap(),
-            driver,
-        )
-        .await?;
+        check_file_store_ownership(ctx.handler_ctx, ctx.config, ctx.id.unwrap(), driver).await?;
     }
 
     let mut body_map = serde_json::Map::new();
@@ -449,13 +425,7 @@ async fn handle_file_store_delete(ctx: &FileStoreContext<'_>) -> Result<Response
             .as_ref()
             .is_some_and(|o| !o.admin_override)
         {
-            check_file_store_ownership(
-                ctx.handler_ctx,
-                ctx.config,
-                id,
-                driver,
-            )
-            .await?;
+            check_file_store_ownership(ctx.handler_ctx, ctx.config, id, driver).await?;
         }
 
         let built = build_select_file_path(&ctx.config.table, ctx.db_context.driver);
@@ -506,13 +476,7 @@ async fn handle_file_store_delete(ctx: &FileStoreContext<'_>) -> Result<Response
             .as_ref()
             .is_some_and(|o| !o.admin_override)
         {
-            check_file_store_ownership(
-                ctx.handler_ctx,
-                ctx.config,
-                id,
-                driver,
-            )
-            .await?;
+            check_file_store_ownership(ctx.handler_ctx, ctx.config, id, driver).await?;
         }
 
         let built = build_select_file_path(&ctx.config.table, ctx.db_context.driver);

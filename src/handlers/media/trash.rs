@@ -49,15 +49,7 @@ pub async fn handle_media_trash(
                 .strip_prefix("/_main-serve/media/trash/")
                 .and_then(|p| p.strip_suffix("/restore"))
             {
-                handle_media_trash_restore(
-                    handler_ctx,
-                    id,
-                    config,
-                    storage,
-                    root,
-                    db_context,
-                )
-                .await
+                handle_media_trash_restore(handler_ctx, id, config, storage, root, db_context).await
             } else {
                 Err(AppError::BadRequest(
                     "Invalid trash restore path".to_string(),
