@@ -19,10 +19,10 @@ pub async fn handle_media_update(
     db_context: &DatabaseContext,
     body: &serde_json::Value,
 ) -> Result<Response, AppError> {
+    let auth_info = handler_ctx.extract_auth_info().await?;
     if let Some(user_scope) = &config.user_scope {
         if user_scope.enabled && !user_scope.allow_cross_user_browse {
-            let auth_info = handler_ctx.extract_auth_info().await?;
-            let current_user = auth_info.subject;
+            let current_user = &auth_info.subject;
 
             let built =
                 build_select_by_id(&config.table, &["uploader_id"], db_context.pool.driver())
@@ -43,7 +43,6 @@ pub async fn handle_media_update(
         }
     }
 
-    let auth_info = handler_ctx.extract_auth_info().await?;
     let mut body_map = serde_json::Map::new();
 
     if let Some(obj) = body.as_object() {
