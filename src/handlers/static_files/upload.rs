@@ -133,9 +133,9 @@ async fn validate_input(
         .unwrap_or_default();
 
     let handler_ctx = HandlerContext {
-        state: &state,
-        endpoint: &endpoint,
-        headers: &headers,
+        state,
+        endpoint,
+        headers,
         query_params: &query_params,
     };
 

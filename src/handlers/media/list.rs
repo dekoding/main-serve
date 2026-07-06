@@ -14,7 +14,7 @@ use crate::middleware::auth::extractor::RequestContext;
 
 /// Handle media list (GET /).
 pub async fn handle_media_list(
-    db_context: &DatabaseContext,
+    db_ctx: &DatabaseContext,
     config: &MediaConfig,
     query_params: &HashMap<String, String>,
 ) -> Result<Response, AppError> {
@@ -55,24 +55,24 @@ pub async fn handle_media_list(
     };
 
     let built = build_select_list(
-        db_context,
+        db_ctx,
         &SelectContext::permissive(),
         &qp,
         &RequestContext::default(),
     )?;
-    let rows = db_context
+    let rows = db_ctx
         .pool
         .fetch_all_json(&built.sql, &built.params)
         .await?;
 
     let count_built = build_select_list_count(
         &config.table,
-        db_context.pool.driver(),
+        db_ctx.pool.driver(),
         &qp,
         &SelectContext::permissive(),
         &RequestContext::default(),
     )?;
-    let count_row = db_context
+    let count_row = db_ctx
         .pool
         .fetch_optional_json(&count_built.sql, &count_built.params)
         .await?;
@@ -96,17 +96,14 @@ pub async fn handle_media_list(
 }
 
 /// Handle media get by ID.
-pub async fn handle_media_get(
-    db_context: &DatabaseContext,
-    id: &str,
-) -> Result<Response, AppError> {
+pub async fn handle_media_get(db_ctx: &DatabaseContext, id: &str) -> Result<Response, AppError> {
     let built = build_select_one(
-        db_context,
+        db_ctx,
         &SelectContext::permissive(),
         id,
         &RequestContext::default(),
     )?;
-    match db_context
+    match db_ctx
         .pool
         .fetch_optional_json(&built.sql, &built.params)
         .await?

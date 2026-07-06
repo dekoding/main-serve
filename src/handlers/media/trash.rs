@@ -25,7 +25,7 @@ pub async fn handle_media_trash(
     config: &MediaConfig,
     storage: &dyn Storage,
     root: &Path,
-    db_context: &DatabaseContext,
+    db_ctx: &DatabaseContext,
 ) -> Result<Response, AppError> {
     let trash_config = config
         .trash
@@ -39,18 +39,18 @@ pub async fn handle_media_trash(
     }
 
     match method {
-        axum::http::Method::GET => handle_media_trash_list(db_context).await,
+        axum::http::Method::GET => handle_media_trash_list(db_ctx).await,
         axum::http::Method::DELETE
             if path == "/_main-serve/media/trash" || path == "/_main-serve/media/trash/" =>
         {
-            handle_media_trash_empty(config, db_context).await
+            handle_media_trash_empty(config, db_ctx).await
         }
         axum::http::Method::POST => {
             if let Some(id) = path
                 .strip_prefix("/_main-serve/media/trash/")
                 .and_then(|p| p.strip_suffix("/restore"))
             {
-                handle_media_trash_restore(handler_ctx, id, config, storage, root, db_context).await
+                handle_media_trash_restore(handler_ctx, id, config, storage, root, db_ctx).await
             } else {
                 Err(AppError::BadRequest(
                     "Invalid trash restore path".to_string(),
@@ -59,15 +59,8 @@ pub async fn handle_media_trash(
         }
         axum::http::Method::DELETE => {
             if let Some(id) = path.strip_prefix("/_main-serve/media/trash/") {
-                handle_media_trash_permanent_delete(
-                    handler_ctx,
-                    id,
-                    config,
-                    storage,
-                    root,
-                    db_context,
-                )
-                .await
+                handle_media_trash_permanent_delete(handler_ctx, id, config, storage, root, db_ctx)
+                    .await
             } else {
                 Err(AppError::BadRequest(
                     "Invalid trash delete path".to_string(),
@@ -80,9 +73,9 @@ pub async fn handle_media_trash(
     }
 }
 
-pub async fn handle_media_trash_list(db_context: &DatabaseContext) -> Result<Response, AppError> {
-    let built = build_select_trashed(&db_context.table_config.name, db_context.pool.driver());
-    let rows = db_context.pool.fetch_all_json(&built.sql, &[]).await?;
+pub async fn handle_media_trash_list(db_ctx: &DatabaseContext) -> Result<Response, AppError> {
+    let built = build_select_trashed(&db_ctx.table_config.name, db_ctx.pool.driver());
+    let rows = db_ctx.pool.fetch_all_json(&built.sql, &[]).await?;
 
     Ok((StatusCode::OK, axum::Json(rows)).into_response())
 }
@@ -93,15 +86,15 @@ pub async fn handle_media_trash_restore(
     config: &MediaConfig,
     storage: &dyn Storage,
     root: &Path,
-    db_context: &DatabaseContext,
+    db_ctx: &DatabaseContext,
 ) -> Result<Response, AppError> {
     let trash_config = config
         .trash
         .as_ref()
         .ok_or_else(|| AppError::Internal("Trash not enabled".to_string()))?;
 
-    let built = build_select_trashed_item(&config.table, db_context.pool.driver());
-    let row = db_context
+    let built = build_select_trashed_item(&config.table, db_ctx.pool.driver());
+    let row = db_ctx
         .pool
         .fetch_optional_json(&built.sql, &[id.into()])
         .await?;
@@ -129,9 +122,9 @@ pub async fn handle_media_trash_restore(
             .map_err(|e| AppError::FileOperation(format!("Failed to restore file: {e}")))?;
     }
 
-    let built = build_set_restored(&config.table, db_context.pool.driver())
+    let built = build_set_restored(&config.table, db_ctx.pool.driver())
         .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
-    db_context
+    db_ctx
         .pool
         .execute_with_params(&built.sql, &[id.into()])
         .await?;
@@ -150,17 +143,17 @@ pub async fn handle_media_trash_restore(
 #[allow(clippy::too_many_arguments)]
 pub async fn handle_media_trash_empty(
     config: &MediaConfig,
-    db_context: &DatabaseContext,
+    db_ctx: &DatabaseContext,
 ) -> Result<Response, AppError> {
-    let built = build_select_trashed_ids(&config.table, db_context.pool.driver());
-    let rows = db_context.pool.fetch_all_json(&built.sql, &[]).await?;
+    let built = build_select_trashed_ids(&config.table, db_ctx.pool.driver());
+    let rows = db_ctx.pool.fetch_all_json(&built.sql, &[]).await?;
 
     let mut deleted_count = 0u64;
 
     for row in &rows {
         if let Some(id_val) = row.get("id").and_then(|v| v.as_str()) {
-            let built = build_delete(id_val, db_context, &RequestContext::default(), &None)?;
-            let _ = db_context
+            let built = build_delete(id_val, db_ctx, &RequestContext::default(), &None)?;
+            let _ = db_ctx
                 .pool
                 .execute_with_params(&built.sql, &built.params)
                 .await;
@@ -185,15 +178,15 @@ pub async fn handle_media_trash_permanent_delete(
     config: &MediaConfig,
     storage: &dyn Storage,
     root: &Path,
-    db_context: &DatabaseContext,
+    db_ctx: &DatabaseContext,
 ) -> Result<Response, AppError> {
     let trash_config = config
         .trash
         .as_ref()
         .ok_or_else(|| AppError::Internal("Trash not enabled".to_string()))?;
 
-    let built = build_select_trashed_item(&config.table, db_context.pool.driver());
-    let row = db_context
+    let built = build_select_trashed_item(&config.table, db_ctx.pool.driver());
+    let row = db_ctx
         .pool
         .fetch_optional_json(&built.sql, &[id.into()])
         .await?;
@@ -211,8 +204,8 @@ pub async fn handle_media_trash_permanent_delete(
         }
     }
 
-    let built = build_delete(id, db_context, &RequestContext::default(), &None)?;
-    let rows_affected = db_context
+    let built = build_delete(id, db_ctx, &RequestContext::default(), &None)?;
+    let rows_affected = db_ctx
         .pool
         .execute_with_params(&built.sql, &built.params)
         .await?;
@@ -240,7 +233,7 @@ pub async fn handle_media_trash_delete(
     config: &MediaConfig,
     storage: &dyn Storage,
     root: &Path,
-    db_context: &DatabaseContext,
+    db_ctx: &DatabaseContext,
 ) -> Result<Response, AppError> {
     let trash_config = config
         .trash
@@ -250,8 +243,8 @@ pub async fn handle_media_trash_delete(
     let auth_info = handler_ctx.extract_auth_info().await?;
     let user_id = auth_info.subject;
 
-    let built = build_select_file_path(&config.table, db_context.pool.driver());
-    let row = db_context
+    let built = build_select_file_path(&config.table, db_ctx.pool.driver());
+    let row = db_ctx
         .pool
         .fetch_optional_json(&built.sql, &[id.into()])
         .await?;
@@ -277,9 +270,9 @@ pub async fn handle_media_trash_delete(
             .map_err(|e| AppError::FileOperation(format!("Failed to move file to trash: {e}")))?;
     }
 
-    let built = build_set_trashed(&config.table, db_context.pool.driver())
+    let built = build_set_trashed(&config.table, db_ctx.pool.driver())
         .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
-    let rows_affected = db_context
+    let rows_affected = db_ctx
         .pool
         .execute_with_params(&built.sql, &[id.into()])
         .await?;

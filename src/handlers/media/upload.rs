@@ -112,9 +112,9 @@ pub async fn handle_media_upload(
     let mime_type = mime_from_path(&storage_path);
 
     // Insert media record into the database
-    let db_context = handler_ctx
+    let db_ctx = handler_ctx
         .state
-        .db_context(&config.database, &config.table)
+        .get_db_context(&config.database, &config.table)
         .await?;
 
     let file_path = storage_path.strip_prefix(&root).map_or_else(
@@ -153,7 +153,7 @@ pub async fn handle_media_upload(
         serde_json::Value::String(now.clone()),
     );
 
-    let writable_fields = db_context
+    let writable_fields = db_ctx
         .table_config
         .columns
         .iter()
@@ -168,21 +168,21 @@ pub async fn handle_media_upload(
     let ctx = MutationContext::from(&crud_config);
 
     let built = build_insert(
-        &db_context,
+        &db_ctx,
         &ctx,
         &serde_json::Value::Object(insert_map),
         &RequestContext::default(),
     )?;
 
     let returned_id = if built.sql.contains("RETURNING") {
-        let row = db_context
+        let row = db_ctx
             .pool
             .fetch_optional_json(&built.sql, &built.params)
             .await?;
         row.and_then(|r| r.get("id").cloned())
             .and_then(|v| v.as_str().map(String::from))
     } else {
-        db_context
+        db_ctx
             .pool
             .execute_with_params(&built.sql, &built.params)
             .await?;

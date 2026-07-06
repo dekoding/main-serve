@@ -16,7 +16,7 @@ pub async fn handle_media_update(
     handler_ctx: &HandlerContext<'_>,
     id: &str,
     config: &MediaConfig,
-    db_context: &DatabaseContext,
+    db_ctx: &DatabaseContext,
     body: &serde_json::Value,
 ) -> Result<Response, AppError> {
     let auth_info = handler_ctx.extract_auth_info().await?;
@@ -24,10 +24,9 @@ pub async fn handle_media_update(
         if user_scope.enabled && !user_scope.allow_cross_user_browse {
             let current_user = &auth_info.subject;
 
-            let built =
-                build_select_by_id(&config.table, &["uploader_id"], db_context.pool.driver())
-                    .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
-            let row = db_context
+            let built = build_select_by_id(&config.table, &["uploader_id"], db_ctx.pool.driver())
+                .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
+            let row = db_ctx
                 .pool
                 .fetch_optional_json(&built.sql, &[id.into()])
                 .await?;
@@ -47,13 +46,13 @@ pub async fn handle_media_update(
 
     if let Some(obj) = body.as_object() {
         for (k, v) in obj {
-            if db_context.table_config.columns.iter().any(|c| c.name == *k) {
+            if db_ctx.table_config.columns.iter().any(|c| c.name == *k) {
                 body_map.insert(k.clone(), v.clone());
             }
         }
     }
 
-    if db_context
+    if db_ctx
         .table_config
         .columns
         .iter()
@@ -70,14 +69,14 @@ pub async fn handle_media_update(
     );
 
     let built = build_update(
-        db_context,
+        db_ctx,
         MutationContext::default(),
         id,
         &serde_json::Value::Object(body_map),
         &RequestContext::default(),
         &None,
     )?;
-    let rows_affected = db_context
+    let rows_affected = db_ctx
         .pool
         .execute_with_params(&built.sql, &built.params)
         .await?;

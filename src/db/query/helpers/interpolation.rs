@@ -702,7 +702,8 @@ mod tests {
     #[test]
     fn test_resolve_single_key_query_params() {
         let mut ctx = sample_context();
-        ctx.raw_query_params.insert("page".to_string(), "5".to_string());
+        ctx.raw_query_params
+            .insert("page".to_string(), "5".to_string());
         assert_eq!(
             resolve_single_key("request.query.page", &ctx),
             Some("5".to_string())

@@ -21,14 +21,14 @@ pub async fn handle_media_delete(
     config: &MediaConfig,
     storage: &dyn Storage,
     root: &Path,
-    db_context: &DatabaseContext,
+    db_ctx: &DatabaseContext,
 ) -> Result<Response, AppError> {
     let trash_enabled = config.trash.as_ref().is_some_and(|t| t.enabled);
 
     if trash_enabled {
-        handle_media_trash_delete(&handler_ctx, id, config, storage, root, db_context).await
+        handle_media_trash_delete(handler_ctx, id, config, storage, root, db_ctx).await
     } else {
-        delete_media_permanently(id, config, storage, root, db_context).await
+        delete_media_permanently(id, config, storage, root, db_ctx).await
     }
 }
 
@@ -38,11 +38,11 @@ pub async fn delete_media_permanently(
     config: &MediaConfig,
     storage: &dyn Storage,
     root: &Path,
-    db_context: &DatabaseContext,
+    db_ctx: &DatabaseContext,
 ) -> Result<Response, AppError> {
-    let driver = db_context.pool.driver();
+    let driver = db_ctx.pool.driver();
     let built = build_select_file_path(&config.table, driver);
-    let row = db_context
+    let row = db_ctx
         .pool
         .fetch_optional_json(&built.sql, &[id.into()])
         .await?;
@@ -59,8 +59,8 @@ pub async fn delete_media_permanently(
         }
     }
 
-    let built = build_delete(id, db_context, &RequestContext::default(), &None)?;
-    let rows_affected = db_context
+    let built = build_delete(id, db_ctx, &RequestContext::default(), &None)?;
+    let rows_affected = db_ctx
         .pool
         .execute_with_params(&built.sql, &built.params)
         .await?;

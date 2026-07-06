@@ -48,20 +48,18 @@ pub async fn handle_crud(
     let select_ctx = SelectContext::from(crud);
     let mutate_ctx = MutationContext::from(crud);
 
-    let db_context = state.db_context(&crud.database, &crud.table).await?;
+    let db_ctx = state.get_db_context(&crud.database, &crud.table).await?;
 
     let pk_value = path_params.as_ref().and_then(|p| p.get("id").cloned());
 
     match (method.as_str(), pk_value.as_deref()) {
-        ("GET", None) => handle_list(&db_context, &select_ctx, crud, &query_string, &context).await,
-        ("GET", Some(_)) => {
-            handle_get_one(&db_context, &select_ctx, crud, &pk_value, &context).await
-        }
-        ("POST", _) => handle_create(&db_context, &mutate_ctx, &body, &context).await,
+        ("GET", None) => handle_list(&db_ctx, &select_ctx, crud, &query_string, &context).await,
+        ("GET", Some(_)) => handle_get_one(&db_ctx, &select_ctx, crud, &pk_value, &context).await,
+        ("POST", _) => handle_create(&db_ctx, &mutate_ctx, &body, &context).await,
         ("PUT" | "PATCH", Some(_)) => {
-            handle_update(&db_context, mutate_ctx, crud, &pk_value, &body, &context).await
+            handle_update(&db_ctx, mutate_ctx, crud, &pk_value, &body, &context).await
         }
-        ("DELETE", Some(_)) => handle_delete(&db_context, crud, &pk_value, &context).await,
+        ("DELETE", Some(_)) => handle_delete(&db_ctx, crud, &pk_value, &context).await,
         _ => Err(AppError::MethodNotAllowed(
             "Unsupported method for CRUD endpoint".to_string(),
         )),
@@ -74,14 +72,14 @@ pub async fn handle_crud(
 ///
 /// Returns `AppError::Internal` for database or query-building failures.
 async fn handle_list(
-    db_context: &DatabaseContext,
+    db_ctx: &DatabaseContext,
     select_ctx: &SelectContext,
     crud: &crate::config::types::CrudConfig,
     query_string: &HashMap<String, String>,
     context: &RequestContext,
 ) -> Result<Response, AppError> {
     let qp = extract_query_params(query_string);
-    let built = match build_select_list(db_context, select_ctx, &qp, context) {
+    let built = match build_select_list(db_ctx, select_ctx, &qp, context) {
         Ok(q) => q,
         Err(e) => {
             tracing::error!("build_select_list failed: {:?}", e);
@@ -89,11 +87,7 @@ async fn handle_list(
         }
     };
 
-    let rows = match db_context
-        .pool
-        .fetch_all_json(&built.sql, &built.params)
-        .await
-    {
+    let rows = match db_ctx.pool.fetch_all_json(&built.sql, &built.params).await {
         Ok(r) => r,
         Err(e) => {
             tracing::error!(
@@ -117,14 +111,14 @@ async fn handle_list(
     let page = qp.page.unwrap_or(1);
 
     let count_q = build_select_list_count(
-        &db_context.table_config.name,
-        db_context.pool.driver(),
+        &db_ctx.table_config.name,
+        db_ctx.pool.driver(),
         &qp,
         select_ctx,
         context,
     );
     let total = match count_q {
-        Ok(count_build) => match db_context
+        Ok(count_build) => match db_ctx
             .pool
             .fetch_optional_json(&count_build.sql, &count_build.params)
             .await
@@ -165,7 +159,7 @@ async fn handle_list(
 /// Returns `AppError::BadRequest` for query-building failures.
 /// Returns `AppError::NotFound` if the record does not exist.
 async fn handle_get_one(
-    db_context: &DatabaseContext,
+    db_ctx: &DatabaseContext,
     select_ctx: &SelectContext,
     crud: &crate::config::types::CrudConfig,
     pk_value: &Option<String>,
@@ -174,8 +168,8 @@ async fn handle_get_one(
     let pk = pk_value
         .as_deref()
         .ok_or_else(|| AppError::BadRequest("ID parameter required".to_string()))?;
-    let built = build_select_one(db_context, select_ctx, pk, context)?;
-    match db_context
+    let built = build_select_one(db_ctx, select_ctx, pk, context)?;
+    match db_ctx
         .pool
         .fetch_optional_json(&built.sql, &built.params)
         .await?
@@ -195,7 +189,7 @@ async fn handle_get_one(
 /// Returns `AppError::BadRequest` if request body is missing or query building fails.
 /// Returns `AppError::Internal` for database failures.
 async fn handle_create(
-    db_context: &DatabaseContext,
+    db_ctx: &DatabaseContext,
     mutate_ctx: &MutationContext,
     body: &Option<Json<serde_json::Value>>,
     context: &RequestContext,
@@ -203,13 +197,13 @@ async fn handle_create(
     let body = body
         .as_deref()
         .ok_or_else(|| AppError::BadRequest("Request body required".to_string()))?;
-    let built = match build_insert(db_context, mutate_ctx, body, context) {
+    let built = match build_insert(db_ctx, mutate_ctx, body, context) {
         Ok(q) => q,
         Err(e) => return Err(e),
     };
 
     if built.sql.contains("RETURNING") {
-        let row = db_context
+        let row = db_ctx
             .pool
             .fetch_optional_json(&built.sql, &built.params)
             .await?;
@@ -219,7 +213,7 @@ async fn handle_create(
         )
             .into_response())
     } else {
-        let rows_affected = db_context
+        let rows_affected = db_ctx
             .pool
             .execute_with_params(&built.sql, &built.params)
             .await?;
@@ -239,7 +233,7 @@ async fn handle_create(
 /// Returns `AppError::NotFound` if no matching record found.
 #[allow(clippy::too_many_arguments)]
 async fn handle_update(
-    db_context: &DatabaseContext,
+    db_ctx: &DatabaseContext,
     mutate_ctx: MutationContext,
     crud: &crate::config::types::CrudConfig,
     pk_value: &Option<String>,
@@ -253,14 +247,14 @@ async fn handle_update(
         .as_deref()
         .ok_or_else(|| AppError::BadRequest("Request body required".to_string()))?;
     let built = build_update(
-        db_context,
+        db_ctx,
         mutate_ctx,
         pk,
         body,
         context,
         &crud.update_where_clause,
     )?;
-    let rows_affected = db_context
+    let rows_affected = db_ctx
         .pool
         .execute_with_params(&built.sql, &built.params)
         .await?;
@@ -284,7 +278,7 @@ async fn handle_update(
 /// Returns `AppError::BadRequest` if ID parameter is missing.
 /// Returns `AppError::NotFound` if no matching record found.
 async fn handle_delete(
-    db_context: &DatabaseContext,
+    db_ctx: &DatabaseContext,
     crud: &crate::config::types::CrudConfig,
     pk_value: &Option<String>,
     context: &RequestContext,
@@ -293,8 +287,8 @@ async fn handle_delete(
         .as_deref()
         .ok_or_else(|| AppError::BadRequest("ID parameter required".to_string()))?;
 
-    let built = build_delete(pk, db_context, context, &crud.delete_where_clause)?;
-    let rows_affected = db_context
+    let built = build_delete(pk, db_ctx, context, &crud.delete_where_clause)?;
+    let rows_affected = db_ctx
         .pool
         .execute_with_params(&built.sql, &built.params)
         .await?;

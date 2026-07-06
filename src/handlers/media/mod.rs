@@ -135,7 +135,9 @@ pub(crate) async fn handle_media(
 
     let (storage, root) = resolve_store(state, &config.storage)?;
 
-    let db_context = state.db_context(&config.database, &config.table).await?;
+    let db_ctx = state
+        .get_db_context(&config.database, &config.table)
+        .await?;
 
     let handler_ctx = HandlerContext {
         state,
@@ -154,7 +156,7 @@ pub(crate) async fn handle_media(
             config,
             &*storage,
             &root,
-            &db_context,
+            &db_ctx,
         )
         .await;
     }
@@ -168,49 +170,41 @@ pub(crate) async fn handle_media(
     if path.contains("/resize") {
         if let Some(id) = extract_id(&path) {
             let (storage, root) = resolve_store(state, &config.storage)?;
-            return handle_media_resize(
-                &*storage,
-                &root,
-                &id,
-                config,
-                &query_params,
-                &db_context.pool,
-            )
-            .await;
+            return handle_media_resize(&*storage, &root, &id, config, &query_params, &db_ctx.pool)
+                .await;
         }
     }
 
     if path.contains("/thumbnail") {
         if let Some(id) = extract_id(&path) {
             let (storage, root) = resolve_store(state, &config.storage)?;
-            return handle_media_thumbnail(&*storage, &root, &id, config, &db_context.pool).await;
+            return handle_media_thumbnail(&*storage, &root, &id, config, &db_ctx.pool).await;
         }
     }
 
     if path.contains("/attach") {
         if let Some(id) = extract_id(&path) {
-            return handle_media_attach(&id, config, &db_context.pool, body).await;
+            return handle_media_attach(&id, config, &db_ctx.pool, body).await;
         }
     }
 
     if path.contains("/detach") {
         if let Some(id) = extract_id(&path) {
-            return handle_media_detach(&id, config, &db_context.pool, body).await;
+            return handle_media_detach(&id, config, &db_ctx.pool, body).await;
         }
     }
 
     if path.contains("/move") {
         if let Some(id) = extract_id(&path) {
             let (storage, root) = resolve_store(state, &config.storage)?;
-            return handle_media_move(&id, config, &db_context.pool, &*storage, &root, body).await;
+            return handle_media_move(&id, config, &db_ctx.pool, &*storage, &root, body).await;
         }
     }
 
     if path.contains("/rename") {
         if let Some(id) = extract_id(&path) {
             let (storage, root) = resolve_store(state, &config.storage)?;
-            return handle_media_rename(&id, config, &db_context.pool, &*storage, &root, body)
-                .await;
+            return handle_media_rename(&id, config, &db_ctx.pool, &*storage, &root, body).await;
         }
     }
 
@@ -234,17 +228,17 @@ pub(crate) async fn handle_media(
     match method {
         axum::http::Method::GET => {
             if is_list_request {
-                handle_media_list(&db_context, config, &query_params).await
+                handle_media_list(&db_ctx, config, &query_params).await
             } else {
                 match extract_id(&path) {
-                    Some(id) => handle_media_get(&db_context, &id).await,
+                    Some(id) => handle_media_get(&db_ctx, &id).await,
                     None => Err(AppError::BadRequest("Media ID required".to_string())),
                 }
             }
         }
         axum::http::Method::POST => {
             if path.is_empty() || path == "/" {
-                handle_media_create(&db_context, &handler_ctx, body).await
+                handle_media_create(&db_ctx, &handler_ctx, body).await
             } else {
                 Err(AppError::MethodNotAllowed(
                     "POST not allowed on this path".to_string(),
@@ -252,12 +246,12 @@ pub(crate) async fn handle_media(
             }
         }
         axum::http::Method::PATCH => match extract_id(&path) {
-            Some(id) => handle_media_update(&handler_ctx, &id, config, &db_context, body).await,
+            Some(id) => handle_media_update(&handler_ctx, &id, config, &db_ctx, body).await,
             None => Err(AppError::BadRequest("Media ID required".to_string())),
         },
         axum::http::Method::DELETE => match extract_id(&path) {
             Some(id) => {
-                handle_media_delete(&handler_ctx, &id, config, &*storage, &root, &db_context).await
+                handle_media_delete(&handler_ctx, &id, config, &*storage, &root, &db_ctx).await
             }
             None => Err(AppError::BadRequest("Media ID required".to_string())),
         },

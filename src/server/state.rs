@@ -383,7 +383,7 @@ impl AppState {
     }
 
     /// Resolve database pool and table config.
-    pub async fn db_context(&self, db: &str, table: &str) -> Result<DatabaseContext, AppError> {
+    pub async fn get_db_context(&self, db: &str, table: &str) -> Result<DatabaseContext, AppError> {
         let pool = self.db_pool(db).await?;
 
         let table_config = {

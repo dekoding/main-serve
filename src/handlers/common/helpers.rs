@@ -138,15 +138,14 @@ pub async fn parse_multipart_file(
             )));
         }
 
-        if validate_image_magic {
-            if let Some(ext) = Path::new(&original_filename)
+        if validate_image_magic
+            && let Some(ext) = Path::new(&original_filename)
                 .extension()
                 .and_then(|e| e.to_str())
                 && is_image_extension(ext)
             {
                 validate_image_magic_bytes(&file_content)?;
             }
-        }
     }
 
     if !found_file {
@@ -162,11 +161,11 @@ pub async fn extract_file_path(
     row: Option<serde_json::Value>,
     id: &str,
 ) -> Result<String, AppError> {
-    let file_path = row
+    
+    row
         .and_then(|r| {
             r.get("file_path")
                 .and_then(|v| v.as_str().map(String::from))
         })
-        .ok_or_else(|| AppError::NotFound(format!("Item with id '{}' not found", id)));
-    file_path
+        .ok_or_else(|| AppError::NotFound(format!("Item with id '{}' not found", id)))
 }
