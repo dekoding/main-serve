@@ -12,6 +12,7 @@ use crate::db::query::select_one::{
 };
 use crate::db::query::update::{build_set_restored, build_set_trashed};
 use crate::error::AppError;
+use crate::handlers::common::helpers::extract_file_path;
 use crate::handlers::common::utils::{DatabaseContext, HandlerContext};
 use crate::middleware::auth::extractor::RequestContext;
 use crate::storage::Storage;
@@ -105,18 +106,7 @@ pub async fn handle_media_trash_restore(
         .fetch_optional_json(&built.sql, &[id.into()])
         .await?;
 
-    let file_path = match row {
-        Some(r) => r
-            .get("file_path")
-            .and_then(|v| v.as_str().map(String::from))
-            .unwrap_or_default(),
-        None => {
-            return Err(AppError::NotFound(
-                "Trashed media item not found".to_string(),
-            ));
-        }
-    };
-
+    let file_path = extract_file_path(row, id).await?;
     let auth_info = handler_ctx.extract_auth_info().await?;
     let user_path = auth_info.subject;
 
@@ -208,13 +198,7 @@ pub async fn handle_media_trash_permanent_delete(
         .fetch_optional_json(&built.sql, &[id.into()])
         .await?;
 
-    let file_path: String = if let Some(r) = row {
-        r.get("file_path")
-            .and_then(|v| v.as_str().map(String::from))
-            .unwrap_or_default()
-    } else {
-        String::new()
-    };
+    let file_path = extract_file_path(row, id).await?;
 
     if !file_path.is_empty() {
         let auth_info = handler_ctx.extract_auth_info().await?;
@@ -272,13 +256,7 @@ pub async fn handle_media_trash_delete(
         .fetch_optional_json(&built.sql, &[id.into()])
         .await?;
 
-    let file_path = row
-        .as_ref()
-        .and_then(|r| {
-            r.get("file_path")
-                .and_then(|v| v.as_str().map(String::from))
-        })
-        .unwrap_or_default();
+    let file_path = extract_file_path(row, id).await?;
 
     let user_path = user_id.clone();
 

@@ -6,6 +6,7 @@ use axum::response::{IntoResponse, Response};
 
 use crate::config::types::EndpointConfig;
 use crate::error::AppError;
+use crate::handlers::common::utils::apply_content_type;
 
 /// Handle a `custom_response` endpoint - returns the fixed response defined in config.
 ///
@@ -26,11 +27,7 @@ pub async fn handle_custom_response(endpoint: EndpointConfig) -> Result<Response
     let mut response = (status, cr.body.clone()).into_response();
 
     // Set content-type header.
-    if let Ok(val) = HeaderValue::from_str(&cr.content_type) {
-        response
-            .headers_mut()
-            .insert(http::header::CONTENT_TYPE, val);
-    }
+    apply_content_type(&mut response, &cr.content_type);
 
     // Set additional custom headers.
     for (key, value) in &cr.headers {

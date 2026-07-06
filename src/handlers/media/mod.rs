@@ -21,7 +21,7 @@ use crate::config::types::EndpointConfig;
 use crate::error::AppError;
 use crate::handlers::common::helpers::extract_id;
 use crate::handlers::common::store::resolve_store;
-use crate::handlers::common::utils::{HandlerContext, get_db_context};
+use crate::handlers::common::utils::HandlerContext;
 use crate::handlers::media::content_refs::{handle_media_attach, handle_media_detach};
 use crate::handlers::media::create::handle_media_create;
 use crate::handlers::media::delete::handle_media_delete;
@@ -142,7 +142,7 @@ pub(crate) async fn handle_media(
         .root_path()
         .unwrap_or(PathBuf::from(&config.storage));
 
-    let db_context = get_db_context(state, config.database.clone(), config.table.clone()).await?;
+    let db_context = state.db_context(&config.database, &config.table).await?;
 
     let handler_ctx = HandlerContext {
         state,

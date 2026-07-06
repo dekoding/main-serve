@@ -15,9 +15,7 @@ use crate::db::query::types::{MutationContext, SelectContext};
 use crate::db::query::update::build_set_deleted_at;
 use crate::error::AppError;
 use crate::handlers::common::helpers::extract_id;
-use crate::handlers::common::utils::{
-    DatabaseContext, HandlerContext, get_db_context, get_db_pool,
-};
+use crate::handlers::common::utils::{DatabaseContext, HandlerContext};
 use crate::middleware::auth::extractor::RequestContext;
 use crate::server::state::AppState;
 use crate::storage::Storage;
@@ -85,7 +83,7 @@ async fn dispatch_file_store(
         .get_store(&config.storage)
         .ok_or_else(|| AppError::Internal(format!("Store '{}' not found", config.storage)))?;
 
-    let db_context = get_db_context(state, config.database.clone(), config.table.clone()).await?;
+    let db_context = state.db_context(&config.database, &config.table).await?;
     match method {
         axum::http::Method::GET => {
             dispatch_file_store_get(handler_ctx, &db_context, config, &path).await
@@ -526,7 +524,7 @@ async fn check_file_store_ownership(
     driver: &DatabaseDriver,
 ) -> Result<(), AppError> {
     let user_id = handler_ctx.extract_user_id().await?;
-    let pool = get_db_pool(handler_ctx.state, &config.database).await?;
+    let pool = handler_ctx.state.db_pool(&config.database).await?;
 
     let built = build_select_by_id(&config.table, &["owner_id"], *driver)
         .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;

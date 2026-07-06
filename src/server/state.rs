@@ -11,12 +11,13 @@ use std::time::Instant;
 use tokio::sync::{Mutex, RwLock};
 
 use crate::config::AppConfig;
-use crate::config::types::EndpointConfig;
-use crate::config::types::RoleHierarchy;
 use crate::config::types::StoreConfig;
+use crate::config::types::{EndpointConfig, RegisterConfig};
+use crate::config::types::{JwtConfig, RoleHierarchy};
 use crate::db::pool::DatabasePool;
 use crate::db::query::revocation;
 use crate::error::AppError;
+use crate::handlers::common::utils::DatabaseContext;
 use crate::middleware::auth::validators::oauth2::PendingOAuth2;
 use crate::middleware::rate_limit::RateLimiter;
 use crate::server::prefix_match::{find_prefix_match, find_wildcard_match};
@@ -379,6 +380,78 @@ impl AppState {
 
         // Check for wildcard pattern matches (e.g., /app/{*rest} matches /app/foo/bar)
         find_wildcard_match(&configs, path, method_check)
+    }
+
+    /// Resolve database pool and table config.
+    pub async fn db_context(&self, db: &str, table: &str) -> Result<DatabaseContext, AppError> {
+        let pool = self.db_pool(db).await?;
+
+        let table_config = {
+            let config_guard = self.config.read().await;
+            config_guard
+                .tables
+                .iter()
+                .find(|t| t.name == table && t.database == db)
+                .ok_or_else(|| {
+                    AppError::Internal(format!(
+                        "Table '{}' in database '{}' not found in config",
+                        table, db
+                    ))
+                })?
+                .clone()
+        };
+        Ok(DatabaseContext { pool, table_config })
+    }
+
+    /// Get database pool from state
+    pub async fn db_pool(&self, db: &str) -> Result<DatabasePool, AppError> {
+        let pool = {
+            let pools = self.db_pools.read().await;
+            pools
+                .get(db)
+                .ok_or_else(|| AppError::Internal(format!("Database '{}' has no pool", db)))?
+                .clone()
+        };
+        Ok(pool)
+    }
+
+    /// Helper function to get the registration database pool and config.
+    pub async fn registration_pool(&self) -> Result<(DatabasePool, RegisterConfig), AppError> {
+        let (pool, register_config) = {
+            let register_config = {
+                let config = self.config.read().await;
+                config.auth.register.as_ref().cloned().ok_or_else(|| {
+                    AppError::Config("User registration is not enabled".to_string())
+                })?
+            };
+
+            let pool = self.db_pool(&register_config.database).await?;
+            (pool, register_config)
+        };
+        Ok((pool, register_config))
+    }
+
+    /// Get JWT configuration from app state.
+    ///
+    /// # Errors
+    ///
+    /// Returns `AppError::Config` if JWT is not configured.
+    pub async fn jwt_config(&self) -> Result<JwtConfig, AppError> {
+        let config = self.config.read().await;
+        let jwt_config = config
+            .auth
+            .jwt
+            .as_ref()
+            .ok_or_else(|| AppError::Config("JWT is not configured".to_string()))?;
+        Ok(JwtConfig {
+            secret: jwt_config.secret.clone(),
+            algorithm: jwt_config.algorithm,
+            issuer: jwt_config.issuer.clone(),
+            audience: String::new(),
+            expiry: 3600,
+            role_claim: "role".to_string(),
+            revocation: None,
+        })
     }
 }
 

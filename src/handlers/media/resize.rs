@@ -6,6 +6,7 @@ use axum::response::Response;
 use crate::config::types::MediaConfig;
 use crate::db::query::select_one::build_select_file_path;
 use crate::error::AppError;
+use crate::handlers::common::helpers::extract_file_path;
 use crate::handlers::common::resize::{build_resize_response, parse_resize_params, resize_image};
 use crate::storage::Storage;
 
@@ -33,12 +34,7 @@ pub async fn handle_media_resize(
     let built = build_select_file_path(&config.table, pool.driver());
     let row = pool.fetch_optional_json(&built.sql, &[id.into()]).await?;
 
-    let file_path: String = row
-        .and_then(|r| {
-            r.get("file_path")
-                .and_then(|v| v.as_str().map(String::from))
-        })
-        .unwrap_or_else(|| format!("media/{}", id));
+    let file_path = extract_file_path(row, id).await?;
 
     let resolved_path = root.join(&file_path);
 

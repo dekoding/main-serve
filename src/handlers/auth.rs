@@ -10,16 +10,13 @@ use http_body_util::BodyExt;
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
 
 use crate::config::types::{JwtAlgorithm, JwtConfig};
+use crate::db::query::select_one::{
+    build_insert_user, build_select_by_field, build_select_user_for_login, build_table_columns,
+};
 use crate::error::AppError;
 use crate::middleware::auth::validators::jwt::create_token;
 use crate::server::state::AppState;
 use crate::server::state::RevocationStoreBackend;
-use crate::{
-    db::query::select_one::{
-        build_insert_user, build_select_by_field, build_select_user_for_login, build_table_columns,
-    },
-    handlers::common::utils::get_registration_pool,
-};
 use serde::Deserialize;
 
 /// Handle `POST /_main-serve/auth/revoke`.
@@ -138,29 +135,6 @@ pub struct AuthResponse {
     pub token: String,
 }
 
-/// Get JWT configuration from app state.
-///
-/// # Errors
-///
-/// Returns `AppError::Config` if JWT is not configured.
-async fn get_jwt_config(state: &AppState) -> Result<JwtConfig, AppError> {
-    let config = state.config.read().await;
-    let jwt_config = config
-        .auth
-        .jwt
-        .as_ref()
-        .ok_or_else(|| AppError::Config("JWT is not configured".to_string()))?;
-    Ok(JwtConfig {
-        secret: jwt_config.secret.clone(),
-        algorithm: jwt_config.algorithm,
-        issuer: jwt_config.issuer.clone(),
-        audience: String::new(),
-        expiry: 3600,
-        role_claim: "role".to_string(),
-        revocation: None,
-    })
-}
-
 /// Create a JWT token for a user.
 ///
 /// # Errors
@@ -188,10 +162,10 @@ fn create_jwt_token(
 /// or the password is too short. Returns `AppError::Internal` for
 /// database or hashing failures.
 pub async fn handle_register(
-    State(state): State<AppState>,
-    Json(body): Json<RegisterRequest>,
+    state: State<AppState>,
+    body: Json<RegisterRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let (pool, register_config) = get_registration_pool(State(state.clone())).await?;
+    let (pool, register_config) = state.registration_pool().await?;
 
     if !register_config.enabled {
         return Err(AppError::Config(
@@ -293,7 +267,7 @@ pub async fn handle_register(
         .map(ToString::to_string)
         .unwrap_or(body.email.clone());
 
-    let jwt_config = get_jwt_config(&state).await?;
+    let jwt_config = state.jwt_config().await?;
     let jti = uuid::Uuid::new_v4().to_string();
 
     let token = create_jwt_token(
@@ -320,7 +294,7 @@ pub async fn handle_login(
     State(state): State<AppState>,
     Json(body): Json<LoginRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let (pool, _) = get_registration_pool(State(state.clone())).await?;
+    let (pool, _) = state.registration_pool().await?;
 
     let driver = pool.driver();
 
@@ -361,7 +335,7 @@ pub async fn handle_login(
         return Err(AppError::Auth("Invalid email or password".to_string()));
     }
 
-    let jwt_config = get_jwt_config(&state).await?;
+    let jwt_config = state.jwt_config().await?;
     let jti = uuid::Uuid::new_v4().to_string();
 
     let token = create_jwt_token(&user_id, role.as_deref(), &jwt_config, &jti, &email)?;

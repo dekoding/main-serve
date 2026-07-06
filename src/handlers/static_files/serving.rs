@@ -15,7 +15,7 @@ use crate::handlers::common::helpers::is_image_path;
 use crate::handlers::common::resize::{
     ResizeParams, build_resize_response, parse_resize_params, resize_image,
 };
-use crate::handlers::common::utils::{apply_cache_control, apply_content_type};
+use crate::handlers::common::utils::{apply_cache_control, apply_content_length, apply_content_range, apply_content_type};
 use crate::handlers::static_files::routing::StaticGetContext;
 
 use crate::server::AppState;
@@ -183,11 +183,7 @@ pub async fn serve_file(
         Some(path),
         &config.cache_rules,
     );
-
-    response.headers_mut().insert(
-        header::CONTENT_LENGTH,
-        HeaderValue::from_str(&content.len().to_string()).unwrap_or(HeaderValue::from_static("0")),
-    );
+    apply_content_length(&mut response, &content.len().to_string());
 
     Ok(response)
 }
@@ -256,22 +252,9 @@ async fn handle_range_streaming(
     let mut response = Response::new(body);
     *response.status_mut() = StatusCode::PARTIAL_CONTENT;
 
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_str(content_type)
-            .unwrap_or(HeaderValue::from_static("application/octet-stream")),
-    );
-
-    response.headers_mut().insert(
-        header::CONTENT_RANGE,
-        HeaderValue::from_str(&format!("bytes {start}-{end}/{file_size}"))
-            .unwrap_or(HeaderValue::from_static("bytes */0")),
-    );
-
-    response.headers_mut().insert(
-        header::CONTENT_LENGTH,
-        HeaderValue::from_str(&content_length.to_string()).unwrap_or(HeaderValue::from_static("0")),
-    );
+    apply_content_type(&mut response, content_type);
+    apply_content_range(&mut response, &format!("bytes {start}-{end}/{file_size}"));
+    apply_content_length(&mut response, &content_length.to_string());
 
     response
         .headers_mut()
@@ -312,17 +295,8 @@ async fn handle_streaming(
     let mut response = Response::new(body);
     *response.status_mut() = StatusCode::OK;
 
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_str(content_type)
-            .unwrap_or(HeaderValue::from_static("application/octet-stream")),
-    );
-
-    response.headers_mut().insert(
-        header::CONTENT_LENGTH,
-        HeaderValue::from_str(&format!("{file_size}")).unwrap_or(HeaderValue::from_static("0")),
-    );
-
+    apply_content_length(&mut response, &format!("{file_size}"));
+    apply_content_type(&mut response, content_type);
     apply_cache_control(&mut response, cache_max_age, Some(path), cache_rules);
 
     Ok(response)
@@ -339,18 +313,9 @@ fn build_range_not_satisfiable_response(
     let mut response = Response::new(Body::empty());
     *response.status_mut() = StatusCode::RANGE_NOT_SATISFIABLE;
 
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static("application/octet-stream"),
-    );
-
-    response.headers_mut().insert(
-        header::CONTENT_RANGE,
-        HeaderValue::from_str(&format!("bytes */{file_size}"))
-            .unwrap_or(HeaderValue::from_static("bytes */0")),
-    );
-
+    apply_content_type(&mut response, "application/octet-stream");
     apply_cache_control(&mut response, cache_max_age, Some(path), cache_rules);
+    apply_content_range(&mut response, &format!("bytes */{file_size}"));
 
     response
 }
@@ -442,21 +407,10 @@ fn handle_range_small_file(
     let body = content[start as usize..(actual_end + 1) as usize].to_vec();
 
     let mut response = (StatusCode::PARTIAL_CONTENT, body).into_response();
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_str(content_type)
-            .unwrap_or(HeaderValue::from_static("application/octet-stream")),
-    );
-    response.headers_mut().insert(
-        header::CONTENT_LENGTH,
-        HeaderValue::from_str(&range_size.to_string()).unwrap_or(HeaderValue::from_static("0")),
-    );
-    response.headers_mut().insert(
-        header::CONTENT_RANGE,
-        HeaderValue::from_str(&format!("bytes {}-{}/{}", start, actual_end, file_size))
-            .unwrap_or(HeaderValue::from_static("bytes */0")),
-    );
-
+    
+    apply_content_type(&mut response, content_type);
+    apply_content_length(&mut response, &range_size.to_string());
+    apply_content_range(&mut response, &format!("bytes {}-{}/{}", start, actual_end, file_size));
     apply_cache_control(&mut response, cache_max_age, Some(path), cache_rules);
 
     Ok(response)

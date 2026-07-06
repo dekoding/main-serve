@@ -8,7 +8,7 @@ use http::header::CONTENT_LENGTH;
 
 use crate::config::types::{EndpointConfig, StaticFilesConfig, UploadConfig};
 use crate::error::AppError;
-use crate::handlers::common::helpers::{is_image_extension, validate_image_magic_bytes};
+use crate::handlers::common::helpers::parse_multipart_file;
 use crate::handlers::common::path::{
     build_storage_path, build_upload_response, generate_upload_filename,
 };
@@ -153,7 +153,7 @@ async fn validate_input(
     }
 
     let (file_content, original_filename) =
-        process_multipart(multipart, upload_config.max_size).await?;
+        parse_multipart_file(multipart, upload_config.max_size, true).await?;
 
     Ok((
         FileUploadContext {
@@ -166,77 +166,6 @@ async fn validate_input(
         },
         Arc::new(upload_config.clone()),
     ))
-}
-
-/// Parse the multipart form and extract file content.
-///
-/// Reads the first field from the multipart stream, validates its metadata,
-/// accumulates all chunks, and validates the content size. For image files,
-/// magic bytes are validated.
-///
-/// # Errors
-///
-/// Returns `AppError::BadRequest` for parse, size, or magic-byte failures.
-async fn process_multipart(
-    multipart: &mut axum::extract::Multipart,
-    max_size: u64,
-) -> Result<(Vec<u8>, String), AppError> {
-    let mut file_content = Vec::new();
-    let mut original_filename = String::new();
-    let mut found_file = false;
-
-    while let Some(mut field) = multipart
-        .next_field()
-        .await
-        .map_err(|e| AppError::BadRequest(format!("Failed to parse multipart form: {e}")))?
-    {
-        if let Some(field_name) = field.name() {
-            if field_name != "file" && field_name != "files" && field_name != "upload" {
-                // Allow other field names but log a warning
-            }
-        } else {
-            return Err(AppError::BadRequest("Form field missing name".to_string()));
-        }
-
-        if let Some(filename) = field.file_name() {
-            original_filename = filename.to_string();
-        }
-
-        found_file = true;
-        let mut field_bytes = Vec::new();
-        while let Some(chunk) = field
-            .chunk()
-            .await
-            .map_err(|e| AppError::BadRequest(format!("Failed to read file content: {e}")))?
-        {
-            field_bytes.extend_from_slice(&chunk);
-        }
-        file_content = field_bytes;
-
-        if file_content.len() as u64 > max_size {
-            return Err(AppError::PayloadTooLarge(format!(
-                "File size {} exceeds maximum allowed size {}",
-                file_content.len(),
-                max_size
-            )));
-        }
-
-        if let Some(ext) = std::path::Path::new(&original_filename)
-            .extension()
-            .and_then(|e| e.to_str())
-            && is_image_extension(ext)
-        {
-            validate_image_magic_bytes(&file_content)?;
-        }
-    }
-
-    if !found_file {
-        return Err(AppError::BadRequest(
-            "No file provided in multipart form".to_string(),
-        ));
-    }
-
-    Ok((file_content, original_filename))
 }
 
 /// Store the file in the configured storage backend.

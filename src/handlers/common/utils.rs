@@ -5,10 +5,8 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use axum::extract::State;
-
+use crate::config::types::EndpointConfig;
 use crate::config::types::{CacheRuleConfig, DEFAULT_CACHE_MAX_AGE, TableConfig};
-use crate::config::types::{EndpointConfig, RegisterConfig};
 use crate::db::pool::DatabasePool;
 use crate::error::AppError;
 use crate::middleware::auth::extractor::AuthInfo;
@@ -67,69 +65,30 @@ pub struct DatabaseContext {
     pub table_config: TableConfig,
 }
 
-/// Get database pool from state
-pub async fn get_db_pool(state: &AppState, database: &String) -> Result<DatabasePool, AppError> {
-    let pool = {
-        let pools = state.db_pools.read().await;
-        pools
-            .get(database.as_str())
-            .ok_or_else(|| AppError::Internal(format!("Database '{}' has no pool", database)))?
-            .clone()
-    };
-    Ok(pool)
-}
-
-/// Resolve database pool, table config, and driver.
-pub async fn get_db_context(
-    state: &AppState,
-    database: String,
-    table: String,
-) -> Result<DatabaseContext, AppError> {
-    let pool = get_db_pool(state, &database).await?;
-
-    let table_config = {
-        let config_guard = state.config.read().await;
-        config_guard
-            .tables
-            .iter()
-            .find(|t| t.name == table && t.database == database)
-            .ok_or_else(|| {
-                AppError::Internal(format!(
-                    "Table '{}' in database '{}' not found in config",
-                    table, database
-                ))
-            })?
-            .clone()
-    };
-
-    Ok(DatabaseContext { pool, table_config })
-}
-
-/// Helper function to get the registration database pool and config.
-pub async fn get_registration_pool(
-    state: State<AppState>,
-) -> Result<(DatabasePool, RegisterConfig), AppError> {
-    let (pool, register_config) = {
-        let register_config =
-            {
-                let config = state.config.read().await;
-                config.auth.register.as_ref().cloned().ok_or_else(|| {
-                    AppError::Config("User registration is not enabled".to_string())
-                })?
-            };
-
-        let pool = get_db_pool(&state, &register_config.database).await?;
-        (pool, register_config)
-    };
-    Ok((pool, register_config))
-}
-
 /// Apply Content-Type header to a response.
 pub fn apply_content_type(response: &mut Response, content_type: &str) {
     response.headers_mut().insert(
         header::CONTENT_TYPE,
         HeaderValue::from_str(content_type)
             .unwrap_or(HeaderValue::from_static("application/octet-stream")),
+    );
+}
+
+/// Apply Content-Range header to a response.
+pub fn apply_content_range(response: &mut Response, content_range: &str) {
+    response.headers_mut().insert(
+        header::CONTENT_RANGE,
+        HeaderValue::from_str(content_range)
+            .unwrap_or(HeaderValue::from_static("bytes */0")),
+    );
+}
+
+/// Apply Content-Length header to a response.
+pub fn apply_content_length(response: &mut Response, content_length: &str) {
+    response.headers_mut().insert(
+        header::CONTENT_LENGTH,
+        HeaderValue::from_str(content_length)
+            .unwrap_or(HeaderValue::from_static("0")),
     );
 }
 

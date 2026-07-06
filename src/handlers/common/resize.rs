@@ -10,10 +10,9 @@
 /// their specific response-building responsibilities.
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use http::HeaderValue;
-use http::header;
 
 use crate::error::AppError;
+use crate::handlers::common::utils::{apply_cache_control, apply_content_type};
 
 /// Query parameters for image resizing.
 pub struct ResizeParams<'a> {
@@ -126,19 +125,11 @@ pub fn build_resize_response(
     cache_max_age: Option<u64>,
 ) -> Response {
     let mut response = (StatusCode::OK, output_bytes).into_response();
-    let headers = response.headers_mut();
-    headers.insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_str(content_type)
-            .unwrap_or(HeaderValue::from_static("application/octet-stream")),
-    );
+ 
+    apply_content_type(&mut response, content_type);
 
     if let Some(max_age) = cache_max_age {
-        headers.insert(
-            header::CACHE_CONTROL,
-            HeaderValue::from_str(&format!("public, max-age={max_age}"))
-                .unwrap_or(HeaderValue::from_static("public, max-age=3600")),
-        );
+        apply_cache_control(&mut response, max_age, None, &[]);
     }
 
     response

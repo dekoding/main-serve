@@ -3,11 +3,10 @@ use std::path::Path;
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use http::HeaderValue;
-use http::header;
 
 use crate::config::types::{MediaConfig, mime_from_path};
 use crate::error::AppError;
+use crate::handlers::common::utils::{apply_content_length, apply_content_type};
 use crate::storage::Storage;
 
 /// Handle sharing: GET /shared/:token.
@@ -33,17 +32,8 @@ pub async fn handle_media_share_get(
                 .map_err(|_| AppError::NotFound("Shared file not found".to_string()))?;
 
             let mut response = (StatusCode::OK, contents).into_response();
-            let headers = response.headers_mut();
-            headers.insert(
-                header::CONTENT_TYPE,
-                HeaderValue::from_str(content_type)
-                    .unwrap_or(HeaderValue::from_static("application/octet-stream")),
-            );
-            headers.insert(
-                header::CONTENT_LENGTH,
-                HeaderValue::from_str(&meta.size.to_string())
-                    .unwrap_or(HeaderValue::from_static("0")),
-            );
+            apply_content_type(&mut response, content_type);
+            apply_content_length(&mut response, &meta.size.to_string());
             Ok(response)
         }
         Err(_) => Err(AppError::NotFound(

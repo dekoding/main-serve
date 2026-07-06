@@ -75,3 +75,95 @@ pub fn validate_image_magic_bytes(data: &[u8]) -> Result<(), AppError> {
         "File does not appear to be a valid image based on magic bytes".to_string(),
     ))
 }
+
+/// Parse a multipart form and extract a single file's content and filename.
+///
+/// Iterates over multipart fields, accumulates chunks for the first field
+/// with a filename, validates the content size, and optionally checks
+/// image magic bytes.
+///
+/// # Arguments
+///
+/// * `multipart` - The multipart stream to parse.
+/// * `max_size` - Maximum allowed file size in bytes.
+/// * `validate_image_magic` - If true and the file has an image extension,
+///   validates the magic bytes against known image signatures.
+///
+/// # Errors
+///
+/// Returns `AppError::BadRequest` if the form is malformed, a field has no
+/// name, or no file was provided.
+/// Returns `AppError::PayloadTooLarge` if the file exceeds `max_size`.
+/// Returns `AppError::BadRequest` if image magic byte validation fails.
+pub async fn parse_multipart_file(
+    multipart: &mut axum::extract::Multipart,
+    max_size: u64,
+    validate_image_magic: bool,
+) -> Result<(Vec<u8>, String), AppError> {
+    let mut file_content = Vec::new();
+    let mut original_filename = String::new();
+    let mut found_file = false;
+
+    while let Some(mut field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("Failed to parse multipart form: {e}")))?
+    {
+        if field.name().is_none() {
+            return Err(AppError::BadRequest("Form field missing name".to_string()));
+        }
+
+        if let Some(filename) = field.file_name() {
+            original_filename = filename.to_string();
+        } else {
+            continue;
+        }
+
+        found_file = true;
+        let mut field_bytes = Vec::new();
+        while let Some(chunk) = field
+            .chunk()
+            .await
+            .map_err(|e| AppError::BadRequest(format!("Failed to read file content: {e}")))?
+        {
+            field_bytes.extend_from_slice(&chunk);
+        }
+        file_content = field_bytes;
+
+        if file_content.len() as u64 > max_size {
+            return Err(AppError::PayloadTooLarge(format!(
+                "File size {} exceeds maximum allowed size {}",
+                file_content.len(),
+                max_size
+            )));
+        }
+
+        if validate_image_magic {
+            if let Some(ext) = Path::new(&original_filename)
+                .extension()
+                .and_then(|e| e.to_str())
+                && is_image_extension(ext)
+            {
+                validate_image_magic_bytes(&file_content)?;
+            }
+        }
+    }
+
+    if !found_file {
+        return Err(AppError::BadRequest(
+            "No file provided in multipart form".to_string(),
+        ));
+    }
+
+    Ok((file_content, original_filename))
+}
+
+pub async fn extract_file_path(row: Option<serde_json::Value>, id: &str) -> Result<String, AppError> {
+    let file_path = row
+        .and_then(|r| {
+            r.get("file_path")
+                .and_then(|v| v.as_str().map(String::from))
+        })
+        .ok_or_else(|| AppError::NotFound(format!("Item with id '{}' not found", id)));
+    file_path
+}

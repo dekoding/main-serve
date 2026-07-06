@@ -20,7 +20,7 @@ use crate::db::query::builders::{
 use crate::db::query::helpers::{build_select_list_count, extract_query_params};
 use crate::db::query::types::{MutationContext, SelectContext};
 use crate::error::AppError;
-use crate::handlers::common::utils::{DatabaseContext, get_db_context};
+use crate::handlers::common::utils::DatabaseContext;
 use crate::middleware::auth::extractor::RequestContext;
 use crate::server::state::AppState;
 
@@ -48,7 +48,7 @@ pub async fn handle_crud(
     let select_ctx = SelectContext::from(crud);
     let mutate_ctx = MutationContext::from(crud);
 
-    let db_context = get_db_context(&state, crud.database.clone(), crud.table.clone()).await?;
+    let db_context = state.db_context(&crud.database, &crud.table).await?;
 
     let pk_value = path_params.as_ref().and_then(|p| p.get("id").cloned());
 

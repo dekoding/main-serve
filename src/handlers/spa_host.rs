@@ -11,7 +11,7 @@ use http::header;
 use crate::config::types::mime_from_path;
 use crate::config::types::{EndpointConfig, SpaHostConfig};
 use crate::error::AppError;
-use crate::handlers::common::utils::{apply_cache_control, apply_content_type};
+use crate::handlers::common::utils::{apply_cache_control, apply_content_length, apply_content_type};
 use crate::server::state::AppState;
 use crate::storage::Storage;
 
@@ -153,11 +153,7 @@ pub(crate) async fn handle_spa_head(
                 Some(&resolved),
                 &config.cache_rules,
             );
-            response.headers_mut().insert(
-                header::CONTENT_LENGTH,
-                HeaderValue::from_str(&meta.size.to_string())
-                    .unwrap_or(HeaderValue::from_static("0")),
-            );
+            apply_content_length(&mut response, &meta.size.to_string());
 
             if config.etag {
                 let etag_value = format!("\"{}-{}\"", resolved.display(), meta.size);
@@ -195,16 +191,8 @@ pub(crate) async fn handle_spa_head(
                         StatusCode::from_u16(config.fallback_status).unwrap_or(StatusCode::OK);
                     let mut response = Response::new(axum::body::Body::empty());
                     *response.status_mut() = status;
-                    response.headers_mut().insert(
-                        header::CONTENT_TYPE,
-                        HeaderValue::from_str(content_type)
-                            .unwrap_or(HeaderValue::from_static("application/octet-stream")),
-                    );
-                    response.headers_mut().insert(
-                        header::CONTENT_LENGTH,
-                        HeaderValue::from_str(&meta.size.to_string())
-                            .unwrap_or(HeaderValue::from_static("0")),
-                    );
+                    apply_content_type(&mut response, content_type);
+                    apply_content_length(&mut response, &meta.size.to_string());
                     Ok(response)
                 }
                 Err(_) => Ok((StatusCode::NOT_FOUND, "").into_response()),
@@ -240,12 +228,9 @@ async fn serve_spa_file(
         Some(path),
         &config.cache_rules,
     );
+    apply_content_length(&mut response, &meta.size.to_string());
 
     let resp_headers = response.headers_mut();
-    resp_headers.insert(
-        header::CONTENT_LENGTH,
-        HeaderValue::from_str(&meta.size.to_string()).unwrap_or(HeaderValue::from_static("0")),
-    );
 
     if config.etag {
         let etag_value = format!("\"{}-{}\"", path.display(), meta.size);
@@ -301,12 +286,7 @@ async fn serve_spa_fallback(
                 Some(&index_path),
                 &config.cache_rules,
             );
-
-            response.headers_mut().insert(
-                header::CONTENT_LENGTH,
-                HeaderValue::from_str(&meta.size.to_string())
-                    .unwrap_or(HeaderValue::from_static("0")),
-            );
+            apply_content_length(&mut response, &meta.size.to_string());
 
             if config.etag {
                 let etag_value = format!("\"{}-{}\"", index_path.display(), meta.size);

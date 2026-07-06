@@ -9,8 +9,9 @@ use crate::config::types::mime_from_path;
 use crate::db::query::builders::build_insert;
 use crate::db::query::types::MutationContext;
 use crate::error::AppError;
+use crate::handlers::common::helpers::parse_multipart_file;
 use crate::handlers::common::path::{build_storage_path, sanitize_filename};
-use crate::handlers::common::utils::{HandlerContext, get_db_context};
+use crate::handlers::common::utils::HandlerContext;
 use crate::middleware::auth::extractor::RequestContext;
 
 /// Handle media upload.
@@ -48,37 +49,8 @@ pub async fn handle_media_upload(
     let auth_info = handler_ctx.extract_auth_info().await?;
     let user_id = &auth_info.subject;
 
-    let mut file_content = Vec::new();
-    let mut original_filename = String::new();
-    let mut found_file = false;
-
-    while let Some(mut field) = multipart
-        .next_field()
-        .await
-        .map_err(|e| AppError::BadRequest(format!("Failed to parse multipart form: {e}")))?
-    {
-        if let Some(filename) = field.file_name() {
-            original_filename = filename.to_string();
-        }
-
-        let mut field_bytes = Vec::new();
-        while let Some(chunk) = field
-            .chunk()
-            .await
-            .map_err(|e| AppError::BadRequest(format!("Failed to read file content: {e}")))?
-        {
-            field_bytes.extend_from_slice(&chunk);
-        }
-
-        file_content = field_bytes;
-        found_file = true;
-    }
-
-    if !found_file || file_content.is_empty() {
-        return Err(AppError::BadRequest(
-            "No file provided in multipart form".to_string(),
-        ));
-    }
+    let (file_content, original_filename) =
+        parse_multipart_file(&mut multipart, upload_config.max_size, false).await?;
 
     if file_content.len() as u64 > upload_config.max_size {
         return Err(AppError::PayloadTooLarge(format!(
@@ -140,12 +112,10 @@ pub async fn handle_media_upload(
     let mime_type = mime_from_path(&storage_path);
 
     // Insert media record into the database
-    let db_context = get_db_context(
-        &handler_ctx.state,
-        config.database.clone(),
-        config.table.clone(),
-    )
-    .await?;
+    let db_context = handler_ctx
+        .state
+        .db_context(&config.database, &config.table)
+        .await?;
 
     let file_path = storage_path.strip_prefix(&root).map_or_else(
         |_| sanitized_filename.clone(),
