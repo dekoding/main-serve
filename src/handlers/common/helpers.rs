@@ -158,7 +158,10 @@ pub async fn parse_multipart_file(
     Ok((file_content, original_filename))
 }
 
-pub async fn extract_file_path(row: Option<serde_json::Value>, id: &str) -> Result<String, AppError> {
+pub async fn extract_file_path(
+    row: Option<serde_json::Value>,
+    id: &str,
+) -> Result<String, AppError> {
     let file_path = row
         .and_then(|r| {
             r.get("file_path")

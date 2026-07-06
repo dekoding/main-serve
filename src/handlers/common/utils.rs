@@ -78,8 +78,7 @@ pub fn apply_content_type(response: &mut Response, content_type: &str) {
 pub fn apply_content_range(response: &mut Response, content_range: &str) {
     response.headers_mut().insert(
         header::CONTENT_RANGE,
-        HeaderValue::from_str(content_range)
-            .unwrap_or(HeaderValue::from_static("bytes */0")),
+        HeaderValue::from_str(content_range).unwrap_or(HeaderValue::from_static("bytes */0")),
     );
 }
 
@@ -87,8 +86,7 @@ pub fn apply_content_range(response: &mut Response, content_range: &str) {
 pub fn apply_content_length(response: &mut Response, content_length: &str) {
     response.headers_mut().insert(
         header::CONTENT_LENGTH,
-        HeaderValue::from_str(content_length)
-            .unwrap_or(HeaderValue::from_static("0")),
+        HeaderValue::from_str(content_length).unwrap_or(HeaderValue::from_static("0")),
     );
 }
 

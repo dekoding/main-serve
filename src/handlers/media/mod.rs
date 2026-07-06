@@ -134,13 +134,7 @@ pub(crate) async fn handle_media(
 
     let path = uri.path().to_string();
 
-    let storage = state
-        .get_store(&config.storage)
-        .ok_or_else(|| AppError::Internal(format!("Store '{}' not found", config.storage)))?;
-
-    let root = storage
-        .root_path()
-        .unwrap_or(PathBuf::from(&config.storage));
+    let (storage, root) = resolve_store(state, &config.storage)?;
 
     let db_context = state.db_context(&config.database, &config.table).await?;
 

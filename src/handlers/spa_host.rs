@@ -11,7 +11,10 @@ use http::header;
 use crate::config::types::mime_from_path;
 use crate::config::types::{EndpointConfig, SpaHostConfig};
 use crate::error::AppError;
-use crate::handlers::common::utils::{apply_cache_control, apply_content_length, apply_content_type};
+use crate::handlers::common::store::resolve_store;
+use crate::handlers::common::utils::{
+    apply_cache_control, apply_content_length, apply_content_type,
+};
 use crate::server::state::AppState;
 use crate::storage::Storage;
 
@@ -56,16 +59,7 @@ pub(crate) async fn handle_spa_host(
         return handle_spa_head(state, uri, config, &headers).await;
     }
 
-    // Only GET is supported for SPA host
-    let store = state
-        .get_store(&config.storage)
-        .ok_or_else(|| AppError::Internal(format!("Store '{}' not found", config.storage)))?;
-
-    let root = if let Some(path) = store.root_path() {
-        path
-    } else {
-        PathBuf::from(&config.storage)
-    };
+    let (storage, root) = resolve_store(state, &config.storage)?;
 
     let request_path = uri.path();
     let ep_prefix = endpoint
@@ -97,19 +91,19 @@ pub(crate) async fn handle_spa_host(
     };
 
     // Check if the path points to a directory - try index file
-    let meta = store.metadata(&resolved).await.ok();
+    let meta = storage.metadata(&resolved).await.ok();
     if meta.as_ref().is_some_and(|m| !m.is_file) {
         let index_path = resolved.join(&config.index);
-        if store.metadata(&index_path).await.is_ok_and(|m| m.is_file) {
-            return serve_spa_file(&*store, &index_path, config, &headers).await;
+        if storage.metadata(&index_path).await.is_ok_and(|m| m.is_file) {
+            return serve_spa_file(&*storage, &index_path, config, &headers).await;
         }
         // Directory not found, fall through to SPA fallback
     }
 
     // Try to serve the file
-    match serve_spa_file(&*store, &resolved, config, &headers).await {
+    match serve_spa_file(&*storage, &resolved, config, &headers).await {
         Ok(response) => Ok(response),
-        Err(AppError::NotFound(_)) => serve_spa_fallback(&*store, &root, config, &headers).await,
+        Err(AppError::NotFound(_)) => serve_spa_fallback(&*storage, &root, config, &headers).await,
         Err(e) => Err(e),
     }
 }
@@ -121,15 +115,7 @@ pub(crate) async fn handle_spa_head(
     config: &SpaHostConfig,
     headers: &axum::http::HeaderMap,
 ) -> Result<Response, AppError> {
-    let store = state
-        .get_store(&config.storage)
-        .ok_or_else(|| AppError::Internal(format!("Store '{}' not found", config.storage)))?;
-
-    let root = if let Some(path) = store.root_path() {
-        path
-    } else {
-        PathBuf::from(&config.storage)
-    };
+    let (storage, root) = resolve_store(state, &config.storage)?;
 
     let request_path = uri.path();
     let relative = request_path.trim_start_matches('/');
@@ -140,7 +126,7 @@ pub(crate) async fn handle_spa_head(
         root.join(relative)
     };
 
-    match store.metadata(&resolved).await {
+    match storage.metadata(&resolved).await {
         Ok(meta) => {
             let content_type = mime_from_path(&resolved);
 
@@ -184,7 +170,7 @@ pub(crate) async fn handle_spa_head(
         }
         Err(_) => {
             let index_path = root.join(&config.index);
-            match store.metadata(&index_path).await {
+            match storage.metadata(&index_path).await {
                 Ok(meta) => {
                     let content_type = mime_from_path(&index_path);
                     let status =

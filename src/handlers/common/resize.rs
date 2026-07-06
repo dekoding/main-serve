@@ -125,7 +125,7 @@ pub fn build_resize_response(
     cache_max_age: Option<u64>,
 ) -> Response {
     let mut response = (StatusCode::OK, output_bytes).into_response();
- 
+
     apply_content_type(&mut response, content_type);
 
     if let Some(max_age) = cache_max_age {

@@ -15,7 +15,9 @@ use crate::handlers::common::helpers::is_image_path;
 use crate::handlers::common::resize::{
     ResizeParams, build_resize_response, parse_resize_params, resize_image,
 };
-use crate::handlers::common::utils::{apply_cache_control, apply_content_length, apply_content_range, apply_content_type};
+use crate::handlers::common::utils::{
+    apply_cache_control, apply_content_length, apply_content_range, apply_content_type,
+};
 use crate::handlers::static_files::routing::StaticGetContext;
 
 use crate::server::AppState;
@@ -407,10 +409,13 @@ fn handle_range_small_file(
     let body = content[start as usize..(actual_end + 1) as usize].to_vec();
 
     let mut response = (StatusCode::PARTIAL_CONTENT, body).into_response();
-    
+
     apply_content_type(&mut response, content_type);
     apply_content_length(&mut response, &range_size.to_string());
-    apply_content_range(&mut response, &format!("bytes {}-{}/{}", start, actual_end, file_size));
+    apply_content_range(
+        &mut response,
+        &format!("bytes {}-{}/{}", start, actual_end, file_size),
+    );
     apply_cache_control(&mut response, cache_max_age, Some(path), cache_rules);
 
     Ok(response)

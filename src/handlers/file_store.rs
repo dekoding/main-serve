@@ -15,6 +15,7 @@ use crate::db::query::types::{MutationContext, SelectContext};
 use crate::db::query::update::build_set_deleted_at;
 use crate::error::AppError;
 use crate::handlers::common::helpers::extract_id;
+use crate::handlers::common::store::resolve_store;
 use crate::handlers::common::utils::{DatabaseContext, HandlerContext};
 use crate::middleware::auth::extractor::RequestContext;
 use crate::server::state::AppState;
@@ -79,9 +80,7 @@ async fn dispatch_file_store(
     let state = handler_ctx.state;
     let path = uri.path().to_string();
 
-    let storage = state
-        .get_store(&config.storage)
-        .ok_or_else(|| AppError::Internal(format!("Store '{}' not found", config.storage)))?;
+    let (storage, _) = resolve_store(state, &config.storage)?;
 
     let db_context = state.db_context(&config.database, &config.table).await?;
     match method {
