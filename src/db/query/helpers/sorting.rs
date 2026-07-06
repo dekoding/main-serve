@@ -1,4 +1,4 @@
-use crate::db::query::types::QueryParams;
+use crate::{config::types::listing::SortOrder, db::query::types::QueryParams};
 
 /// Parse a sorting field that may use LHS bracket notation.
 ///
@@ -120,8 +120,8 @@ pub(crate) fn extract_query_params(qs: &std::collections::HashMap<String, String
         .and_then(|v| v.parse::<u64>().ok());
     let sort = qs.get("sort").cloned();
     let order = qs.get("order").and_then(|v| match v.as_str() {
-        "asc" | "ASC" => Some(crate::config::types::SortOrder::Asc),
-        "desc" | "DESC" => Some(crate::config::types::SortOrder::Desc),
+        "asc" | "ASC" => Some(SortOrder::Asc),
+        "desc" | "DESC" => Some(SortOrder::Desc),
         _ => None,
     });
 
@@ -287,7 +287,7 @@ mod tests {
         assert_eq!(params.page, Some(2));
         assert_eq!(params.page_size, Some(10));
         assert_eq!(params.sort, Some("created_at".to_string()));
-        assert_eq!(params.order, Some(crate::config::types::SortOrder::Desc));
+        assert_eq!(params.order, Some(SortOrder::Desc));
         assert_eq!(params.filters.len(), 1);
         assert_eq!(params.filters.get("title"), Some(&"hello".to_string()));
     }
@@ -309,7 +309,7 @@ mod tests {
         qs.insert("order".to_string(), "ASC".to_string());
 
         let params = extract_query_params(&qs);
-        assert_eq!(params.order, Some(crate::config::types::SortOrder::Asc));
+        assert_eq!(params.order, Some(SortOrder::Asc));
     }
 
     #[test]

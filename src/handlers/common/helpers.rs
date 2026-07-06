@@ -142,10 +142,10 @@ pub async fn parse_multipart_file(
             && let Some(ext) = Path::new(&original_filename)
                 .extension()
                 .and_then(|e| e.to_str())
-                && is_image_extension(ext)
-            {
-                validate_image_magic_bytes(&file_content)?;
-            }
+            && is_image_extension(ext)
+        {
+            validate_image_magic_bytes(&file_content)?;
+        }
     }
 
     if !found_file {
@@ -161,11 +161,9 @@ pub async fn extract_file_path(
     row: Option<serde_json::Value>,
     id: &str,
 ) -> Result<String, AppError> {
-    
-    row
-        .and_then(|r| {
-            r.get("file_path")
-                .and_then(|v| v.as_str().map(String::from))
-        })
-        .ok_or_else(|| AppError::NotFound(format!("Item with id '{}' not found", id)))
+    row.and_then(|r| {
+        r.get("file_path")
+            .and_then(|v| v.as_str().map(String::from))
+    })
+    .ok_or_else(|| AppError::NotFound(format!("Item with id '{}' not found", id)))
 }

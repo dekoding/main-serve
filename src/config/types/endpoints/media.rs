@@ -8,7 +8,6 @@ use super::common::{
     default_resize_formats, default_share_max_ttl, default_share_ttl, default_shared_prefix,
     default_trash_admin_roles, default_trash_prefix, default_true_bool,
 };
-use super::crud;
 
 /// MIME type detection for media uploads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
@@ -201,24 +200,6 @@ pub struct MediaDeleteConfig {
     pub admin_override: bool,
 }
 
-/// Attach to content configuration.
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct MediaAttachConfig {
-    /// Whether attaching media to content is enabled.
-    #[serde(default = "default_true_bool")]
-    pub enabled: bool,
-}
-
-/// Detach from content configuration.
-#[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct MediaDetachConfig {
-    /// Whether detaching media from content is enabled.
-    #[serde(default = "default_true_bool")]
-    pub enabled: bool,
-}
-
 /// User scope configuration for media.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -370,12 +351,6 @@ pub struct MediaConfig {
     /// Delete configuration.
     #[serde(default)]
     pub delete: Option<MediaDeleteConfig>,
-    /// Attach to content configuration.
-    #[serde(default)]
-    pub attach_to_content: Option<MediaAttachConfig>,
-    /// Detach from content configuration.
-    #[serde(default)]
-    pub detach_from_content: Option<MediaDetachConfig>,
     /// User scoping configuration.
     #[serde(default)]
     pub user_scope: Option<MediaUserScopeConfig>,
@@ -390,13 +365,13 @@ pub struct MediaConfig {
     pub sharing: Option<MediaSharingConfig>,
     /// Pagination for metadata listing.
     #[serde(default)]
-    pub pagination: super::crud::PaginationConfig,
+    pub pagination: super::listing::PaginationConfig,
     /// Sorting for metadata listing.
     #[serde(default)]
-    pub sorting: crud::SortingConfig,
+    pub sorting: super::listing::SortingConfig,
     /// Filtering for metadata listing.
     #[serde(default)]
-    pub filtering: super::crud::FilteringConfig,
+    pub filtering: super::listing::FilteringConfig,
     /// Faceted search configuration.
     #[serde(default)]
     pub facets: Vec<MediaFacetConfig>,

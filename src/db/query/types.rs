@@ -1,6 +1,6 @@
 use serde::Deserialize;
 
-use crate::config::types::{ComputedFieldConfig, SortOrder};
+use crate::config::types::{ComputedFieldConfig, listing::SortOrder};
 
 /// SQL join type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -25,7 +25,7 @@ pub struct QueryParams {
     /// Sort field name.
     pub sort: Option<String>,
     /// Sort order.
-    pub order: Option<crate::config::types::SortOrder>,
+    pub order: Option<SortOrder>,
     /// Filter values: `column_name` -> value.
     pub filters: std::collections::HashMap<String, String>,
 }

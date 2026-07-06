@@ -67,11 +67,11 @@ pub struct FileStoreConfig {
     pub trash: Option<FileStoreTrashConfig>,
     /// Pagination for listing files.
     #[serde(default)]
-    pub pagination: super::crud::PaginationConfig,
+    pub pagination: super::listing::PaginationConfig,
     /// Sorting for listing files.
     #[serde(default)]
-    pub sorting: super::crud::SortingConfig,
+    pub sorting: super::listing::SortingConfig,
     /// Filtering for listing files.
     #[serde(default)]
-    pub filtering: super::crud::FilteringConfig,
+    pub filtering: super::listing::FilteringConfig,
 }

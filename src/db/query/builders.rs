@@ -376,7 +376,7 @@ pub fn build_select_one(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::types::SortOrder;
+    use crate::config::types::listing::SortOrder;
     use crate::{config::types::*, db::query::types::QueryParams};
 
     fn test_table() -> TableConfig {
@@ -516,7 +516,7 @@ mod tests {
                 "metadata".to_string(),
             ],
             writable_fields: vec!["title".to_string(), "metadata".to_string()],
-            filtering: crate::config::types::FilteringConfig {
+            filtering: crate::config::types::listing::FilteringConfig {
                 allowed_fields: vec!["*".to_string()],
                 enabled: true,
             },

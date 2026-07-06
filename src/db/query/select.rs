@@ -20,7 +20,8 @@ use regex::Regex;
 static INTERPOLATION_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\$\{([^}]+)\}").expect("valid interpolation regex"));
 
-use crate::config::types::{ColumnType, DatabaseDriver, SortOrder, TableConfig};
+use crate::config::types::listing::SortOrder;
+use crate::config::types::{ColumnType, DatabaseDriver, TableConfig};
 use crate::db::query::helpers::{
     FilterExpression, FilterOperator, build_filter_param, extract_base_column, extract_jsonb_path,
     is_bracket_notation, is_jsonb_column, is_jsonb_path, is_valid_expression,

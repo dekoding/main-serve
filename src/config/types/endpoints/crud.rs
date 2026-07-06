@@ -16,11 +16,11 @@ pub struct CrudConfig {
     /// Fields allowed in INSERT/UPDATE bodies.
     pub writable_fields: Vec<String>,
     /// Pagination settings.
-    pub pagination: PaginationConfig,
+    pub pagination: super::listing::PaginationConfig,
     /// Filtering settings.
-    pub filtering: FilteringConfig,
+    pub filtering: super::listing::FilteringConfig,
     /// Sorting settings.
-    pub sorting: SortingConfig,
+    pub sorting: super::listing::SortingConfig,
     /// Optional static WHERE clause appended to all queries.
     pub where_clause: Option<String>,
     /// Additional WHERE clause appended to DELETE queries, interpolated with request context (e.g. `"author_id = ${request.user.id}"`).
@@ -49,9 +49,9 @@ impl Default for CrudConfig {
             database: String::new(),
             fields: vec!["*".to_string()],
             writable_fields: Vec::new(),
-            pagination: PaginationConfig::default(),
-            filtering: FilteringConfig::default(),
-            sorting: SortingConfig::default(),
+            pagination: super::listing::PaginationConfig::default(),
+            filtering: super::listing::FilteringConfig::default(),
+            sorting: super::listing::SortingConfig::default(),
             where_clause: None,
             delete_where_clause: None,
             update_where_clause: None,
@@ -60,81 +60,6 @@ impl Default for CrudConfig {
             insert_owner: None,
         }
     }
-}
-
-/// Pagination settings for list endpoints.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct PaginationConfig {
-    /// Whether pagination is active.
-    pub enabled: bool,
-    /// Default number of records per page.
-    pub default_page_size: u64,
-    /// Maximum allowed page size.
-    pub max_page_size: u64,
-}
-
-impl Default for PaginationConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            default_page_size: 20,
-            max_page_size: 100,
-        }
-    }
-}
-
-/// Filtering settings for list endpoints.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct FilteringConfig {
-    /// Whether filtering is active.
-    pub enabled: bool,
-    /// Fields the client may filter on (`["*"]` for all).
-    pub allowed_fields: Vec<String>,
-}
-
-impl Default for FilteringConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            allowed_fields: vec!["*".to_string()],
-        }
-    }
-}
-
-/// Sorting settings for list endpoints.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct SortingConfig {
-    /// Whether sorting is active.
-    pub enabled: bool,
-    /// Default sort field (empty = primary key).
-    pub default_field: String,
-    /// Default sort direction.
-    pub default_order: SortOrder,
-    /// Fields the client may sort by (`["*"]` for all).
-    pub allowed_fields: Vec<String>,
-}
-
-impl Default for SortingConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            default_field: String::new(),
-            default_order: SortOrder::Asc,
-            allowed_fields: vec!["*".to_string()],
-        }
-    }
-}
-
-/// Sort direction.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum SortOrder {
-    #[default]
-    Asc,
-    Desc,
 }
 
 /// A computed (virtual) field defined by a SQL expression.
