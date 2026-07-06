@@ -11,7 +11,6 @@ pub mod update;
 pub mod upload;
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 use axum::extract::{MatchedPath, Query, State};
 use axum::http::{HeaderMap, Method, Uri};

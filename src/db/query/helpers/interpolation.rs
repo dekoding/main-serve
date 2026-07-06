@@ -91,7 +91,7 @@ pub(crate) fn resolve_single_key(key: &str, context: &RequestContext) -> Option<
     } else if let Some(header_name) = key.strip_prefix("request.headers.") {
         context.headers.get(header_name).cloned()
     } else if let Some(query_key) = key.strip_prefix("request.query.") {
-        context.query_params.get(query_key).cloned()
+        context.raw_query_params.get(query_key).cloned()
     } else {
         None
     }
@@ -459,7 +459,7 @@ mod tests {
             method: "GET".to_string(),
             path: "/api/posts".to_string(),
             headers: std::collections::HashMap::new(),
-            query_params: std::collections::HashMap::new(),
+            raw_query_params: std::collections::HashMap::new(),
         }
     }
 
@@ -702,7 +702,7 @@ mod tests {
     #[test]
     fn test_resolve_single_key_query_params() {
         let mut ctx = sample_context();
-        ctx.query_params.insert("page".to_string(), "5".to_string());
+        ctx.raw_query_params.insert("page".to_string(), "5".to_string());
         assert_eq!(
             resolve_single_key("request.query.page", &ctx),
             Some("5".to_string())

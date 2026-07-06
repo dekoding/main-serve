@@ -97,7 +97,7 @@ pub struct RequestContext {
     /// The requested path.
     pub path: String,
     /// A map of query parameters.
-    pub query_params: std::collections::HashMap<String, String>,
+    pub raw_query_params: std::collections::HashMap<String, String>,
 }
 
 impl Default for RequestContext {
@@ -129,7 +129,7 @@ impl RequestContext {
             headers: std::collections::HashMap::new(),
             method: String::new(),
             path: String::new(),
-            query_params: std::collections::HashMap::new(),
+            raw_query_params: std::collections::HashMap::new(),
         }
     }
 
@@ -143,7 +143,7 @@ impl RequestContext {
             headers: std::collections::HashMap::new(),
             method: String::new(),
             path: String::new(),
-            query_params: std::collections::HashMap::new(),
+            raw_query_params: std::collections::HashMap::new(),
         }
     }
 }

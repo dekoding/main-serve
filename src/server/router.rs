@@ -535,7 +535,7 @@ async fn handle_crud_route(
             .collect(),
         method: method.to_string(),
         path: path_str.to_string(),
-        query_params: query_map.clone(),
+        raw_query_params: query_map.clone(),
     };
     let response = handle_crud(
         state,
