@@ -145,7 +145,7 @@ pub fn build_insert(
 
     let pk_col = find_pk_column(table_config)?;
     let returning = match driver {
-        DatabaseDriver::Postgres => {
+        DatabaseDriver::Postgres | DatabaseDriver::Sqlite => {
             format!(" RETURNING {}", quote_identifier(&pk_col, driver))
         }
         _ => String::new(),
