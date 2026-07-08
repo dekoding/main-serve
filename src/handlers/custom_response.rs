@@ -1,6 +1,7 @@
 /// Custom/static response handler for fixed JSON, HTML, or template responses.
 ///
 /// Returns a pre-configured response body, status code, content type, and headers.
+/// For 3xx redirect responses, returns a response with the correct status code and Location header.
 use axum::http::{HeaderName, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 
@@ -23,6 +24,22 @@ pub async fn handle_custom_response(endpoint: EndpointConfig) -> Result<Response
     };
 
     let status = StatusCode::from_u16(cr.status).unwrap_or(StatusCode::OK);
+
+    // For 3xx redirects, construct a response with Location header.
+    if status.is_redirection()
+        && let Some(location) = cr
+            .headers
+            .get("Location")
+            .or_else(|| cr.headers.get("location"))
+    {
+        let mut response = (status, cr.body.clone()).into_response();
+        if let Ok(val) = HeaderValue::from_str(location) {
+            response
+                .headers_mut()
+                .insert(HeaderName::from_static("location"), val);
+        }
+        return Ok(response);
+    }
 
     let mut response = (status, cr.body.clone()).into_response();
 
