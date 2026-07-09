@@ -122,16 +122,24 @@ pub fn expand_subdirectory_pattern(pattern: &str, user_id: &str) -> Result<Strin
 ///
 /// Strips the endpoint's base path prefix (handling `/*` and `{*rest}`
 /// wildcards) from the request path and returns the remaining segment.
-#[must_use]
-pub fn extract_relative_path(request_path: &str, endpoint_path: &str) -> String {
+pub fn extract_relative_path(request_path: &str, endpoint_path: &str) -> Result<String, AppError> {
     let ep_path = endpoint_path
         .trim_end_matches("/*")
         .trim_end_matches("{*rest}");
-    request_path
+    let stripped = request_path
         .strip_prefix(ep_path)
         .unwrap_or(request_path)
-        .trim_start_matches('/')
-        .to_string()
+        .trim_start_matches('/');
+    
+    if !stripped.is_empty() {
+        let decoded = percent_encoding::percent_decode_str(stripped)
+            .decode_utf8()
+            .map_err(|_| AppError::BadRequest("Invalid UTF-8 in path".to_string()))?;
+        if decoded.split('/').any(|seg| seg == ".." || seg == ".") {
+            return Err(AppError::Forbidden("Path traversal denied".to_string()));
+        }
+    }
+    Ok(request_path.to_string())
 }
 
 /// Build the HTTP response for a successful file upload.
