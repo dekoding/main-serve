@@ -1,4 +1,5 @@
 pub mod builders;
+pub mod file_store_refs;
 pub mod helpers;
 pub mod media_refs;
 pub mod revocation;

@@ -9,10 +9,17 @@ use crate::config::types::{DatabaseDriver, FileStoreConfig};
 use crate::db::query::builders::{
     build_delete, build_insert, build_select_list, build_select_one, build_update,
 };
+use crate::db::query::file_store_refs::{
+    build_file_store_ref_delete, build_file_store_ref_insert, build_file_store_ref_max_order,
+    build_file_store_ref_select,
+};
 use crate::db::query::helpers::{build_select_list_count, extract_query_params};
-use crate::db::query::select_one::{build_select_by_id, build_select_file_path};
+use crate::db::query::select_one::{
+    build_select_by_id, build_select_file_path, build_select_trashed, build_select_trashed_ids,
+    build_select_trashed_item,
+};
 use crate::db::query::types::{MutationContext, SelectContext};
-use crate::db::query::update::build_set_deleted_at;
+use crate::db::query::update::{build_set_restored, build_set_trashed};
 use crate::error::AppError;
 use crate::handlers::common::helpers::extract_id;
 use crate::handlers::common::store::resolve_store;
@@ -80,6 +87,15 @@ async fn dispatch_file_store(
     let state = handler_ctx.state;
     let path = uri.path().to_string();
 
+    // Handle admin trash routes
+    if path.starts_with("/_main-serve/file-store/trash") {
+        let (storage, root) = resolve_store(state, &config.storage)?;
+        let db_ctx = state
+            .get_db_context(&config.database, &config.table)
+            .await?;
+        return handle_file_store_trash(method, &path, config, &*storage, &root, &db_ctx).await;
+    }
+
     let (storage, _) = resolve_store(state, &config.storage)?;
 
     let db_ctx = state
@@ -92,34 +108,63 @@ async fn dispatch_file_store(
         axum::http::Method::POST => {
             dispatch_file_store_post(handler_ctx, &db_ctx, config, body, &path).await
         }
-        axum::http::Method::PATCH => match extract_id(&path) {
-            Some(id) => {
-                handle_file_store_update(&FileStoreContext {
-                    handler_ctx,
-                    id: Some(&id),
-                    config,
-                    db_ctx: &db_ctx,
-                    body: Some(body),
-                    storage: None,
-                })
-                .await
+        axum::http::Method::PATCH => {
+            let _ = std::fs::write("/tmp/filestore_dispatch_debug.txt", format!(
+                "PATCH path={}, extract_id={:?}\n",
+                path, extract_id(&path)
+            ));
+            match extract_id(&path) {
+                Some(id) => {
+                    handle_file_store_update(&FileStoreContext {
+                        handler_ctx,
+                        id: Some(&id),
+                        config,
+                        db_ctx: &db_ctx,
+                        body: Some(body),
+                        storage: None,
+                    })
+                    .await
+                }
+                None => Err(AppError::BadRequest(format!(
+                    "File ID required for path: {}",
+                    path
+                ))),
             }
-            None => Err(AppError::BadRequest("File ID required".to_string())),
-        },
-        axum::http::Method::DELETE => match extract_id(&path) {
-            Some(id) => {
-                handle_file_store_delete(&FileStoreContext {
-                    handler_ctx,
-                    id: Some(&id),
-                    config,
-                    storage: Some(&*storage),
-                    db_ctx: &db_ctx,
-                    body: None,
+        }
+        axum::http::Method::DELETE => {
+            // Handle content reference detach: /api/files/{id}/refs/{entity_id}
+            if let Some(full_path) = path.strip_prefix("/").and_then(|p| {
+                p.find("/refs/").map(|refs_pos| {
+                    let before_refs = &p[..refs_pos];
+                    let after_refs = &p[refs_pos + 6..];
+                    (before_refs, after_refs)
                 })
-                .await
+            }) {
+                let (before_refs, after_refs) = full_path;
+                if let Some(id) = extract_id(before_refs) {
+                    let entity_id = after_refs.split('/').next().unwrap_or("");
+                    if !entity_id.is_empty() {
+                        return handle_file_store_detach(&id, entity_id, config, &db_ctx.pool)
+                            .await;
+                    }
+                }
             }
-            None => Err(AppError::BadRequest("File ID required".to_string())),
-        },
+
+            match extract_id(&path) {
+                Some(id) => {
+                    handle_file_store_delete(&FileStoreContext {
+                        handler_ctx,
+                        id: Some(&id),
+                        config,
+                        storage: Some(&*storage),
+                        db_ctx: &db_ctx,
+                        body: None,
+                    })
+                    .await
+                }
+                None => Err(AppError::BadRequest("File ID required".to_string())),
+            }
+        }
         _ => Err(AppError::MethodNotAllowed(
             "Method not allowed for file store endpoint".to_string(),
         )),
@@ -132,7 +177,16 @@ async fn dispatch_file_store_get(
     config: &FileStoreConfig,
     path: &str,
 ) -> Result<Response, AppError> {
-    if path.is_empty() || path == "/" || path == config.table {
+    let endpoint_path = handler_ctx.endpoint.path.trim_end_matches('/');
+    let base_path = endpoint_path
+        .strip_suffix("/{id}")
+        .or_else(|| endpoint_path.strip_suffix("/*"))
+        .unwrap_or(endpoint_path)
+        .trim_end_matches('/');
+
+    let path_normalized = path.trim_end_matches('/');
+
+    if path_normalized.is_empty() || path_normalized == "/" || path_normalized == base_path {
         handle_file_store_list(&FileStoreContext {
             handler_ctx,
             db_ctx,
@@ -158,7 +212,27 @@ async fn dispatch_file_store_post(
     body: &serde_json::Value,
     path: &str,
 ) -> Result<Response, AppError> {
-    if path.is_empty() || path == "/" {
+    // Get the endpoint path for comparison
+    let endpoint_path = handler_ctx.endpoint.path.trim_end_matches('/');
+    // Remove trailing /* or {*/rest} if present
+    let base_path = endpoint_path
+        .strip_suffix("/*")
+        .or_else(|| endpoint_path.strip_suffix("/{*rest}"))
+        .unwrap_or(endpoint_path)
+        .trim_end_matches('/');
+
+    // Handle content reference attach: /api/files/{id}/refs
+    if path.ends_with("/refs") || path.ends_with("/refs/") {
+        let path_without_refs = path
+            .strip_suffix("/refs")
+            .or_else(|| path.strip_suffix("/refs/"))
+            .unwrap_or("");
+        if let Some(id) = extract_id(path_without_refs) {
+            return handle_file_store_attach(&id, config, &db_ctx.pool, body).await;
+        }
+    }
+
+    if path.is_empty() || path == "/" || path == base_path {
         handle_file_store_create(&FileStoreContext {
             handler_ctx,
             db_ctx,
@@ -185,8 +259,7 @@ async fn handle_file_store_list(ctx: &FileStoreContext<'_>) -> Result<Response, 
     let driver = ctx.db_ctx.pool.driver();
     let mut qp = extract_query_params(ctx.handler_ctx.query_params);
 
-    qp.page
-        .get_or_insert(ctx.config.pagination.default_page_size);
+    qp.page.get_or_insert(1);
     qp.page_size
         .get_or_insert(ctx.config.pagination.default_page_size);
 
@@ -203,8 +276,14 @@ async fn handle_file_store_list(ctx: &FileStoreContext<'_>) -> Result<Response, 
         .as_ref()
         .is_some_and(|o| !o.admin_override)
     {
+        let owner_col = ctx
+            .config
+            .ownership
+            .as_ref()
+            .map(|o| o.owner_column.as_str())
+            .unwrap_or("owner_id");
         qp.filters.insert(
-            "owner_id".to_string(),
+            owner_col.to_string(),
             ctx.handler_ctx.extract_user_id().await?,
         );
     }
@@ -220,6 +299,7 @@ async fn handle_file_store_list(ctx: &FileStoreContext<'_>) -> Result<Response, 
         &SelectContext::permissive(),
         &RequestContext::default(),
     )?;
+
     let count_row = pool
         .fetch_optional_json(&count_built.sql, &count_built.params)
         .await?;
@@ -246,6 +326,8 @@ async fn handle_file_store_list(ctx: &FileStoreContext<'_>) -> Result<Response, 
         }
     });
 
+    tracing::debug!("LIST rows count={}, first_row={:?}", rows.len(), rows.first());
+
     Ok((StatusCode::OK, axum::Json(response)).into_response())
 }
 
@@ -267,19 +349,30 @@ async fn handle_file_store_get_one(
         .await?
     {
         Some(mut row) => {
-            if let Some(permissions) = &config.field_permissions {
+            if let Some(_permissions) = &config.field_permissions {
                 let mut filtered = serde_json::Map::new();
                 if let Some(obj) = row.as_object_mut() {
                     let keys: Vec<String> = obj.keys().cloned().collect();
                     for key in keys {
-                        if let Some(value) = obj.remove(&key)
-                            && is_field_readable(&key, permissions).await
-                        {
-                            filtered.insert(key, value);
+                        let readable = is_field_readable(&key, config).await;
+                        if let Some(value) = obj.remove(&key) {
+                            if readable {
+                                filtered.insert(key, value);
+                            }
                         }
                     }
                 }
                 row = serde_json::Value::Object(filtered);
+            }
+            // Convert id to string if it's a number (consistent with CREATE response)
+            if let serde_json::Value::Object(ref mut obj) = row {
+                if let Some(id_val) = obj.get("id") {
+                    let id_str = id_val
+                        .as_i64()
+                        .map(|i| i.to_string())
+                        .unwrap_or_else(|| id_val.to_string());
+                    obj.insert("id".to_string(), serde_json::Value::String(id_str));
+                }
             }
             Ok((StatusCode::OK, axum::Json(row)).into_response())
         }
@@ -312,8 +405,14 @@ async fn handle_file_store_create(ctx: &FileStoreContext<'_>) -> Result<Response
     }
 
     if ctx.config.ownership.is_some() {
+        let owner_col = ctx
+            .config
+            .ownership
+            .as_ref()
+            .map(|o| o.owner_column.as_str())
+            .unwrap_or("owner_id");
         body_map.insert(
-            "owner_id".to_string(),
+            owner_col.to_string(),
             serde_json::Value::String(user_id.clone()),
         );
     }
@@ -335,13 +434,26 @@ async fn handle_file_store_create(ctx: &FileStoreContext<'_>) -> Result<Response
     let json_body = serde_json::Value::Object(body_map);
     let built = build_insert(
         ctx.db_ctx,
-        &MutationContext::default(),
+        &MutationContext {
+            writable_fields: vec!["*".to_string()],
+            ..MutationContext::default()
+        },
         &json_body,
         &RequestContext::default(),
     )?;
 
     if built.sql.contains("RETURNING") {
-        let row = pool.fetch_optional_json(&built.sql, &built.params).await?;
+        let mut row = pool.fetch_optional_json(&built.sql, &built.params).await?;
+        // Convert id to string if it's a number
+        if let Some(serde_json::Value::Object(ref mut obj)) = row
+            && let Some(id_val) = obj.get("id")
+        {
+            let id_str = id_val
+                .as_i64()
+                .map(|i| i.to_string())
+                .unwrap_or_else(|| id_val.to_string());
+            obj.insert("id".to_string(), serde_json::Value::String(id_str));
+        }
         Ok((
             StatusCode::CREATED,
             axum::Json(serde_json::json!({ "data": row })),
@@ -362,6 +474,8 @@ async fn handle_file_store_update(ctx: &FileStoreContext<'_>) -> Result<Response
     let pool = &ctx.db_ctx.pool;
     let table_config = &ctx.db_ctx.table_config;
     let driver = &ctx.db_ctx.pool.driver();
+    let auth_info = ctx.handler_ctx.extract_auth_info().await?;
+
     if ctx
         .config
         .ownership
@@ -369,6 +483,25 @@ async fn handle_file_store_update(ctx: &FileStoreContext<'_>) -> Result<Response
         .is_some_and(|o| !o.admin_override)
     {
         check_file_store_ownership(ctx.handler_ctx, ctx.config, ctx.id.unwrap(), driver).await?;
+    }
+
+    // Check field write permissions
+    if let Some(ref permissions) = ctx.config.field_permissions {
+        let user_role = auth_info.role;
+        let user_roles = user_roles(&user_role);
+        if let Some(obj) = ctx.body.and_then(|v| v.as_object()) {
+            for (k, _) in obj {
+                if table_config.columns.iter().any(|c| c.name == *k)
+                    && k != "updated_at"
+                    && !is_field_writable(k, &user_roles, permissions)
+                {
+                    return Err(AppError::Forbidden(format!(
+                        "Field '{}' is not writable by the current user's roles",
+                        k
+                    )));
+                }
+            }
+        }
     }
 
     let mut body_map = serde_json::Map::new();
@@ -402,11 +535,21 @@ async fn handle_file_store_update(ctx: &FileStoreContext<'_>) -> Result<Response
         )));
     }
 
-    Ok((
-        StatusCode::OK,
-        axum::Json(serde_json::json!({ "rows_affected": rows_affected })),
-    )
-        .into_response())
+    // Return the updated row
+    let built = build_select_one(
+        ctx.db_ctx,
+        &SelectContext::permissive(),
+        ctx.id.unwrap(),
+        &RequestContext::default(),
+    )?;
+    let row = pool.fetch_optional_json(&built.sql, &built.params).await?;
+
+    let response = match row {
+        Some(row) => axum::Json(row),
+        None => axum::Json(serde_json::json!({ "rows_affected": rows_affected })),
+    };
+
+    Ok((StatusCode::OK, response).into_response())
 }
 
 /// Handle deleting a file store entry.
@@ -448,7 +591,7 @@ async fn handle_file_store_delete(ctx: &FileStoreContext<'_>) -> Result<Response
             }
         }
 
-        let built = build_set_deleted_at(&ctx.config.table, ctx.db_ctx.pool.driver())
+        let built = build_set_trashed(&ctx.config.table, ctx.db_ctx.pool.driver())
             .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
         let rows_affected = pool.execute_with_params(&built.sql, &[id.into()]).await?;
 
@@ -527,12 +670,18 @@ async fn check_file_store_ownership(
     let user_id = handler_ctx.extract_user_id().await?;
     let pool = handler_ctx.state.db_pool(&config.database).await?;
 
-    let built = build_select_by_id(&config.table, &["owner_id"], *driver)
+    let owner_col = config
+        .ownership
+        .as_ref()
+        .map(|o| o.owner_column.as_str())
+        .unwrap_or("owner_id");
+
+    let built = build_select_by_id(&config.table, &[owner_col], *driver)
         .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
     let row = pool.fetch_optional_json(&built.sql, &[id.into()]).await?;
 
     if let Some(row) = row {
-        let owner_id = row.get("owner_id").and_then(|v| v.as_str());
+        let owner_id = row.get(owner_col).and_then(|v| v.as_str());
         if let Some(owner_id) = owner_id
             && owner_id != user_id
         {
@@ -549,17 +698,13 @@ async fn apply_row_permissions(
     rows: &[serde_json::Value],
     config: &FileStoreConfig,
 ) -> Result<Vec<serde_json::Value>, AppError> {
-    let permissions = match &config.field_permissions {
-        Some(p) => p,
-        None => return Ok(rows.to_vec()),
-    };
-
     let mut filtered_rows = Vec::new();
     for row in rows {
         if let Some(obj) = row.as_object() {
             let mut filtered = serde_json::Map::new();
             for (key, value) in obj {
-                if is_field_readable(key, permissions).await {
+                let readable = is_field_readable(key, config).await;
+                if readable {
                     filtered.insert(key.clone(), value.clone());
                 }
             }
@@ -569,25 +714,450 @@ async fn apply_row_permissions(
         }
     }
 
+    if !filtered_rows.is_empty() {
+        let _ = std::fs::write("/tmp/filestore_permissions.txt", format!(
+            "first row={:?}\n",
+            filtered_rows[0]
+        ));
+    }
+
     Ok(filtered_rows)
 }
 
-/// Check if a field is readable based on permissions.
-async fn is_field_readable(
+/// Check if a field is writable based on permissions.
+/// Check if a field is writable based on permissions.
+fn is_field_writable(
     field: &str,
+    user_roles: &[String],
     permissions: &HashMap<String, crate::config::types::FileStoreFieldPermissions>,
 ) -> bool {
-    let auto_readonly = ["id", "created_at", "updated_at", "owner_id"];
+    if let Some(field_perm) = permissions.get(field) {
+        if field_perm.write.iter().any(|r| r == "*") {
+            return true;
+        }
+        return user_roles.iter().any(|r| field_perm.write.contains(r));
+    }
+    true
+}
+
+/// Get a list of user roles from the auth info.
+fn user_roles(role: &Option<String>) -> Vec<String> {
+    match role {
+        Some(r) => vec![r.clone()],
+        None => vec![],
+    }
+}
+
+/// Check if a field is readable based on permissions.
+async fn is_field_readable(field: &str, config: &FileStoreConfig) -> bool {
+    let owner_col = config
+        .ownership
+        .as_ref()
+        .map(|o| o.owner_column.as_str())
+        .unwrap_or("owner_id");
+    let auto_readonly = ["id", "created_at", "updated_at", owner_col];
     if auto_readonly.contains(&field) {
         return true;
     }
 
-    if let Some(field_perm) = permissions.get(field) {
-        if field_perm.read.iter().any(|r| r == "*") {
+    if let Some(permissions) = &config.field_permissions {
+        if let Some(field_perm) = permissions.get(field)
+            && field_perm.read.iter().any(|r| r == "*")
+        {
             return true;
         }
-        return false;
     }
 
-    false
+    // No explicit permissions or permissions without "*" = readable by default
+    // (We can't check user role here, so be permissive)
+    true
+}
+
+// =============================================================================
+// Content references
+// =============================================================================
+
+/// Handle content reference attach for file store.
+async fn handle_file_store_attach(
+    id: &str,
+    config: &FileStoreConfig,
+    pool: &crate::db::pool::DatabasePool,
+    body: &serde_json::Value,
+) -> Result<Response, AppError> {
+    let content_refs = config
+        .content_references
+        .as_ref()
+        .ok_or_else(|| AppError::MethodNotAllowed("Content references not enabled".to_string()))?;
+
+    if !content_refs.enabled {
+        return Err(AppError::MethodNotAllowed(
+            "Content references are disabled".to_string(),
+        ));
+    }
+
+    let entity_id = body
+        .get("entity_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::BadRequest("entity_id is required".to_string()))?
+        .to_string();
+
+    let content_type = body
+        .get("content_type")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::BadRequest("content_type is required".to_string()))?;
+
+    let table = &content_refs.table;
+    let file_id_col = &content_refs.media_id_column;
+    let entity_id_col = &content_refs.entity_id_column;
+    let content_type_col = &content_refs.content_type_column;
+    let order_col = &content_refs.order_column;
+
+    let built = build_file_store_ref_max_order(table, order_col, pool.driver());
+    let max_row = pool.fetch_optional_json(&built.sql, &[]).await?;
+    let max_order: i64 = max_row
+        .as_ref()
+        .and_then(|r| r.get("max_order").and_then(|v| v.as_i64()))
+        .unwrap_or(0);
+
+    let next_order = max_order + 1;
+
+    let built = build_file_store_ref_insert(
+        table,
+        &[
+            file_id_col.as_str(),
+            entity_id_col.as_str(),
+            content_type_col.as_str(),
+            order_col.as_str(),
+        ],
+        pool.driver(),
+    );
+
+    pool.execute_with_params(
+        &built.sql,
+        &[
+            id.into(),
+            serde_json::Value::String(entity_id.clone()),
+            serde_json::Value::String(content_type.to_string()),
+            serde_json::Value::Number(serde_json::Number::from(next_order)),
+        ],
+    )
+    .await?;
+
+    let built = build_file_store_ref_select(
+        table,
+        file_id_col,
+        entity_id_col,
+        content_type_col,
+        pool.driver(),
+    );
+    let row = pool
+        .fetch_optional_json(
+            &built.sql,
+            &[id.into(), entity_id.into(), content_type.to_string().into()],
+        )
+        .await?;
+
+    Ok((
+        StatusCode::CREATED,
+        axum::Json(serde_json::json!({ "data": row })),
+    )
+        .into_response())
+}
+
+/// Handle content reference detach for file store.
+async fn handle_file_store_detach(
+    id: &str,
+    entity_id: &str,
+    config: &FileStoreConfig,
+    pool: &crate::db::pool::DatabasePool,
+) -> Result<Response, AppError> {
+    let content_refs = config
+        .content_references
+        .as_ref()
+        .ok_or_else(|| AppError::MethodNotAllowed("Content references not enabled".to_string()))?;
+
+    if !content_refs.enabled {
+        return Err(AppError::MethodNotAllowed(
+            "Content references are disabled".to_string(),
+        ));
+    }
+
+    let table = &content_refs.table;
+    let file_id_col = &content_refs.media_id_column;
+    let entity_id_col = &content_refs.entity_id_column;
+    let content_type_col = &content_refs.content_type_column;
+
+    let built = build_file_store_ref_delete(
+        table,
+        file_id_col,
+        entity_id_col,
+        content_type_col,
+        pool.driver(),
+    );
+    let rows_affected = pool
+        .execute_with_params(
+            &built.sql,
+            &[id.into(), serde_json::Value::String(entity_id.to_string())],
+        )
+        .await?;
+
+    if rows_affected == 0 {
+        return Err(AppError::NotFound(format!(
+            "No content reference found for file id '{}', entity '{}'",
+            id, entity_id
+        )));
+    }
+
+    Ok((
+        StatusCode::OK,
+        axum::Json(serde_json::json!({
+            "success": true,
+            "message": format!("Detached file '{}' from entity '{}'", id, entity_id),
+            "rows_affected": rows_affected,
+        })),
+    )
+        .into_response())
+}
+
+// =============================================================================
+// Trash management
+// =============================================================================
+
+/// Handle file store trash management routes.
+async fn handle_file_store_trash(
+    method: axum::http::Method,
+    path: &str,
+    config: &FileStoreConfig,
+    storage: &dyn Storage,
+    root: &std::path::Path,
+    db_ctx: &DatabaseContext,
+) -> Result<Response, AppError> {
+    let trash_config = config
+        .trash
+        .as_ref()
+        .ok_or_else(|| AppError::MethodNotAllowed("Trash is not enabled".to_string()))?;
+
+    if !trash_config.enabled {
+        return Err(AppError::MethodNotAllowed(
+            "Trash is not enabled".to_string(),
+        ));
+    }
+
+    match method {
+        axum::http::Method::GET => handle_file_store_trash_list(db_ctx).await,
+        axum::http::Method::DELETE
+            if path == "/_main-serve/file-store/trash"
+                || path == "/_main-serve/file-store/trash/" =>
+        {
+            handle_file_store_trash_empty(config, db_ctx, storage, root).await
+        }
+        axum::http::Method::POST => {
+            if let Some(id) = path
+                .strip_prefix("/_main-serve/file-store/trash/")
+                .and_then(|p| p.strip_suffix("/restore"))
+            {
+                handle_file_store_trash_restore(id, config, storage, root, db_ctx).await
+            } else {
+                Err(AppError::BadRequest(
+                    "Invalid trash restore path".to_string(),
+                ))
+            }
+        }
+        axum::http::Method::DELETE => {
+            if let Some(id) = path.strip_prefix("/_main-serve/file-store/trash/") {
+                handle_file_store_trash_permanent_delete(id, config, storage, root, db_ctx).await
+            } else {
+                Err(AppError::BadRequest(
+                    "Invalid trash delete path".to_string(),
+                ))
+            }
+        }
+        _ => Err(AppError::MethodNotAllowed(
+            "Method not allowed for trash endpoint".to_string(),
+        )),
+    }
+}
+
+async fn handle_file_store_trash_list(db_ctx: &DatabaseContext) -> Result<Response, AppError> {
+    let built = build_select_trashed(&db_ctx.table_config.name, db_ctx.pool.driver());
+    let rows = db_ctx.pool.fetch_all_json(&built.sql, &[]).await?;
+
+    Ok((StatusCode::OK, axum::Json(rows)).into_response())
+}
+
+async fn handle_file_store_trash_restore(
+    id: &str,
+    config: &FileStoreConfig,
+    storage: &dyn Storage,
+    root: &std::path::Path,
+    db_ctx: &DatabaseContext,
+) -> Result<Response, AppError> {
+    let trash_config = config
+        .trash
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("Trash not enabled".to_string()))?;
+
+    let built = build_select_trashed_item(&config.table, db_ctx.pool.driver());
+    let row = db_ctx
+        .pool
+        .fetch_optional_json(&built.sql, &[id.into()])
+        .await?;
+
+    let file_path = extract_file_path(row, id).await?;
+
+    let trash_path = root.join(&trash_config.prefix).join(file_path.clone());
+    let restore_path = root.join(file_path);
+
+    if storage.exists(&trash_path).await {
+        if let Some(parent) = restore_path.parent() {
+            storage
+                .create_dir_all(parent)
+                .await
+                .map_err(|e| AppError::FileOperation(format!("Failed to create directory: {e}")))?;
+        }
+        storage
+            .rename(&trash_path, &restore_path)
+            .await
+            .map_err(|e| AppError::FileOperation(format!("Failed to restore file: {e}")))?;
+    }
+
+    let built = build_set_restored(&config.table, db_ctx.pool.driver())
+        .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
+    db_ctx
+        .pool
+        .execute_with_params(&built.sql, &[id.into()])
+        .await?;
+
+    Ok((
+        StatusCode::OK,
+        axum::Json(serde_json::json!({
+            "success": true,
+            "message": "File store entry restored from trash"
+        })),
+    )
+        .into_response())
+}
+
+async fn handle_file_store_trash_empty(
+    config: &FileStoreConfig,
+    db_ctx: &DatabaseContext,
+    storage: &dyn Storage,
+    root: &std::path::Path,
+) -> Result<Response, AppError> {
+    let trash_config = config
+        .trash
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("Trash not enabled".to_string()))?;
+
+    let built = build_select_trashed_ids(&config.table, db_ctx.pool.driver());
+    let rows = db_ctx.pool.fetch_all_json(&built.sql, &[]).await?;
+
+    let mut deleted_count = 0u64;
+
+    for row in &rows {
+        if let Some(id_val) = row.get("id").and_then(|v| v.as_str()) {
+            // Try to delete the file from trash storage
+            let path_built = build_select_file_path(&config.table, db_ctx.pool.driver());
+            let path_row = db_ctx
+                .pool
+                .fetch_optional_json(&path_built.sql, &[id_val.into()])
+                .await?;
+
+            if let Some(path_row) = path_row
+                && let Some(fp) = path_row.get("file_path").and_then(|v| v.as_str())
+            {
+                let trash_path = root.join(&trash_config.prefix).join(fp);
+                if storage.exists(&trash_path).await {
+                    let _ = storage.delete(&trash_path).await;
+                }
+            }
+
+            // Delete the DB record
+            let built = crate::db::query::builders::build_delete(
+                id_val,
+                db_ctx,
+                &RequestContext::default(),
+                &None,
+            )?;
+            let _ = db_ctx
+                .pool
+                .execute_with_params(&built.sql, &built.params)
+                .await;
+            deleted_count += 1;
+        }
+    }
+
+    Ok((
+        StatusCode::OK,
+        axum::Json(serde_json::json!({
+            "success": true,
+            "message": format!("Emptied trash, deleted {} items", deleted_count),
+            "deleted_count": deleted_count,
+        })),
+    )
+        .into_response())
+}
+
+async fn handle_file_store_trash_permanent_delete(
+    id: &str,
+    config: &FileStoreConfig,
+    storage: &dyn Storage,
+    root: &std::path::Path,
+    db_ctx: &DatabaseContext,
+) -> Result<Response, AppError> {
+    let trash_config = config
+        .trash
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("Trash not enabled".to_string()))?;
+
+    let built = build_select_trashed_item(&config.table, db_ctx.pool.driver());
+    let row = db_ctx
+        .pool
+        .fetch_optional_json(&built.sql, &[id.into()])
+        .await?;
+
+    let file_path = extract_file_path(row, id).await?;
+
+    if !file_path.is_empty() {
+        let trash_path = root.join(&trash_config.prefix).join(&file_path);
+        if storage.exists(&trash_path).await {
+            let _ = storage.delete(&trash_path).await;
+        }
+    }
+
+    let built =
+        crate::db::query::builders::build_delete(id, db_ctx, &RequestContext::default(), &None)?;
+    let rows_affected = db_ctx
+        .pool
+        .execute_with_params(&built.sql, &built.params)
+        .await?;
+
+    if rows_affected == 0 {
+        return Err(AppError::NotFound(
+            "Trashed file store entry not found".to_string(),
+        ));
+    }
+
+    Ok((
+        StatusCode::OK,
+        axum::Json(serde_json::json!({
+            "success": true,
+            "message": "File store entry permanently deleted from trash",
+            "rows_affected": rows_affected,
+        })),
+    )
+        .into_response())
+}
+
+/// Extract file path from a row, falling back to id if not found.
+async fn extract_file_path(row: Option<serde_json::Value>, id: &str) -> Result<String, AppError> {
+    let file_path = match row {
+        Some(r) => r
+            .get("file_path")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| id.to_string()),
+        None => id.to_string(),
+    };
+    Ok(file_path)
 }

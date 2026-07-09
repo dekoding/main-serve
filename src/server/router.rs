@@ -31,7 +31,7 @@ use crate::middleware::auth::{
     handler::{handle_oauth2_authorize, handle_oauth2_callback},
 };
 use crate::middleware::body_limit::body_limit_middleware;
-use crate::middleware::cors::build_cors_layer;
+use crate::middleware::cors::{self, build_cors_layer};
 use crate::middleware::logging::{body_logging_middleware, build_trace_layer};
 use crate::middleware::rate_limit::rate_limit_middleware;
 
