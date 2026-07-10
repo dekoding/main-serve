@@ -1,4 +1,5 @@
 use crate::config::types::ColumnConfig;
+use crate::db::query::helpers::{column_exists, is_jsonb_column};
 use crate::error::AppError;
 use std::sync::LazyLock;
 
@@ -7,6 +8,7 @@ use std::sync::LazyLock;
 /// Maps query parameter operators (eq, ne, gt, gte, lt, lte, in, `not_in`,
 /// contains, exists, startswith, endswith, like, ilike) to typed variants.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// FilterOperator
 pub enum FilterOperator {
     Eq,
     Ne,
@@ -26,6 +28,7 @@ pub enum FilterOperator {
 
 /// A parsed filter expression with a field path and comparison operator.
 #[derive(Debug)]
+/// FilterExpression
 pub struct FilterExpression {
     pub path: Vec<String>,
     pub operator: FilterOperator,
@@ -39,6 +42,7 @@ pub struct FilterExpression {
 /// (first access of the LazyLock), which is the correct behavior for
 /// a programming error in a static pattern.
 #[allow(clippy::expect_used)]
+/// item
 static FILTER_KEY_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"^(.*)\[([a-z_]+)\]$").expect("valid filter key regex"));
 
@@ -154,24 +158,6 @@ pub(crate) fn extract_jsonb_path(field: &str) -> String {
         return "$".to_string();
     }
     format!("$.{}", path.join("."))
-}
-
-/// Check if a column in the table config is a JSON or JSONB type.
-#[must_use]
-pub(crate) fn is_jsonb_column(column_name: &str, columns: &[ColumnConfig]) -> bool {
-    columns.iter().any(|c| {
-        c.name == column_name
-            && matches!(
-                c.column_type,
-                crate::config::types::ColumnType::Json | crate::config::types::ColumnType::Jsonb
-            )
-    })
-}
-
-/// Check if a filter column exists in the table schema.
-#[must_use]
-pub(crate) fn column_exists(column_name: &str, columns: &[ColumnConfig]) -> bool {
-    columns.iter().any(|c| c.name == column_name)
 }
 
 /// Validate that a filter column exists in the table schema.

@@ -5,7 +5,7 @@ use axum::response::{IntoResponse, Response};
 use crate::db::query::builders::build_insert;
 use crate::db::query::types::MutationContext;
 use crate::error::AppError;
-use crate::handlers::common::utils::{DatabaseContext, HandlerContext};
+use crate::handlers::common::utils::{DatabaseContext, HandlerContext, filter_writable_body};
 use crate::middleware::auth::extractor::RequestContext;
 
 pub async fn handle_media_create(
@@ -21,15 +21,7 @@ pub async fn handle_media_create(
         .iter()
         .map(|c| c.name.clone())
         .collect::<Vec<_>>();
-    let mut body_map = serde_json::Map::new();
-
-    if let Some(obj) = body.as_object() {
-        for (k, v) in obj {
-            if writable_columns.contains(&k.to_string()) {
-                body_map.insert(k.clone(), v.clone());
-            }
-        }
-    }
+    let mut body_map = filter_writable_body(body, &writable_columns);
 
     if writable_columns.contains(&"uploader_id".to_string()) {
         body_map.insert(

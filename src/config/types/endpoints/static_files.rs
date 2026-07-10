@@ -10,6 +10,7 @@ use super::common::{
 /// Per-extension Cache-Control rule.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
+/// CacheRuleConfig
 pub struct CacheRuleConfig {
     /// File extensions to match (e.g. [".html", ".js"]).
     pub extensions: Vec<String>,
@@ -20,6 +21,7 @@ pub struct CacheRuleConfig {
 /// Static file serving configuration for an endpoint.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// StaticFilesConfig
 pub struct StaticFilesConfig {
     /// Named store to use (must match a key in `stores`).
     pub storage: String,
@@ -57,6 +59,7 @@ pub struct StaticFilesConfig {
 }
 
 impl Default for StaticFilesConfig {
+    /// item
     fn default() -> Self {
         Self {
             storage: String::new(),
@@ -77,6 +80,7 @@ impl Default for StaticFilesConfig {
 /// MIME type detection method for uploads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "lowercase")]
+/// UploadMimeDetection
 pub enum UploadMimeDetection {
     Extension,
     #[default]
@@ -86,6 +90,7 @@ pub enum UploadMimeDetection {
 /// File upload configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// UploadConfig
 pub struct UploadConfig {
     /// Whether uploads are enabled.
     pub enabled: bool,
@@ -104,6 +109,7 @@ pub struct UploadConfig {
 }
 
 impl Default for UploadConfig {
+    /// item
     fn default() -> Self {
         Self {
             enabled: false,
@@ -118,6 +124,7 @@ impl Default for UploadConfig {
 /// Image resize fit mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "snake_case")]
+/// ImageResizeFit
 pub enum ImageResizeFit {
     #[default]
     ScaleDown,
@@ -128,6 +135,7 @@ pub enum ImageResizeFit {
 /// Image resize configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// ImageResizeConfig
 pub struct ImageResizeConfig {
     /// Whether on-demand resizing is enabled.
     pub enabled: bool,
@@ -145,6 +153,7 @@ pub struct ImageResizeConfig {
 }
 
 impl Default for ImageResizeConfig {
+    /// item
     fn default() -> Self {
         Self {
             enabled: false,
@@ -164,6 +173,7 @@ impl Default for ImageResizeConfig {
 /// Streaming configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// StreamingConfig
 pub struct StreamingConfig {
     /// Enable chunked streaming for large files.
     pub enabled: bool,
@@ -177,6 +187,7 @@ pub struct StreamingConfig {
 }
 
 impl Default for StreamingConfig {
+    /// item
     fn default() -> Self {
         Self {
             enabled: false,

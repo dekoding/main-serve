@@ -23,6 +23,7 @@ use crate::error::AppError;
 
 /// Entry tracking request counts within a time window.
 #[derive(Debug)]
+/// item
 struct RateLimitEntry {
     count: u64,
     window_start: Instant,
@@ -30,11 +31,13 @@ struct RateLimitEntry {
 
 /// Shared rate limiter state - a map of key -> (count, `window_start`).
 #[derive(Debug, Clone)]
+/// RateLimiter
 pub struct RateLimiter {
     entries: Arc<Mutex<HashMap<String, RateLimitEntry>>>,
 }
 
 impl Default for RateLimiter {
+    /// item
     fn default() -> Self {
         Self::new()
     }
@@ -43,6 +46,7 @@ impl Default for RateLimiter {
 impl RateLimiter {
     /// Create a new empty rate limiter.
     #[must_use]
+    /// new
     pub fn new() -> Self {
         Self {
             entries: Arc::new(Mutex::new(HashMap::new())),

@@ -7,9 +7,9 @@ use std::path::Path;
 use crate::error::AppError;
 
 /// Extract the last path segment as an ID string.
-///
 /// Works for paths like `/media/123`, `/_main-serve/media/trash/456`, etc.
 #[must_use]
+/// extract_id
 pub fn extract_id(path: &str) -> Option<String> {
     let segments: Vec<&str> = path.trim_matches('/').split('/').collect();
     segments.last().map(|s| s.to_string())
@@ -17,6 +17,7 @@ pub fn extract_id(path: &str) -> Option<String> {
 
 /// Extract the extension from a file path and check if it suggests an image file.
 #[must_use]
+/// is_image_path
 pub fn is_image_path(path: &Path) -> bool {
     if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
         is_image_extension(ext)
@@ -29,6 +30,7 @@ pub fn is_image_path(path: &Path) -> bool {
 ///
 /// Supports common image formats: jpg, jpeg, png, gif, webp, bmp, svg, ico.
 #[must_use]
+/// is_image_extension
 pub fn is_image_extension(ext: &str) -> bool {
     matches!(
         ext.to_lowercase().as_str(),

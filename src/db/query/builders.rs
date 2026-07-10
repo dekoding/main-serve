@@ -10,6 +10,7 @@ use crate::handlers::common::utils::DatabaseContext;
 use crate::middleware::auth::extractor::RequestContext;
 
 impl From<&CrudConfig> for MutationContext {
+    /// item
     fn from(crud: &CrudConfig) -> Self {
         MutationContext {
             writable_fields: crud.writable_fields.clone(),
@@ -21,6 +22,7 @@ impl From<&CrudConfig> for MutationContext {
 }
 
 impl From<&CrudConfig> for SelectContext {
+    /// item
     fn from(crud: &CrudConfig) -> Self {
         SelectContext {
             fields: crud.fields.clone(),
@@ -146,7 +148,15 @@ pub fn build_insert(
     let pk_col = find_pk_column(table_config)?;
     let returning = match driver {
         DatabaseDriver::Postgres | DatabaseDriver::Sqlite => {
-            format!(" RETURNING {}", quote_identifier(&pk_col, driver))
+            if let Some(ref owner_field) = owner_col {
+                format!(
+                    " RETURNING {}, {}",
+                    quote_identifier(&pk_col, driver),
+                    quote_identifier(owner_field, driver)
+                )
+            } else {
+                format!(" RETURNING {}", quote_identifier(&pk_col, driver))
+            }
         }
         _ => String::new(),
     };

@@ -6,6 +6,7 @@ use serde::Deserialize;
 /// Password hashing algorithm for user registration.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
+/// PasswordHashAlgorithm
 pub enum PasswordHashAlgorithm {
     #[default]
     Argon2id,
@@ -14,6 +15,7 @@ pub enum PasswordHashAlgorithm {
 /// User registration configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// RegisterConfig
 pub struct RegisterConfig {
     /// Whether registration is enabled.
     pub enabled: bool,
@@ -29,6 +31,7 @@ pub struct RegisterConfig {
 }
 
 impl Default for RegisterConfig {
+    /// item
     fn default() -> Self {
         Self {
             enabled: false,
@@ -43,6 +46,7 @@ impl Default for RegisterConfig {
 /// Top-level auth configuration - defines available auth providers.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// AuthConfig
 pub struct AuthConfig {
     /// JWT authentication configuration.
     pub jwt: Option<JwtConfig>,
@@ -60,6 +64,7 @@ pub struct AuthConfig {
 /// Token revocation store type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
+/// RevocationStoreType
 pub enum RevocationStoreType {
     InMemory,
     Database,
@@ -68,6 +73,7 @@ pub enum RevocationStoreType {
 /// Configuration for JWT token revocation.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// JwtRevocationConfig
 pub struct JwtRevocationConfig {
     /// Store type: "in_memory" or "database".
     pub store: RevocationStoreType,
@@ -80,6 +86,7 @@ pub struct JwtRevocationConfig {
 }
 
 impl Default for JwtRevocationConfig {
+    /// item
     fn default() -> Self {
         Self {
             store: RevocationStoreType::InMemory,
@@ -92,6 +99,7 @@ impl Default for JwtRevocationConfig {
 /// JWT authentication provider configuration.
 #[derive(Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// JwtConfig
 pub struct JwtConfig {
     /// HMAC secret or RSA/EC key material.
     pub secret: String,
@@ -112,6 +120,7 @@ pub struct JwtConfig {
 }
 
 impl Default for JwtConfig {
+    /// item
     fn default() -> Self {
         Self {
             secret: String::new(),
@@ -127,6 +136,7 @@ impl Default for JwtConfig {
 
 /// Supported JWT signing algorithms.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+/// JwtAlgorithm
 pub enum JwtAlgorithm {
     HS256,
     HS384,
@@ -141,6 +151,7 @@ pub enum JwtAlgorithm {
 /// API key authentication provider configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// ApiKeyConfig
 pub struct ApiKeyConfig {
     /// Where to look for the API key.
     pub location: ApiKeyLocation,
@@ -152,6 +163,7 @@ pub struct ApiKeyConfig {
 }
 
 impl Default for ApiKeyConfig {
+    /// item
     fn default() -> Self {
         Self {
             location: ApiKeyLocation::Header,
@@ -164,6 +176,7 @@ impl Default for ApiKeyConfig {
 /// Where to look for the API key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
+/// ApiKeyLocation
 pub enum ApiKeyLocation {
     Header,
     Query,
@@ -172,6 +185,7 @@ pub enum ApiKeyLocation {
 /// A single API key with an optional role.
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
+/// ApiKeyEntry
 pub struct ApiKeyEntry {
     /// The API key value.
     pub key: String,
@@ -183,6 +197,7 @@ pub struct ApiKeyEntry {
 /// HTTP Basic authentication provider configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// BasicAuthConfig
 pub struct BasicAuthConfig {
     /// HTTP realm for WWW-Authenticate challenges.
     pub realm: String,
@@ -192,6 +207,7 @@ pub struct BasicAuthConfig {
 }
 
 impl Default for BasicAuthConfig {
+    /// item
     fn default() -> Self {
         Self {
             realm: "main-serve".to_string(),
@@ -203,6 +219,7 @@ impl Default for BasicAuthConfig {
 /// A user for HTTP Basic authentication.
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
+/// BasicAuthUser
 pub struct BasicAuthUser {
     /// Username.
     pub username: String,
@@ -216,6 +233,7 @@ pub struct BasicAuthUser {
 /// OAuth2 role mapping match mode.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
+/// RoleMatchMode
 pub enum RoleMatchMode {
     #[default]
     Exact,
@@ -225,6 +243,7 @@ pub enum RoleMatchMode {
 /// Configuration for mapping IdP roles/groups to Main Serve roles.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// RoleMappingConfig
 pub struct RoleMappingConfig {
     /// Default Main Serve role when no IdP role maps.
     pub default_role: String,
@@ -240,11 +259,13 @@ pub struct RoleMappingConfig {
     pub match_mode: RoleMatchMode,
 }
 
+/// item
 fn default_role_claim() -> String {
     "groups".to_string()
 }
 
 impl Default for RoleMappingConfig {
+    /// item
     fn default() -> Self {
         Self {
             default_role: "user".to_string(),
@@ -258,6 +279,7 @@ impl Default for RoleMappingConfig {
 /// OAuth2/OIDC authentication provider configuration.
 #[derive(Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// OAuth2Config
 pub struct OAuth2Config {
     /// Provider name (informational only).
     pub provider: String,
@@ -292,15 +314,18 @@ pub struct OAuth2Config {
     pub role_mapping: Option<RoleMappingConfig>,
 }
 
+/// item
 fn default_state_ttl() -> u64 {
     300 // 5 minutes
 }
 
+/// item
 fn default_max_pending_states() -> usize {
     1000
 }
 
 impl Default for OAuth2Config {
+    /// item
     fn default() -> Self {
         Self {
             provider: "generic".to_string(),
@@ -321,6 +346,7 @@ impl Default for OAuth2Config {
 }
 
 impl fmt::Debug for JwtConfig {
+    /// item
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("JwtConfig")
             .field("secret", &"[REDACTED]")
@@ -335,6 +361,7 @@ impl fmt::Debug for JwtConfig {
 }
 
 impl fmt::Debug for ApiKeyEntry {
+    /// item
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ApiKeyEntry")
             .field("key", &"[REDACTED]")
@@ -344,6 +371,7 @@ impl fmt::Debug for ApiKeyEntry {
 }
 
 impl fmt::Debug for BasicAuthUser {
+    /// item
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("BasicAuthUser")
             .field("username", &self.username)
@@ -354,6 +382,7 @@ impl fmt::Debug for BasicAuthUser {
 }
 
 impl fmt::Debug for OAuth2Config {
+    /// item
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("OAuth2Config")
             .field("provider", &self.provider)

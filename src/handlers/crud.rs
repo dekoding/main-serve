@@ -231,7 +231,6 @@ async fn handle_create(
 ///
 /// Returns `AppError::BadRequest` if request body is missing.
 /// Returns `AppError::NotFound` if no matching record found.
-#[allow(clippy::too_many_arguments)]
 async fn handle_update(
     db_ctx: &DatabaseContext,
     mutate_ctx: MutationContext,

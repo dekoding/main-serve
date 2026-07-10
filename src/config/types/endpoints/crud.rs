@@ -6,6 +6,7 @@ use crate::db::query::types::JoinConfig;
 /// CRUD-specific configuration for an endpoint.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// CrudConfig
 pub struct CrudConfig {
     /// Name of the table to operate on.
     pub table: String,
@@ -43,6 +44,7 @@ pub struct CrudConfig {
 }
 
 impl Default for CrudConfig {
+    /// item
     fn default() -> Self {
         Self {
             table: String::new(),
@@ -65,6 +67,7 @@ impl Default for CrudConfig {
 /// A computed (virtual) field defined by a SQL expression.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
+/// ComputedFieldConfig
 pub struct ComputedFieldConfig {
     /// Alias name for the computed field.
     pub name: String,

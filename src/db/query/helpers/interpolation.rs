@@ -11,7 +11,8 @@ use std::sync::LazyLock;
 /// (first access of the LazyLock), which is the correct behavior for
 /// a programming error in a static pattern.
 #[allow(clippy::expect_used)]
-static VALUE_INTERPOLATION_RE: LazyLock<regex::Regex> =
+/// VALUE_INTERPOLATION_RE
+pub static VALUE_INTERPOLATION_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"\$\{([^}]+)\}").expect("valid interpolation regex"));
 
 /// Helper to interpolate a string value.
@@ -94,15 +95,6 @@ pub(crate) fn resolve_single_key(key: &str, context: &RequestContext) -> Option<
         context.raw_query_params.get(query_key).cloned()
     } else {
         None
-    }
-}
-
-/// Generate a driver-appropriate parameter placeholder.
-#[must_use]
-pub(crate) fn placeholder(driver: DatabaseDriver, index: usize) -> String {
-    match driver {
-        DatabaseDriver::Postgres => format!("${index}"),
-        DatabaseDriver::Sqlite | DatabaseDriver::Mysql => "?".to_string(),
     }
 }
 
@@ -356,7 +348,10 @@ pub(crate) fn build_filter_param(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::types::{ColumnConfig, ColumnType, TableConfig};
+    use crate::{
+        config::types::{ColumnConfig, ColumnType, TableConfig},
+        db::query::helpers::placeholder,
+    };
 
     fn sample_table() -> TableConfig {
         TableConfig {

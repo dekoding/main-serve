@@ -9,6 +9,7 @@ use super::static_files::CacheRuleConfig;
 /// SPA hosting endpoint configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// SpaHostConfig
 pub struct SpaHostConfig {
     /// Named store to use (must match a key in `stores`).
     pub storage: String,
@@ -33,6 +34,7 @@ pub struct SpaHostConfig {
 }
 
 impl Default for SpaHostConfig {
+    /// item
     fn default() -> Self {
         Self {
             storage: String::new(),

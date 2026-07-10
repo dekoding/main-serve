@@ -4,6 +4,8 @@
 //! user would: write config, start binary, make HTTP requests, teardown.
 
 pub mod auth_flows;
+pub mod custom_response;
+pub mod file_store;
 pub mod headless_blog;
 pub mod media_library;
 pub mod reverse_proxy;

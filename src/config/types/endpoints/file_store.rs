@@ -13,6 +13,7 @@ pub type FileStoreMetadataColumn = MediaMetadataColumn;
 /// Field-level permissions for `file_store` endpoints.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// FileStoreFieldPermissions
 pub struct FileStoreFieldPermissions {
     /// Roles allowed to read this field. Use ["*"] for all roles.
     pub read: Vec<String>,
@@ -23,6 +24,7 @@ pub struct FileStoreFieldPermissions {
 /// Ownership configuration for `file_store` endpoints.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// FileStoreOwnershipConfig
 pub struct FileStoreOwnershipConfig {
     /// Column name that stores the owner ID.
     pub owner_column: String,
@@ -34,6 +36,7 @@ pub struct FileStoreOwnershipConfig {
 /// Trash configuration for `file_store` endpoints.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// FileStoreTrashConfig
 pub struct FileStoreTrashConfig {
     /// Whether trash is enabled.
     #[serde(default = "default_true_bool")]
@@ -49,6 +52,7 @@ pub struct FileStoreTrashConfig {
 /// Content references configuration for `file_store` endpoints.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// FileStoreContentReferencesConfig
 pub struct FileStoreContentReferencesConfig {
     /// Whether content references are enabled.
     #[serde(default = "default_true_bool")]
@@ -68,6 +72,7 @@ pub struct FileStoreContentReferencesConfig {
 /// File store (database-backed file catalog) endpoint configuration.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// FileStoreConfig
 pub struct FileStoreConfig {
     /// Named store to use.
     pub storage: String,

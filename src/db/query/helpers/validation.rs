@@ -59,6 +59,7 @@ pub(crate) fn is_valid_identifier(s: &str) -> bool {
 /// Table names are validated at config load time, but quoting is still required
 /// by AGENTS.md security rules.
 #[inline]
+/// quote_identifier
 pub fn quote_identifier(name: &str, driver: DatabaseDriver) -> String {
     match driver {
         DatabaseDriver::Mysql => format!("`{name}`"),

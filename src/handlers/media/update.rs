@@ -7,7 +7,7 @@ use crate::db::query::builders::build_update;
 use crate::db::query::select_one::build_select_by_id;
 use crate::db::query::types::MutationContext;
 use crate::error::AppError;
-use crate::handlers::common::utils::{DatabaseContext, HandlerContext};
+use crate::handlers::common::utils::{DatabaseContext, HandlerContext, filter_writable_body};
 use crate::middleware::auth::extractor::RequestContext;
 
 // collapsible_if suppressed: early returns improve readability for ownership checks.
@@ -42,15 +42,14 @@ pub async fn handle_media_update(
         }
     }
 
-    let mut body_map = serde_json::Map::new();
+    let writable_columns: Vec<String> = db_ctx
+        .table_config
+        .columns
+        .iter()
+        .map(|c| c.name.clone())
+        .collect();
 
-    if let Some(obj) = body.as_object() {
-        for (k, v) in obj {
-            if db_ctx.table_config.columns.iter().any(|c| c.name == *k) {
-                body_map.insert(k.clone(), v.clone());
-            }
-        }
-    }
+    let mut body_map = filter_writable_body(body, &writable_columns);
 
     if db_ctx
         .table_config

@@ -6,6 +6,7 @@ use serde::Deserialize;
 /// Proxy-specific configuration for an endpoint.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// ProxyConfig
 pub struct ProxyConfig {
     /// Upstream base URL (e.g. `"http://backend:3000"`).
     pub upstream: String,
@@ -24,6 +25,7 @@ pub struct ProxyConfig {
 /// Path rewrite rules for proxied requests.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// PathRewriteConfig
 pub struct PathRewriteConfig {
     /// Prefix to strip from the incoming path.
     pub strip_prefix: String,
@@ -34,6 +36,7 @@ pub struct PathRewriteConfig {
 /// Timeout settings for proxied requests (all in seconds).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// ProxyTimeouts
 pub struct ProxyTimeouts {
     /// TCP connect timeout in seconds.
     pub connect: u64,
@@ -44,6 +47,7 @@ pub struct ProxyTimeouts {
 }
 
 impl Default for ProxyTimeouts {
+    /// item
     fn default() -> Self {
         Self {
             connect: 5,

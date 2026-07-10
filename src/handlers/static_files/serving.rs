@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use axum::body::Body;
-use axum::extract::State;
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use http::header;
@@ -19,8 +18,6 @@ use crate::handlers::common::utils::{
     apply_cache_control, apply_content_length, apply_content_range, apply_content_type,
 };
 use crate::handlers::static_files::routing::StaticGetContext;
-
-use crate::server::AppState;
 use crate::storage::Storage;
 
 /// Handle GET requests - serve files with optional image resize or streaming.
@@ -29,10 +26,7 @@ use crate::storage::Storage;
 ///
 /// Returns `AppError::Forbidden` if path traversal is detected.
 /// Returns `AppError::NotFound` if the file is not found.
-pub(crate) async fn handle_static_get(
-    _state: State<AppState>,
-    ctx: StaticGetContext<'_>,
-) -> Result<Response, AppError> {
+pub(crate) async fn handle_static_get(ctx: StaticGetContext<'_>) -> Result<Response, AppError> {
     let storage = &*ctx.storage;
     let resolved = if ctx.relative.is_empty() {
         ctx.root.to_path_buf()
@@ -306,6 +300,7 @@ async fn handle_streaming(
 
 /// Build response for range not satisfiable (416).
 #[must_use]
+/// item
 fn build_range_not_satisfiable_response(
     file_size: u64,
     cache_max_age: u64,

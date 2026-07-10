@@ -6,6 +6,7 @@ use std::{env, fmt, time::Duration};
 
 use clap::Parser;
 use tokio::net::TcpListener;
+use tokio::sync::oneshot;
 use tracing_subscriber::EnvFilter;
 
 use main_serve::config::load_config;
@@ -20,6 +21,7 @@ use main_serve::server::{AppState, build_router, build_tls_acceptor};
 /// Main Serve - a high-performance, YAML-configured web server.
 #[derive(Parser)]
 #[command(name = "main-serve", version, about)]
+/// item
 struct Cli {
     /// Path to YAML config file.
     ///
@@ -42,6 +44,7 @@ struct Cli {
 }
 
 impl fmt::Debug for Cli {
+    /// item
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Cli")
             .field("config", &self.config)
@@ -52,6 +55,7 @@ impl fmt::Debug for Cli {
     }
 }
 
+/// item
 fn main() {
     let cli = Cli::parse();
 
@@ -182,6 +186,9 @@ async fn async_main(cli: Cli, config: main_serve::config::AppConfig, config_path
         }
     };
 
+    // Prepare revocation cleanup handle (declared early so it's in scope for serve_plain/serve_tls).
+    let mut rev_cleanup_handle: Option<(oneshot::Sender<()>, tokio::task::JoinSet<()>)> = None;
+
     // Create database pools, run migrations, and set up revocation store.
     if !state.config.read().await.databases.is_empty() {
         let config_ref = state.config.read().await;
@@ -276,16 +283,23 @@ async fn async_main(cli: Cli, config: main_serve::config::AppConfig, config_path
             && let Some(interval_secs) = rev_config.cleanup_interval_secs
             && let Some(store) = state.revocation_store.get()
         {
+            let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
             let store_clone = store.clone();
-            tokio::spawn(async move {
+            let mut handle = tokio::task::JoinSet::new();
+            handle.spawn(async move {
                 let mut interval = tokio::time::interval(Duration::from_secs(interval_secs));
                 loop {
-                    interval.tick().await;
-                    if let Err(e) = store_clone.cleanup_expired().await {
-                        tracing::warn!("Revocation store cleanup failed: {e}");
+                    tokio::select! {
+                        _ = interval.tick() => {
+                            if let Err(e) = store_clone.cleanup_expired().await {
+                                tracing::warn!("Revocation store cleanup failed: {e}");
+                            }
+                        }
+                        _ = &mut shutdown_rx => break,
                     }
                 }
             });
+            rev_cleanup_handle = Some((shutdown_tx, handle));
         }
     }
 
@@ -323,12 +337,27 @@ async fn async_main(cli: Cli, config: main_serve::config::AppConfig, config_path
 
         tracing::info!("Main Serve listening on https://{local_addr}");
 
-        serve_tls(listener, acceptor, app, shutdown_timeout, keep_alive).await;
+        serve_tls(
+            listener,
+            acceptor,
+            app,
+            shutdown_timeout,
+            keep_alive,
+            rev_cleanup_handle,
+        )
+        .await;
     } else {
         // Plain HTTP mode.
         tracing::info!("Main Serve listening on http://{local_addr}");
 
-        serve_plain(listener, app, shutdown_timeout, keep_alive).await;
+        serve_plain(
+            listener,
+            app,
+            shutdown_timeout,
+            keep_alive,
+            rev_cleanup_handle,
+        )
+        .await;
     }
 
     // Drain database pools on shutdown.
@@ -403,11 +432,13 @@ async fn serve_plain(
     app: axum::Router,
     shutdown_timeout: u64,
     keep_alive: u64,
+    rev_cleanup: Option<(oneshot::Sender<()>, tokio::task::JoinSet<()>)>,
 ) {
     let shutdown = shutdown_signal(shutdown_timeout);
     tokio::pin!(shutdown);
 
     let builder = build_http_builder(keep_alive);
+    let mut tasks = tokio::task::JoinSet::new();
 
     loop {
         tokio::select! {
@@ -423,7 +454,7 @@ async fn serve_plain(
                 let builder = builder.clone();
                 let app = app.clone();
 
-                tokio::spawn(async move {
+                tasks.spawn(async move {
                     handle_connection(tcp_stream, remote_addr, builder, app).await;
                 });
             }
@@ -432,6 +463,49 @@ async fn serve_plain(
                 break;
             }
         }
+    }
+
+    // Await all in-flight connections with a timeout.
+    let conn_timeout = std::time::Duration::from_secs(5);
+    if tasks.is_empty() {
+        tracing::info!("Server shut down gracefully.");
+    } else {
+        let start = std::time::Instant::now();
+        loop {
+            if tasks.is_empty() {
+                tracing::info!("Server shut down gracefully.");
+                break;
+            }
+            if start.elapsed() >= conn_timeout {
+                tracing::warn!(
+                    "Shutdown timed out after {:?}, {} connection(s) forcibly closed",
+                    conn_timeout,
+                    tasks.len()
+                );
+                break;
+            }
+            let remaining = conn_timeout.saturating_sub(start.elapsed());
+            if tokio::time::timeout(remaining, tasks.join_next())
+                .await
+                .is_err()
+            {
+                if tasks.is_empty() {
+                    tracing::info!("Server shut down gracefully.");
+                } else {
+                    tracing::warn!(
+                        "Shutdown timed out after {:?}, {} connection(s) forcibly closed",
+                        conn_timeout,
+                        tasks.len()
+                    );
+                }
+                break;
+            }
+        }
+    }
+
+    // Signal revocation cleanup to stop.
+    if let Some((tx, _)) = rev_cleanup {
+        let _ = tx.send(());
     }
 }
 
@@ -445,11 +519,13 @@ async fn serve_tls(
     app: axum::Router,
     shutdown_timeout: u64,
     keep_alive: u64,
+    rev_cleanup: Option<(oneshot::Sender<()>, tokio::task::JoinSet<()>)>,
 ) {
     let shutdown = shutdown_signal(shutdown_timeout);
     tokio::pin!(shutdown);
 
     let builder = build_http_builder(keep_alive);
+    let mut tasks = tokio::task::JoinSet::new();
 
     loop {
         tokio::select! {
@@ -466,7 +542,7 @@ async fn serve_tls(
                 let builder = builder.clone();
                 let app = app.clone();
 
-                tokio::spawn(async move {
+                tasks.spawn(async move {
                     let tls_stream = match acceptor.accept(tcp_stream).await {
                         Ok(s) => s,
                         Err(e) => {
@@ -483,6 +559,49 @@ async fn serve_tls(
                 break;
             }
         }
+    }
+
+    // Await all in-flight connections with a timeout.
+    let conn_timeout = std::time::Duration::from_secs(5);
+    if tasks.is_empty() {
+        tracing::info!("Server shut down gracefully.");
+    } else {
+        let start = std::time::Instant::now();
+        loop {
+            if tasks.is_empty() {
+                tracing::info!("Server shut down gracefully.");
+                break;
+            }
+            if start.elapsed() >= conn_timeout {
+                tracing::warn!(
+                    "Shutdown timed out after {:?}, {} connection(s) forcibly closed",
+                    conn_timeout,
+                    tasks.len()
+                );
+                break;
+            }
+            let remaining = conn_timeout.saturating_sub(start.elapsed());
+            if tokio::time::timeout(remaining, tasks.join_next())
+                .await
+                .is_err()
+            {
+                if tasks.is_empty() {
+                    tracing::info!("Server shut down gracefully.");
+                } else {
+                    tracing::warn!(
+                        "Shutdown timed out after {:?}, {} connection(s) forcibly closed",
+                        conn_timeout,
+                        tasks.len()
+                    );
+                }
+                break;
+            }
+        }
+    }
+
+    // Signal revocation cleanup to stop.
+    if let Some((tx, _)) = rev_cleanup {
+        let _ = tx.send(());
     }
 }
 

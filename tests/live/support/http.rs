@@ -16,8 +16,13 @@ pub struct LiveClient {
 impl LiveClient {
     /// Create a new client targeting `base_url`.
     pub fn new(base_url: &str) -> Self {
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .pool_max_idle_per_host(0)
+            .build()
+            .expect("failed to build reqwest client");
         Self {
-            client: reqwest::Client::new(),
+            client,
             base_url: base_url.trim_end_matches('/').to_string(),
             default_headers: HeaderMap::new(),
         }

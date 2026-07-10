@@ -3,6 +3,7 @@ use serde::Deserialize;
 /// Logging level and output format configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// LoggingConfig
 pub struct LoggingConfig {
     /// Log verbosity level.
     pub level: LogLevel,
@@ -17,11 +18,13 @@ pub struct LoggingConfig {
     pub max_body_log_size: usize,
 }
 
+/// item
 fn default_max_body_log_size() -> usize {
     16 * 1024 // 16 KiB
 }
 
 impl Default for LoggingConfig {
+    /// item
     fn default() -> Self {
         Self {
             level: LogLevel::Info,
@@ -36,6 +39,7 @@ impl Default for LoggingConfig {
 /// Log verbosity level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
+/// LogLevel
 pub enum LogLevel {
     Trace,
     Debug,
@@ -47,6 +51,7 @@ pub enum LogLevel {
 /// Log output format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
+/// LogFormat
 pub enum LogFormat {
     Json,
     Pretty,

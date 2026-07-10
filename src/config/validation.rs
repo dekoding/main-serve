@@ -35,6 +35,7 @@ fn is_safe_sql_fragment(s: &str) -> bool {
 /// Returns `AppError::Validation` containing all validation errors joined
 /// into a single message.
 #[must_use = "Result ignored"]
+/// validate_config
 pub fn validate_config(config: &AppConfig) -> Result<(), AppError> {
     let mut errors: Vec<String> = Vec::new();
 
@@ -516,6 +517,7 @@ fn validate_role_hierarchy(role_hierarchy: &Option<RoleHierarchy>, errors: &mut 
     }
 
     for role in roles.keys() {
+        // SAFETY: The key was just inserted in the loop above.
         if state[role] == 0
             && let Some(cycle_path) = dfs_detect_cycle(role, roles, &mut state)
         {

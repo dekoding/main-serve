@@ -25,23 +25,20 @@ pub async fn handle_custom_response(endpoint: EndpointConfig) -> Result<Response
 
     let status = StatusCode::from_u16(cr.status).unwrap_or(StatusCode::OK);
 
-    // For 3xx redirects, construct a response with Location header.
+    let mut response = (status, cr.body.clone()).into_response();
+
+    // For 3xx redirects, set the Location header.
     if status.is_redirection()
         && let Some(location) = cr
             .headers
             .get("Location")
             .or_else(|| cr.headers.get("location"))
+        && let Ok(val) = HeaderValue::from_str(location)
     {
-        let mut response = (status, cr.body.clone()).into_response();
-        if let Ok(val) = HeaderValue::from_str(location) {
-            response
-                .headers_mut()
-                .insert(HeaderName::from_static("location"), val);
-        }
-        return Ok(response);
+        response
+            .headers_mut()
+            .insert(HeaderName::from_static("location"), val);
     }
-
-    let mut response = (status, cr.body.clone()).into_response();
 
     // Set content-type header.
     apply_content_type(&mut response, &cr.content_type);

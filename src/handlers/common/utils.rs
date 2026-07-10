@@ -16,6 +16,7 @@ use axum::http::HeaderValue;
 use axum::response::Response;
 use http::header;
 
+/// HandlerContext
 pub struct HandlerContext<'a> {
     pub state: &'a AppState,
     pub endpoint: &'a EndpointConfig,
@@ -60,6 +61,7 @@ impl<'a> HandlerContext<'a> {
     }
 }
 
+/// DatabaseContext
 pub struct DatabaseContext {
     pub pool: DatabasePool,
     pub table_config: TableConfig,
@@ -136,8 +138,48 @@ pub fn get_cache_control(
     format!("public, max-age={default_max_age}")
 }
 
+/// Filter a JSON value body to only include fields that are writable.
+///
+/// Returns a `serde_json::Map` containing only the key-value pairs from
+/// `body` whose keys are present in `writable_columns`.
+///
+/// # Arguments
+///
+/// * `body` - The request body as a JSON value.
+/// * `writable_columns` - List of column names that are allowed to be written.
+///
+/// # Examples
+///
+/// ```
+/// extern crate main_serve;
+/// use main_serve::handlers::common::utils::filter_writable_body;
+///
+/// let body = serde_json::json!({"name": "test", "ignored": true});
+/// let writable = vec!["name".to_string()];
+/// let filtered = filter_writable_body(&body, &writable);
+/// assert!(filtered.contains_key("name"));
+/// assert!(!filtered.contains_key("ignored"));
+/// ```
+pub fn filter_writable_body(
+    body: &serde_json::Value,
+    writable_columns: &[String],
+) -> serde_json::Map<String, serde_json::Value> {
+    let mut result = serde_json::Map::new();
+
+    if let Some(obj) = body.as_object() {
+        for (k, v) in obj {
+            if writable_columns.contains(&k.to_string()) {
+                result.insert(k.clone(), v.clone());
+            }
+        }
+    }
+
+    result
+}
+
 /// Format a `SystemTime` as YYYY-MM-DD HH:MM.
 #[must_use]
+/// format_modified
 pub fn format_modified(time: std::time::SystemTime) -> String {
     let dt: chrono::DateTime<chrono::Local> = time.into();
     dt.format("%Y-%m-%d %H:%M").to_string()
@@ -145,7 +187,9 @@ pub fn format_modified(time: std::time::SystemTime) -> String {
 
 /// Format a byte count as a human-readable size string.
 #[must_use]
+/// format_size
 pub fn format_size(bytes: u64) -> String {
+    /// item
     const UNITS: &[&str] = &["B", "KiB", "MiB", "GiB", "TiB"];
     let mut size = bytes as f64;
     for unit in UNITS {

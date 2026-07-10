@@ -151,3 +151,8 @@ gcs = []
 # These are slow and are not included in a normal `cargo test` run.
 # Run them explicitly: `cargo test --features live-tests`
 live-tests = []
+
+[[test]]
+name = "live"
+path = "tests/live.rs"
+required-features = ["live-tests"]

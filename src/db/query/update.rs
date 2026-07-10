@@ -3,7 +3,7 @@
 /// These functions handle UPDATE queries that don't fit the general CRUD builder API,
 /// such as soft-delete markers, trash operations, and single-column updates.
 use crate::config::types::DatabaseDriver;
-use crate::db::query::helpers::quote_identifier;
+use crate::db::query::helpers::{placeholder, quote_identifier};
 use crate::db::query::types::BuiltQuery;
 use crate::error::AppError;
 
@@ -37,7 +37,7 @@ pub fn build_set_deleted_at(
             "UPDATE {} SET deleted_at = {} WHERE id = {}",
             quote_identifier(table_name, driver),
             now,
-            placeholder_str(driver, 1)
+            placeholder(driver, 1)
         ),
         params: Vec::new(),
     })
@@ -61,7 +61,7 @@ pub fn build_set_trashed(table_name: &str, driver: DatabaseDriver) -> Result<Bui
             quote_identifier(table_name, driver),
             now,
             now,
-            placeholder_str(driver, 1)
+            placeholder(driver, 1)
         ),
         params: Vec::new(),
     })
@@ -85,7 +85,7 @@ pub fn build_set_restored(
         sql: format!(
             "UPDATE {} SET trashed_at = NULL, deleted_at = NULL WHERE id = {}",
             quote_identifier(table_name, driver),
-            placeholder_str(driver, 1)
+            placeholder(driver, 1)
         ),
         params: Vec::new(),
     })
@@ -113,8 +113,8 @@ pub fn build_set_file_path(
         sql: format!(
             "UPDATE {} SET file_path = {} WHERE id = {}",
             quote_identifier(table_name, driver),
-            placeholder_str(driver, 1),
-            placeholder_str(driver, 2)
+            placeholder(driver, 1),
+            placeholder(driver, 2)
         ),
         params: vec![serde_json::Value::String(new_path.to_owned())],
     })
@@ -146,7 +146,7 @@ pub fn build_set_columns(
             format!(
                 "{} = {}",
                 quote_identifier(col, driver),
-                placeholder_str(driver, i + 1)
+                placeholder(driver, i + 1)
             )
         })
         .collect();
@@ -156,19 +156,11 @@ pub fn build_set_columns(
         "UPDATE {} SET {} WHERE id = {}",
         quote_identifier(table_name, driver),
         set_parts.join(", "),
-        placeholder_str(driver, param_count + 1)
+        placeholder(driver, param_count + 1)
     );
 
     let mut params: Vec<serde_json::Value> = sets.iter().map(|(_, val)| val.clone()).collect();
     params.push(serde_json::Value::String(id.to_owned()));
 
     Ok(BuiltQuery { sql, params })
-}
-
-/// Generate a placeholder string for a given parameter index.
-fn placeholder_str(driver: DatabaseDriver, index: usize) -> String {
-    match driver {
-        DatabaseDriver::Postgres => format!("${index}"),
-        DatabaseDriver::Sqlite | DatabaseDriver::Mysql => "?".to_string(),
-    }
 }

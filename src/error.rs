@@ -10,6 +10,7 @@ use serde::Serialize;
 
 /// Application-wide error type.
 #[derive(Debug, thiserror::Error)]
+/// AppError
 pub enum AppError {
     #[error("Configuration error: {0}")]
     Config(String),
@@ -67,17 +68,20 @@ pub enum AppError {
 }
 
 #[derive(Serialize)]
+/// item
 struct ErrorBody {
     error: ErrorDetail,
 }
 
 #[derive(Serialize)]
+/// item
 struct ErrorDetail {
     code: String,
     message: String,
 }
 
 impl IntoResponse for AppError {
+    /// item
     fn into_response(self) -> Response {
         let (status, code) = match &self {
             AppError::Config(_) => (StatusCode::INTERNAL_SERVER_ERROR, "config_error"),

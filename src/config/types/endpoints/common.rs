@@ -12,6 +12,7 @@ pub const DEFAULT_CACHE_MAX_AGE: u64 = 3600;
 
 /// Determine MIME type from file extension.
 #[must_use]
+/// mime_from_path
 pub fn mime_from_path(path: &Path) -> &'static str {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     match ext {
@@ -43,6 +44,7 @@ pub fn mime_from_path(path: &Path) -> &'static str {
 
 /// Minimal HTML escaping for safe inclusion in generated HTML.
 #[must_use]
+/// html_escape
 pub fn html_escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -53,6 +55,7 @@ pub fn html_escape(s: &str) -> String {
 /// A single endpoint definition - the core unit of Main Serve's behaviour.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
+/// EndpointConfig
 pub struct EndpointConfig {
     /// URL path pattern (e.g. `/api/users` or `/api/users/{id}`).
     pub path: String,
@@ -111,6 +114,7 @@ pub(super) fn default_auth_none() -> String {
 /// Supported HTTP methods.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 #[serde(rename_all = "lowercase")]
+/// HttpMethod
 pub enum HttpMethod {
     Get,
     Post,
@@ -124,6 +128,7 @@ pub enum HttpMethod {
 impl HttpMethod {
     /// Check if this config method matches the given HTTP request method.
     #[must_use]
+    /// matches
     pub fn matches(&self, method: &axum::http::Method) -> bool {
         match self {
             HttpMethod::Get => method == axum::http::Method::GET,
@@ -138,6 +143,7 @@ impl HttpMethod {
 
     /// Return the uppercase string representation of this HTTP method.
     #[must_use]
+    /// as_str
     pub fn as_str(&self) -> &'static str {
         match self {
             HttpMethod::Get => "GET",
@@ -157,6 +163,7 @@ impl HttpMethod {
 /// method-specific role assignments for fine-grained access control.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(untagged)]
+/// RolesConfig
 pub enum RolesConfig {
     /// Flat list of roles applied to all HTTP methods.
     Flat(Vec<String>),
@@ -165,6 +172,7 @@ pub enum RolesConfig {
 }
 
 impl Default for RolesConfig {
+    /// item
     fn default() -> Self {
         Self::Flat(Vec::new())
     }
@@ -177,6 +185,7 @@ impl Default for RolesConfig {
 /// `RolesConfig::Flat` is used when present.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// MethodSpecificRoles
 pub struct MethodSpecificRoles {
     /// Roles required for GET requests.
     #[serde(default, rename = "get")]
@@ -208,6 +217,7 @@ impl RolesConfig {
     /// otherwise falls back to the `Flat` variant. For `Flat`, always
     /// returns the flat list.
     #[must_use]
+    /// clone_for_method
     pub fn clone_for_method(&self, method: HttpMethod) -> Vec<String> {
         match self {
             Self::MethodSpecific(ms) => match method {
@@ -222,11 +232,37 @@ impl RolesConfig {
             Self::Flat(roles) => roles.clone(),
         }
     }
+
+    /// Check if a user role is the admin (primary) role for this endpoint.
+    ///
+    /// The first role in the resolved roles list is considered the admin role.
+    #[must_use]
+    /// is_admin
+    pub fn is_admin(&self, user_role: &Option<String>) -> bool {
+        match self {
+            Self::Flat(roles) => user_role.as_deref() == roles.first().map(|x| x.as_str()),
+            Self::MethodSpecific(ms) => {
+                let admin = ms
+                    .get
+                    .as_ref()
+                    .or(ms.post.as_ref())
+                    .or(ms.patch.as_ref())
+                    .or(ms.delete.as_ref())
+                    .or(ms.put.as_ref())
+                    .or(ms.head.as_ref())
+                    .or(ms.options.as_ref())
+                    .and_then(|r| r.first())
+                    .map(|x| x.as_str());
+                user_role.as_deref() == admin
+            }
+        }
+    }
 }
 
 /// The type of action an endpoint performs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
+/// EndpointAction
 pub enum EndpointAction {
     Crud,
     Proxy,

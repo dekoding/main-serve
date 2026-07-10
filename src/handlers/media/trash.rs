@@ -139,8 +139,6 @@ pub async fn handle_media_trash_restore(
         .into_response())
 }
 
-// These functions need access to configs and database pool.
-#[allow(clippy::too_many_arguments)]
 pub async fn handle_media_trash_empty(
     config: &MediaConfig,
     db_ctx: &DatabaseContext,

@@ -3,6 +3,7 @@ use serde::Deserialize;
 /// Pagination settings for list endpoints.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// PaginationConfig
 pub struct PaginationConfig {
     /// Whether pagination is active.
     pub enabled: bool,
@@ -13,6 +14,7 @@ pub struct PaginationConfig {
 }
 
 impl Default for PaginationConfig {
+    /// item
     fn default() -> Self {
         Self {
             enabled: true,
@@ -25,6 +27,7 @@ impl Default for PaginationConfig {
 /// Filtering settings for list endpoints.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// FilteringConfig
 pub struct FilteringConfig {
     /// Whether filtering is active.
     pub enabled: bool,
@@ -33,6 +36,7 @@ pub struct FilteringConfig {
 }
 
 impl Default for FilteringConfig {
+    /// item
     fn default() -> Self {
         Self {
             enabled: true,
@@ -44,6 +48,7 @@ impl Default for FilteringConfig {
 /// Sorting settings for list endpoints.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// SortingConfig
 pub struct SortingConfig {
     /// Whether sorting is active.
     pub enabled: bool,
@@ -56,6 +61,7 @@ pub struct SortingConfig {
 }
 
 impl Default for SortingConfig {
+    /// item
     fn default() -> Self {
         Self {
             enabled: true,
@@ -69,6 +75,7 @@ impl Default for SortingConfig {
 /// Sort direction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
+/// SortOrder
 pub enum SortOrder {
     #[default]
     Asc,

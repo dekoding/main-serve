@@ -5,18 +5,21 @@ use crate::config::types::{ComputedFieldConfig, listing::SortOrder};
 /// SQL join type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
+/// JoinType
 pub enum JoinType {
     Inner,
     Left,
     Right,
 }
 
+/// item
 fn default_join_type() -> JoinType {
     JoinType::Inner
 }
 
 /// Parameters extracted from an HTTP request for a CRUD operation.
 #[derive(Debug, Default)]
+/// QueryParams
 pub struct QueryParams {
     /// Page number (1-indexed).
     pub page: Option<u64>,
@@ -32,6 +35,7 @@ pub struct QueryParams {
 
 /// A built query ready for execution.
 #[derive(Debug)]
+/// BuiltQuery
 pub struct BuiltQuery {
     pub sql: String,
     pub params: Vec<serde_json::Value>,
@@ -39,6 +43,7 @@ pub struct BuiltQuery {
 
 /// Context needed by insert/update/delete builders.
 #[derive(Debug, Default)]
+/// MutationContext
 pub struct MutationContext {
     pub writable_fields: Vec<String>,
     pub insert_owner: Option<String>,
@@ -48,6 +53,7 @@ pub struct MutationContext {
 
 /// Context needed by select builders.
 #[derive(Debug, Default)]
+/// SelectContext
 pub struct SelectContext {
     pub fields: Vec<String>,
     pub joins: Vec<JoinConfig>,
@@ -70,6 +76,7 @@ impl SelectContext {
     /// This is useful when the caller doesn't have a `CrudConfig` to convert from,
     /// but still needs filtering, sorting, and pagination to work with sensible defaults.
     #[must_use]
+    /// permissive
     pub fn permissive() -> Self {
         Self {
             fields: vec!["*".to_string()],
@@ -90,6 +97,7 @@ impl SelectContext {
 /// Join configuration.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
+/// JoinConfig
 pub struct JoinConfig {
     /// Table to join.
     pub table: String,

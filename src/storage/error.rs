@@ -4,6 +4,7 @@ use thiserror::Error;
 
 /// Error type for storage operations.
 #[derive(Debug, Error)]
+/// StorageError
 pub enum StorageError {
     /// File or directory not found.
     #[error("Not found: {0:?}")]
@@ -47,6 +48,7 @@ pub enum StorageError {
 }
 
 impl From<StorageError> for crate::error::AppError {
+    /// item
     fn from(err: StorageError) -> Self {
         match err {
             StorageError::NotFound(path) => {

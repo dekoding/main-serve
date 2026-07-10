@@ -13,8 +13,6 @@ use crate::handlers::media::trash::handle_media_trash_delete;
 use crate::middleware::auth::extractor::RequestContext;
 use crate::storage::Storage;
 
-// These functions need access to configs, state, storage, and database pool.
-#[allow(clippy::too_many_arguments)]
 pub async fn handle_media_delete(
     handler_ctx: &HandlerContext<'_>,
     id: &str,

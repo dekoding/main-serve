@@ -30,18 +30,11 @@ pub(crate) struct FileUploadContext {
 }
 
 /// Handle file upload (POST/PUT/PATCH).
-///
-/// # Arguments
-///
-/// This function takes many parameters due to the complexity of multipart
-/// file uploads with authentication, configuration, and storage handling.
-#[allow(clippy::too_many_arguments)] // multipart upload handler with many axum extractors
 pub async fn handle_file_upload(
     mut multipart: axum::extract::Multipart,
     state: State<AppState>,
     endpoint: &EndpointConfig,
     config: &StaticFilesConfig,
-    _relative: &str,
     root: &Path,
     headers: &axum::http::HeaderMap,
     storage: Arc<dyn Storage>,

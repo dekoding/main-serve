@@ -1,9 +1,9 @@
 use crate::config::types::DatabaseDriver;
+use crate::db::query::helpers::placeholder;
 use crate::db::query::types::{QueryParams, SelectContext};
 use crate::error::AppError;
 use crate::middleware::auth::extractor::RequestContext;
 
-use super::interpolation::placeholder;
 use super::validation::quote_identifier;
 
 /// Build a COUNT query for list pagination.

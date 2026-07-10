@@ -84,7 +84,6 @@ pub struct BinaryHandle {
     temp_dir: TempDir,
     process: tokio::process::Child,
     base_url: String,
-    _assets: TempDir, // keeps asset directories alive
 }
 
 impl BinaryHandle {
@@ -126,7 +125,6 @@ impl BinaryHandle {
             temp_dir,
             process,
             base_url,
-            _assets: TempDir::new().map_err(SpawnError::TempDir)?,
         })
     }
 
@@ -161,7 +159,6 @@ impl BinaryHandle {
             temp_dir,
             process,
             base_url,
-            _assets: TempDir::new().map_err(SpawnError::TempDir)?,
         })
     }
 
@@ -277,15 +274,18 @@ impl BinaryHandle {
         #[cfg(unix)]
         {
             if let Some(pid) = self.process.id() {
-                unsafe {
-                    libc::kill(pid as i32, libc::SIGTERM);
-                }
+                eprintln!("[live] sending SIGTERM to pid {}", pid);
+                let ret = unsafe { libc::kill(pid as i32, libc::SIGTERM) };
+                eprintln!("[live] kill returned {}", ret);
+            } else {
+                eprintln!("[live] no pid available");
             }
         }
 
         // Wait for process to exit
         loop {
             if start.elapsed() > shutdown_timeout {
+                eprintln!("[live] shutdown timeout, killing");
                 self.process.kill().await.ok();
                 let _ = self.process.wait().await;
                 return Err(SpawnError::ShutdownTimeout {
@@ -295,7 +295,7 @@ impl BinaryHandle {
 
             match self.process.try_wait() {
                 Ok(Some(status)) => {
-                    let _ = status;
+                    eprintln!("[live] process exited with status {}", status);
                     return Ok(());
                 }
                 Ok(None) => {

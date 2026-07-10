@@ -12,6 +12,7 @@ use sha2::{Digest, Sha256};
 use crate::config::types::StoreConfig;
 use crate::storage::{DirEntry, FileMetadata, Result, Storage, StorageError};
 
+/// item
 const AZURE_BLOB_API_VERSION: &str = "2023-11-03";
 
 /// Maximum number of retry attempts for copy status polling.
@@ -145,7 +146,9 @@ impl AzureStorage {
         let mut opad = vec![0x5cu8; block_size];
         for (i, (i_op, o_op)) in ipad.iter_mut().zip(opad.iter_mut()).enumerate() {
             if i < key.len() {
+                // SAFETY: k is padded/hashed to block_size and i iterates over block_size-sized vectors, so k[i] is a valid index.
                 *i_op ^= k[i];
+                // SAFETY: Same invariant as above.
                 *o_op ^= k[i];
             }
         }
@@ -330,6 +333,7 @@ type ListResult = (Vec<(String, u64)>, Vec<String>);
 /// Azure list containers response XML structure.
 #[derive(Debug, Clone, Default, serde::Deserialize)]
 #[serde(rename = "EnumerationResults", default)]
+/// item
 struct ListResponse {
     #[serde(rename = "Blobs", default)]
     blob_group: Option<BlobGroup>,
@@ -340,6 +344,7 @@ struct ListResponse {
 /// Group of blobs in the list response.
 #[derive(Debug, Clone, Default, serde::Deserialize)]
 #[serde(rename = "Blobs", default)]
+/// item
 struct BlobGroup {
     #[serde(rename = "Blob", default)]
     blobs: Vec<AzureBlob>,
@@ -347,6 +352,7 @@ struct BlobGroup {
 
 /// A single blob entry in the list response.
 #[derive(Debug, Clone, serde::Deserialize)]
+/// item
 struct AzureBlob {
     #[serde(rename = "Name")]
     name: String,
@@ -356,6 +362,7 @@ struct AzureBlob {
 
 /// Properties of a blob from the list response.
 #[derive(Debug, Clone, Default, serde::Deserialize)]
+/// item
 struct BlobProperties {
     #[serde(rename = "Content-Length", default)]
     size: Option<String>,
@@ -363,6 +370,7 @@ struct BlobProperties {
 
 /// A virtual directory prefix from the list response.
 #[derive(Debug, Clone, serde::Deserialize)]
+/// item
 struct BlobPrefix {
     #[serde(rename = "Name")]
     name: String,
@@ -861,10 +869,12 @@ impl Storage for AzureStorage {
 }
 
 #[cfg(all(test, feature = "azure"))]
+/// item
 mod tests {
     use super::*;
 
     #[test]
+    /// item
     fn test_path_to_blob_name() {
         let storage = AzureStorage {
             account_name: "test".to_string(),
@@ -886,6 +896,7 @@ mod tests {
     }
 
     #[test]
+    /// item
     fn test_build_canonicalized_resource() {
         let storage = AzureStorage {
             account_name: "myaccount".to_string(),
@@ -902,6 +913,7 @@ mod tests {
     }
 
     #[test]
+    /// item
     fn test_sign_request_format() {
         let storage = AzureStorage {
             account_name: "myaccount".to_string(),

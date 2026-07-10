@@ -130,7 +130,7 @@ pub fn extract_relative_path(request_path: &str, endpoint_path: &str) -> Result<
         .strip_prefix(ep_path)
         .unwrap_or(request_path)
         .trim_start_matches('/');
-    
+
     if !stripped.is_empty() {
         let decoded = percent_encoding::percent_decode_str(stripped)
             .decode_utf8()
@@ -139,7 +139,7 @@ pub fn extract_relative_path(request_path: &str, endpoint_path: &str) -> Result<
             return Err(AppError::Forbidden("Path traversal denied".to_string()));
         }
     }
-    Ok(request_path.to_string())
+    Ok(stripped.to_string())
 }
 
 /// Build the HTTP response for a successful file upload.

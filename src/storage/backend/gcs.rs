@@ -26,6 +26,7 @@ const HTTP_TIMEOUT_SECS: u64 = 30;
 
 /// Service account credentials parsed from JSON.
 #[derive(Clone, Deserialize)]
+/// item
 struct ServiceAccountCredentials {
     /// The client email address.
     client_email: String,
@@ -34,6 +35,7 @@ struct ServiceAccountCredentials {
 }
 
 impl std::fmt::Debug for ServiceAccountCredentials {
+    /// item
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ServiceAccountCredentials")
             .field("client_email", &self.client_email)
@@ -44,6 +46,7 @@ impl std::fmt::Debug for ServiceAccountCredentials {
 
 /// Cached OAuth2 access token.
 #[derive(Clone)]
+/// item
 struct AuthToken {
     /// The access token string.
     token: String,
@@ -63,6 +66,7 @@ impl AuthToken {
 }
 
 impl std::fmt::Debug for AuthToken {
+    /// item
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AuthToken")
             .field("expires_at", &self.expires_at)
@@ -83,6 +87,7 @@ struct AuthTokenCache {
 }
 
 impl AuthTokenCache {
+    /// item
     fn new(credentials: ServiceAccountCredentials) -> std::result::Result<Self, StorageError> {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(HTTP_TIMEOUT_SECS))
@@ -151,6 +156,7 @@ impl AuthTokenCache {
         }
 
         #[derive(Deserialize)]
+        /// item
         struct TokenResponse {
             access_token: String,
             expires_in: u64,
@@ -202,6 +208,7 @@ impl AuthTokenCache {
 
 /// JWT claims for GCS OAuth2 service account authentication.
 #[derive(Debug, serde::Serialize)]
+/// item
 struct GcsJwtClaims {
     iss: String,
     sub: String,
@@ -222,6 +229,7 @@ pub struct GcsStorage {
 }
 
 #[derive(Debug, Deserialize)]
+/// item
 struct GcsObjectMetadata {
     #[serde(rename = "name")]
     name: String,
@@ -253,6 +261,7 @@ impl GcsObjectMetadata {
 }
 
 #[derive(Debug, Deserialize)]
+/// item
 struct GcsListResponse {
     /// Object items in the listing.
     #[serde(default)]
@@ -893,10 +902,12 @@ impl Storage for GcsStorage {
 }
 
 #[cfg(all(test, feature = "gcs"))]
+/// item
 mod tests {
     use super::*;
 
     #[test]
+    /// item
     fn test_path_to_object_name() {
         assert_eq!(
             GcsStorage::path_to_object_name(Path::new("/foo/bar.txt")),
@@ -914,6 +925,7 @@ mod tests {
     }
 
     #[test]
+    /// item
     fn test_map_http_error_not_found() {
         let err =
             GcsStorage::map_http_error(reqwest::StatusCode::NOT_FOUND, "test.txt", "Not Found");
@@ -921,6 +933,7 @@ mod tests {
     }
 
     #[test]
+    /// item
     fn test_map_http_error_forbidden() {
         let err =
             GcsStorage::map_http_error(reqwest::StatusCode::FORBIDDEN, "test.txt", "Access Denied");
@@ -928,6 +941,7 @@ mod tests {
     }
 
     #[test]
+    /// item
     fn test_load_credentials_from_json() {
         let json = r#"{"client_email": "test@example.com", "private_key": "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----"}"#;
         let result = GcsStorage::load_credentials(json);

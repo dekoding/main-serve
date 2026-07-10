@@ -12,6 +12,7 @@ use super::common::{
 /// MIME type detection for media uploads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "lowercase")]
+/// MediaMimeDetection
 pub enum MediaMimeDetection {
     Extension,
     #[default]
@@ -21,6 +22,7 @@ pub enum MediaMimeDetection {
 /// User scoping mode for media endpoints.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "snake_case")]
+/// MediaScopeMode
 pub enum MediaScopeMode {
     User,
     #[default]
@@ -31,6 +33,7 @@ pub enum MediaScopeMode {
 /// On-delete behavior for media content references.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "snake_case")]
+/// MediaOnDeleteBehavior
 pub enum MediaOnDeleteBehavior {
     #[default]
     Detach,
@@ -41,6 +44,7 @@ pub enum MediaOnDeleteBehavior {
 /// Facet type for media search.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
+/// MediaFacetType
 pub enum MediaFacetType {
     Term,
     DateRange,
@@ -50,6 +54,7 @@ pub enum MediaFacetType {
 /// A metadata column definition for `media/file_store` endpoints.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
+/// MediaMetadataColumn
 pub struct MediaMetadataColumn {
     /// Column name.
     pub name: String,
@@ -67,6 +72,7 @@ pub struct MediaMetadataColumn {
 /// Per-facet configuration for media search.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
+/// MediaFacetConfig
 pub struct MediaFacetConfig {
     /// Facet display name.
     pub name: String,
@@ -79,6 +85,7 @@ pub struct MediaFacetConfig {
 /// Named image resize style for media (e.g. thumbnail, gallery).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
+/// MediaImageResizeStyle
 pub struct MediaImageResizeStyle {
     /// Style name (e.g. "thumbnail", "gallery").
     pub name: String,
@@ -99,6 +106,7 @@ pub struct MediaImageResizeStyle {
 /// Preview configuration for non-image files.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// MediaPreviewConfig
 pub struct MediaPreviewConfig {
     /// Preview style name.
     pub name: String,
@@ -113,6 +121,7 @@ pub struct MediaPreviewConfig {
 /// File versioning configuration.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// MediaVersioningConfig
 pub struct MediaVersioningConfig {
     /// Whether versioning is enabled.
     pub enabled: bool,
@@ -124,6 +133,7 @@ pub struct MediaVersioningConfig {
 /// Preview generation configuration for non-image files.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// MediaPreviewGenerationConfig
 pub struct MediaPreviewGenerationConfig {
     /// Whether preview generation is enabled.
     pub enabled: bool,
@@ -134,6 +144,7 @@ pub struct MediaPreviewGenerationConfig {
 /// Media upload configuration.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// MediaUploadConfig
 pub struct MediaUploadConfig {
     /// Maximum upload size in bytes.
     #[serde(default = "default_media_max_size")]
@@ -164,6 +175,7 @@ pub struct MediaUploadConfig {
 /// Move configuration for media files.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// MediaMoveConfig
 pub struct MediaMoveConfig {
     /// Whether move is enabled.
     #[serde(default = "default_true_bool")]
@@ -179,6 +191,7 @@ pub struct MediaMoveConfig {
 /// Rename configuration for media files.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// MediaRenameConfig
 pub struct MediaRenameConfig {
     /// Whether rename is enabled.
     #[serde(default = "default_true_bool")]
@@ -191,6 +204,7 @@ pub struct MediaRenameConfig {
 /// Delete configuration for media files.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// MediaDeleteConfig
 pub struct MediaDeleteConfig {
     /// Whether delete is enabled.
     #[serde(default = "default_true_bool")]
@@ -203,6 +217,7 @@ pub struct MediaDeleteConfig {
 /// User scope configuration for media.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// MediaUserScopeConfig
 pub struct MediaUserScopeConfig {
     /// Whether user scoping is enabled.
     #[serde(default = "default_true_bool")]
@@ -221,6 +236,7 @@ pub struct MediaUserScopeConfig {
 /// Content references configuration for media.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// MediaContentReferencesConfig
 pub struct MediaContentReferencesConfig {
     /// Whether content references are enabled.
     #[serde(default = "default_true_bool")]
@@ -251,6 +267,7 @@ pub struct MediaContentReferencesConfig {
 /// Trash configuration for media.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// MediaTrashConfig
 pub struct MediaTrashConfig {
     /// Whether trash is enabled.
     #[serde(default = "default_true_bool")]
@@ -272,6 +289,7 @@ pub struct MediaTrashConfig {
 /// Sharing configuration for media.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// MediaSharingConfig
 pub struct MediaSharingConfig {
     /// Whether sharing is enabled.
     #[serde(default = "default_true_bool")]
@@ -298,6 +316,7 @@ pub struct MediaSharingConfig {
 /// Image resize configuration for media.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// MediaImageResizeConfig
 pub struct MediaImageResizeConfig {
     /// Whether on-demand image resizing is enabled.
     #[serde(default = "default_true_bool")]
@@ -325,6 +344,7 @@ pub struct MediaImageResizeConfig {
 /// Media library endpoint configuration.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// MediaConfig
 pub struct MediaConfig {
     /// Named store to use.
     pub storage: String,

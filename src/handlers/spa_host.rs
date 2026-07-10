@@ -11,6 +11,7 @@ use http::header;
 use crate::config::types::mime_from_path;
 use crate::config::types::{EndpointConfig, SpaHostConfig};
 use crate::error::AppError;
+use crate::handlers::common::path::extract_relative_path;
 use crate::handlers::common::store::resolve_store;
 use crate::handlers::common::utils::{
     apply_cache_control, apply_content_length, apply_content_type,
@@ -62,29 +63,12 @@ pub(crate) async fn handle_spa_host(
     let (storage, root) = resolve_store(state, &config.storage)?;
 
     let request_path = uri.path();
-    let ep_prefix = endpoint
-        .path
-        .trim_end_matches("/*")
-        .trim_end_matches("{*rest}");
-    let relative = request_path
-        .strip_prefix(ep_prefix)
-        .unwrap_or(request_path)
-        .trim_start_matches('/');
-
-    // Path traversal check
-    if !relative.is_empty() {
-        let decoded = percent_encoding::percent_decode_str(relative)
-            .decode_utf8()
-            .map_err(|_| AppError::BadRequest("Invalid UTF-8 in path".to_string()))?;
-        if decoded.split('/').any(|seg| seg == ".." || seg == ".") {
-            return Err(AppError::Forbidden("Path traversal denied".to_string()));
-        }
-    }
+    let relative = extract_relative_path(request_path, &endpoint.path)?;
 
     let resolved = if relative.is_empty() {
         root.clone()
     } else {
-        let decoded = percent_encoding::percent_decode_str(relative)
+        let decoded = percent_encoding::percent_decode_str(&relative)
             .decode_utf8()
             .map_err(|_| AppError::BadRequest("Invalid UTF-8 in path".to_string()))?;
         root.join(decoded.as_ref())
@@ -178,6 +162,12 @@ pub(crate) async fn handle_spa_head(
                     let mut response = Response::new(axum::body::Body::empty());
                     *response.status_mut() = status;
                     apply_content_type(&mut response, content_type);
+                    apply_cache_control(
+                        &mut response,
+                        config.cache_max_age,
+                        Some(&index_path),
+                        &config.cache_rules,
+                    );
                     apply_content_length(&mut response, &meta.size.to_string());
                     Ok(response)
                 }

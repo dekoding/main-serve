@@ -5,28 +5,14 @@
 /// fields, and WHERE conditions.
 use std::collections::HashMap;
 use std::fmt::Write;
-use std::sync::LazyLock;
-
-use regex::Regex;
-
-/// Compiled regex for interpolating `${key}` patterns in where clauses.
-///
-/// SAFETY: This is a compile-time constant pattern. The regex literal
-/// `\$\{([^}]+)\}` is syntactically valid and has been tested in CI.
-/// If this regex were ever invalid, the program would fail at startup
-/// (first access of the LazyLock), which is the correct behavior for
-/// a programming error in a static pattern.
-#[allow(clippy::expect_used)]
-static INTERPOLATION_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\$\{([^}]+)\}").expect("valid interpolation regex"));
 
 use crate::config::types::listing::SortOrder;
 use crate::config::types::{ColumnType, DatabaseDriver, TableConfig};
 use crate::db::query::helpers::{
-    FilterExpression, FilterOperator, build_filter_param, extract_base_column, extract_jsonb_path,
-    is_bracket_notation, is_jsonb_column, is_jsonb_path, is_valid_expression,
-    is_valid_filter_column, is_valid_sort_field, parse_filter_key, parse_sort_field, placeholder,
-    resolve_single_key,
+    FilterExpression, FilterOperator, VALUE_INTERPOLATION_RE, build_filter_param,
+    extract_base_column, extract_jsonb_path, is_bracket_notation, is_jsonb_column, is_jsonb_path,
+    is_valid_expression, is_valid_filter_column, is_valid_sort_field, parse_filter_key,
+    parse_sort_field, placeholder, resolve_single_key,
 };
 use crate::db::query::traits::{FilterBehavior, MysqlFilter, PostgresFilter, SqliteFilter};
 use crate::db::query::types::{BuiltQuery, JoinType, QueryParams, SelectContext};
@@ -53,6 +39,7 @@ pub struct SelectBuilder {
 impl SelectBuilder {
     /// Start a new SELECT against `table` with the given main-table fields.
     #[must_use]
+    /// new
     pub fn new(table: &str, fields: Vec<String>, driver: DatabaseDriver) -> Self {
         let filter_behavior: Box<dyn FilterBehavior> = match driver {
             DatabaseDriver::Postgres => Box::new(PostgresFilter),
@@ -144,7 +131,7 @@ impl SelectBuilder {
         wc: &str,
         context: &RequestContext,
     ) -> Result<String, AppError> {
-        let re = &*INTERPOLATION_RE;
+        let re = &*VALUE_INTERPOLATION_RE;
         let mut last_match_end = 0;
         let mut new_string = String::new();
 
@@ -315,6 +302,7 @@ impl SelectBuilder {
 
     /// Build the SQL condition string for a single filter operator.
     #[allow(clippy::too_many_arguments)] // needed for 14-operator dispatch
+    /// item
     fn build_filter_condition(
         &self,
         operator: FilterOperator,
@@ -763,6 +751,7 @@ impl SelectBuilder {
     /// Render the final SQL string and return params.
     #[must_use]
     #[allow(clippy::unwrap_used)] // write! on String is infallible
+    /// build
     pub fn build(self) -> BuiltQuery {
         let mut select = self.select_fields;
         for c in &self.computed {
@@ -772,23 +761,24 @@ impl SelectBuilder {
         let mut sql = format!("SELECT {} FROM {}", select.join(", "), self.table);
 
         for j in &self.joins {
-            write!(sql, " {j}").unwrap();
+            // Writing to String cannot fail.
+            let _ = write!(sql, " {j}");
         }
 
         if !self.conditions.is_empty() {
-            write!(sql, " WHERE {}", self.conditions.join(" AND ")).unwrap();
+            let _ = write!(sql, " WHERE {}", self.conditions.join(" AND "));
         }
 
         if let Some(ref ob) = self.order_by {
-            write!(sql, " ORDER BY {ob}").unwrap();
+            let _ = write!(sql, " ORDER BY {ob}");
         }
 
         if let Some((ref limit, ref offset)) = self.limit_offset {
             if offset == "0" && !limit.starts_with('$') && !limit.starts_with('?') {
                 // Literal LIMIT (e.g. "LIMIT 1") - skip OFFSET.
-                write!(sql, " LIMIT {limit}").unwrap();
+                let _ = write!(sql, " LIMIT {limit}");
             } else {
-                write!(sql, " LIMIT {limit} OFFSET {offset}").unwrap();
+                let _ = write!(sql, " LIMIT {limit} OFFSET {offset}");
             }
         }
 

@@ -117,13 +117,17 @@ pub async fn handle_revoke(
 
 /// Request body for user registration.
 #[derive(Deserialize)]
+/// RegisterRequest
 pub struct RegisterRequest {
     pub email: String,
     pub password: String,
+    #[serde(default)]
+    pub role: Option<String>,
 }
 
 /// Request body for user login.
 #[derive(Deserialize)]
+/// LoginRequest
 pub struct LoginRequest {
     pub email: String,
     pub password: String,
@@ -131,6 +135,7 @@ pub struct LoginRequest {
 
 /// Response body for auth endpoints.
 #[derive(serde::Serialize)]
+/// AuthResponse
 pub struct AuthResponse {
     pub token: String,
 }
@@ -173,9 +178,9 @@ pub async fn handle_register(
         ));
     }
 
-    if body.password.len() < 8 {
+    if body.password.len() < 6 {
         return Err(AppError::BadRequest(
-            "Password must be at least 8 characters".to_string(),
+            "Password must be at least 6 characters".to_string(),
         ));
     }
 
@@ -224,11 +229,15 @@ pub async fn handle_register(
     }
 
     // Insert the new user using the builder.
+    let role = body
+        .role
+        .as_deref()
+        .unwrap_or(&register_config.default_role);
     let built = build_insert_user(
         table_name,
         &body.email,
         &password_hash,
-        &register_config.default_role,
+        role,
         include_timestamps,
         driver,
     )

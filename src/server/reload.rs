@@ -165,12 +165,12 @@ pub async fn handle_reload(
     // Handle store changes: create new/updated stores BEFORE swapping config/pools.
     // This ensures failures are handled gracefully without partial state swaps.
     let new_store_configs = new_config.stores.clone();
-    let (old_stores, new_stores): (Vec<Arc<dyn crate::storage::Storage>>, _) = {
+    let (_old_stores, new_stores): (Vec<Arc<dyn crate::storage::Storage>>, _) = {
         if changed_or_removed.is_empty() {
             (Vec::new(), Arc::clone(&state.stores))
         } else {
-            // Collect old store references to close later
-            let old_stores: Vec<Arc<dyn crate::storage::Storage>> = changed_or_removed
+            // Collect old store references (no longer needed after pool drain inlining).
+            let _old_stores: Vec<Arc<dyn crate::storage::Storage>> = changed_or_removed
                 .iter()
                 .filter_map(|name| state.stores.get(name).cloned())
                 .collect();
@@ -197,7 +197,7 @@ pub async fn handle_reload(
                     map.insert(name.clone(), store);
                 }
             }
-            (old_stores, Arc::new(map))
+            (_old_stores, Arc::new(map))
         }
     };
 
@@ -215,20 +215,13 @@ pub async fn handle_reload(
         old_pools
     };
 
-    // Spawn drain for old stores
-    for _old_store in old_stores {
-        tokio::spawn(async move {
-            tracing::debug!("Old store drained.");
-        });
-    }
+    // Log old store drain (no actual work needed).
 
     // Drain old pools *after* releasing the locks so in-flight requests on the
     // old pools can finish naturally. sqlx pool close() waits for active
     // connections to be returned, so this is safe.
-    tokio::spawn(async move {
-        close_pools(&old_pools).await;
-        tracing::debug!("Old database pools drained.");
-    });
+    close_pools(&old_pools).await;
+    tracing::debug!("Old database pools drained.");
 
     tracing::info!(
         "Configuration reloaded successfully: {endpoint_count} endpoints, {db_count} databases, {table_count} tables"

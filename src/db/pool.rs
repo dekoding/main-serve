@@ -13,6 +13,7 @@ use crate::error::AppError;
 
 /// A database connection pool that abstracts over the supported backends.
 #[derive(Debug, Clone)]
+/// DatabasePool
 pub enum DatabasePool {
     Sqlite(sqlx::SqlitePool),
     Postgres(sqlx::PgPool),
@@ -153,6 +154,7 @@ impl DatabasePool {
 
     /// Get the driver type of this pool.
     #[must_use]
+    /// driver
     pub fn driver(&self) -> DatabaseDriver {
         match self {
             DatabasePool::Sqlite(_) => DatabaseDriver::Sqlite,

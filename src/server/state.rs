@@ -29,6 +29,7 @@ use crate::storage::{Storage, create_store};
 /// this trait, allowing `AppState` to hold either variant behind a
 /// single type.
 #[async_trait::async_trait]
+/// RevocationStoreBackend
 pub trait RevocationStoreBackend: Send + Sync {
     /// Check whether the given JTI has been revoked.
     async fn is_revoked(&self, jti: &str) -> bool;
@@ -44,6 +45,7 @@ pub trait RevocationStoreBackend: Send + Sync {
 /// expiry time. Entries are lazily cleaned up during revocation checks
 /// and periodic cleanup runs.
 #[derive(Debug, Clone, Default)]
+/// InMemoryRevocationStore
 pub struct InMemoryRevocationStore {
     /// Map of JTI -> revocation expiry instant, wrapped in Arc for shared cloning.
     revoked: Arc<tokio::sync::Mutex<std::collections::HashMap<String, Instant>>>,
@@ -78,6 +80,7 @@ impl RevocationStoreBackend for InMemoryRevocationStore {
 /// `expires_at` (timestamptz). Entries are cleaned up periodically based
 /// on the configured interval.
 #[derive(Debug, Clone)]
+/// DatabaseRevocationStore
 pub struct DatabaseRevocationStore {
     /// The database pool for this store.
     pool: DatabasePool,
@@ -88,6 +91,7 @@ pub struct DatabaseRevocationStore {
 impl DatabaseRevocationStore {
     /// Create a new database-backed revocation store.
     #[must_use]
+    /// new
     pub fn new(pool: DatabasePool, table_name: String) -> Self {
         Self { pool, table_name }
     }
@@ -163,6 +167,7 @@ impl RevocationStoreBackend for DatabaseRevocationStore {
 
 /// Unified revocation store that can be either in-memory or database-backed.
 #[derive(Debug)]
+/// RevocationStoreImpl
 pub enum RevocationStoreImpl {
     /// In-memory store.
     InMemory(Arc<InMemoryRevocationStore>),
@@ -171,6 +176,7 @@ pub enum RevocationStoreImpl {
 }
 
 impl Clone for RevocationStoreImpl {
+    /// item
     fn clone(&self) -> Self {
         match self {
             Self::InMemory(inner) => Self::InMemory(inner.clone()),
@@ -216,6 +222,7 @@ impl RevocationStoreImpl {
     ///
     /// Returns `None` for the in-memory variant.
     #[must_use]
+    /// cleanup_interval_secs
     pub fn cleanup_interval_secs(&self) -> Option<u64> {
         match self {
             Self::Database(_) => None, // Caller passes interval from config
@@ -226,6 +233,7 @@ impl RevocationStoreImpl {
 
 /// Shared application state available to all handlers.
 #[derive(Clone)]
+/// AppState
 pub struct AppState {
     /// The current parsed configuration, swappable on hot-reload.
     pub config: Arc<RwLock<AppConfig>>,
@@ -323,6 +331,7 @@ impl AppState {
 
     /// Get a storage store by name.
     #[must_use]
+    /// get_store
     pub fn get_store(&self, name: &str) -> Option<Arc<dyn Storage>> {
         self.stores.get(name).cloned()
     }
@@ -461,6 +470,7 @@ impl AppState {
 /// parents, etc.) and returns a map from role name to the set of inherited
 /// roles. Roles not present in the hierarchy map to an empty set.
 #[must_use]
+/// compute_role_inheritance
 pub fn compute_role_inheritance(
     role_hierarchy: &Option<RoleHierarchy>,
 ) -> HashMap<String, HashSet<String>> {
@@ -538,12 +548,12 @@ pub async fn build_stores_from_config(
     Ok(stores)
 }
 
+#[must_use]
 /// Recompute store changes between old and new configurations.
 ///
 /// Returns two vectors:
 /// - `unchanged`: Store names that exist in both configs with the same backend+root
 /// - `changed_or_removed`: Store names that need recreation (changed or removed from config)
-#[must_use]
 pub fn compute_store_changes(
     old_configs: &HashMap<String, StoreConfig>,
     new_configs: &HashMap<String, StoreConfig>,

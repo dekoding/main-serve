@@ -31,7 +31,7 @@ use crate::middleware::auth::{
     handler::{handle_oauth2_authorize, handle_oauth2_callback},
 };
 use crate::middleware::body_limit::body_limit_middleware;
-use crate::middleware::cors::{self, build_cors_layer};
+use crate::middleware::cors::build_cors_layer;
 use crate::middleware::logging::{body_logging_middleware, build_trace_layer};
 use crate::middleware::rate_limit::rate_limit_middleware;
 
@@ -271,6 +271,7 @@ fn register_spa_bare_routes(
     router
 }
 
+/// item
 fn check_use_cors(
     mut app: Router<AppState>,
     path: &str,
@@ -287,6 +288,7 @@ fn check_use_cors(
     app
 }
 
+/// item
 fn add_endpoint_route(
     mut app: Router<AppState>,
     path: &str,
@@ -574,7 +576,6 @@ async fn handle_upload_route(
     state: State<AppState>,
     matched_path: MatchedPath,
     method: axum::http::Method,
-    uri: Uri,
     headers: HeaderMap,
     multipart: Multipart,
 ) -> Result<Response, AppError> {
@@ -585,7 +586,7 @@ async fn handle_upload_route(
         .await
         .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
 
-    handle_file_upload_route(multipart, state, uri, method, endpoint, headers).await
+    handle_file_upload_route(multipart, state, method, endpoint, headers).await
 }
 
 #[debug_handler]

@@ -21,6 +21,7 @@ use crate::server::state::AppState;
 /// with default HTTP tracing behavior via `TraceLayer::new_for_http()`.
 /// Body-level logging is handled separately by `body_logging_middleware`.
 #[must_use]
+/// build_trace_layer
 pub fn build_trace_layer()
 -> TraceLayer<tower_http::classify::SharedClassifier<tower_http::classify::ServerErrorsAsFailures>>
 {

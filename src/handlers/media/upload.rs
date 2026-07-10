@@ -18,7 +18,6 @@ use crate::middleware::auth::extractor::RequestContext;
 pub async fn handle_media_upload(
     handler_ctx: &HandlerContext<'_>,
     mut multipart: axum::extract::Multipart,
-    _uri: &axum::http::Uri,
 ) -> Result<Response, AppError> {
     let config = &handler_ctx
         .endpoint
@@ -78,25 +77,6 @@ pub async fn handle_media_upload(
             .create_dir_all(parent)
             .await
             .map_err(|e| AppError::FileOperation(format!("Failed to create directory: {e}")))?;
-    }
-
-    let file_extension = sanitized_filename
-        .rsplit('.')
-        .next()
-        .map(|ext: &str| ext.to_lowercase())
-        .unwrap_or_default();
-
-    if !upload_config.allowed_extensions.is_empty() {
-        let normalized: Vec<String> = upload_config
-            .allowed_extensions
-            .iter()
-            .map(|ext| ext.trim_start_matches('.').to_lowercase())
-            .collect();
-        if !normalized.contains(&file_extension) {
-            return Err(AppError::BadRequest(format!(
-                "File extension .{file_extension} is not allowed"
-            )));
-        }
     }
 
     storage

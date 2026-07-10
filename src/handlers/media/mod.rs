@@ -1,13 +1,22 @@
 /// Media library handler.
 pub mod content_refs;
+/// create
 pub mod create;
+/// delete
 pub mod delete;
+/// list
 pub mod list;
+/// move_rename
 pub mod move_rename;
+/// resize
 pub mod resize;
+/// sharing
 pub mod sharing;
+/// trash
 pub mod trash;
+/// update
 pub mod update;
+/// upload
 pub mod upload;
 
 use std::collections::HashMap;
@@ -73,7 +82,6 @@ pub async fn handle_media_upload_route(
     state: axum::extract::State<AppState>,
     matched_path: axum::extract::MatchedPath,
     method: axum::http::Method,
-    uri: axum::http::Uri,
     headers: axum::http::HeaderMap,
     query: axum::extract::Query<HashMap<String, String>>,
     multipart: axum::extract::Multipart,
@@ -112,7 +120,7 @@ pub async fn handle_media_upload_route(
         query_params: &query.0,
     };
 
-    handle_media_upload(&handler_ctx, multipart, &uri).await
+    handle_media_upload(&handler_ctx, multipart).await
 }
 
 /// Core media handler logic - dispatches to specific route handlers.

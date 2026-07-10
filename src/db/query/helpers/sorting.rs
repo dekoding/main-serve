@@ -1,4 +1,10 @@
-use crate::{config::types::listing::SortOrder, db::query::types::QueryParams};
+use crate::{
+    config::types::listing::SortOrder,
+    db::query::{
+        helpers::{column_exists, is_jsonb_column},
+        types::QueryParams,
+    },
+};
 
 /// Parse a sorting field that may use LHS bracket notation.
 ///
@@ -16,6 +22,7 @@ pub(crate) fn parse_sort_field(field: &str) -> (String, Vec<String>) {
     let chars: Vec<char> = field.chars().collect();
 
     while i < chars.len() {
+        // SAFETY: i < chars.len() is guaranteed by the while loop condition.
         let c = chars[i];
 
         if c == '[' {
@@ -27,6 +34,7 @@ pub(crate) fn parse_sort_field(field: &str) -> (String, Vec<String>) {
             i += 1;
             let mut bracket_content = String::new();
             while i < chars.len() && chars[i] != ']' {
+                // SAFETY: i < chars.len() is checked in the while loop condition.
                 bracket_content.push(chars[i]);
                 i += 1;
             }
@@ -89,22 +97,6 @@ pub(crate) fn is_valid_sort_field(
         // Regular field
         column_exists(field, columns)
     }
-}
-
-/// Check if a column in the table config is a JSON or JSONB type.
-fn is_jsonb_column(column_name: &str, columns: &[crate::config::types::ColumnConfig]) -> bool {
-    columns.iter().any(|c| {
-        c.name == column_name
-            && matches!(
-                c.column_type,
-                crate::config::types::ColumnType::Json | crate::config::types::ColumnType::Jsonb
-            )
-    })
-}
-
-/// Check if a filter column exists in the table schema.
-fn column_exists(column_name: &str, columns: &[crate::config::types::ColumnConfig]) -> bool {
-    columns.iter().any(|c| c.name == column_name)
 }
 
 /// Extract pagination, sorting, and filter params from a query string map.

@@ -13,7 +13,7 @@ use crate::db::query::file_store_refs::{
     build_file_store_ref_delete, build_file_store_ref_insert, build_file_store_ref_max_order,
     build_file_store_ref_select,
 };
-use crate::db::query::helpers::{build_select_list_count, extract_query_params};
+use crate::db::query::helpers::extract_query_params;
 use crate::db::query::select_one::{
     build_select_by_id, build_select_file_path, build_select_trashed, build_select_trashed_ids,
     build_select_trashed_item,
@@ -21,9 +21,9 @@ use crate::db::query::select_one::{
 use crate::db::query::types::{MutationContext, SelectContext};
 use crate::db::query::update::{build_set_restored, build_set_trashed};
 use crate::error::AppError;
-use crate::handlers::common::helpers::extract_id;
+use crate::handlers::common::helpers::{extract_file_path, extract_id};
 use crate::handlers::common::store::resolve_store;
-use crate::handlers::common::utils::{DatabaseContext, HandlerContext};
+use crate::handlers::common::utils::{DatabaseContext, HandlerContext, filter_writable_body};
 use crate::middleware::auth::extractor::RequestContext;
 use crate::server::state::AppState;
 use crate::storage::Storage;
@@ -36,6 +36,20 @@ struct FileStoreContext<'a> {
     id: Option<&'a str>,
     body: Option<&'a serde_json::Value>,
     storage: Option<&'a dyn Storage>,
+}
+
+impl FileStoreContext<'_> {
+    /// Extract the file ID, returning an error if not present.
+    fn require_id(&self) -> Result<&str, AppError> {
+        self.id
+            .ok_or_else(|| AppError::Internal("File ID required".to_string()))
+    }
+
+    /// Extract the storage backend, returning an error if not present.
+    fn require_storage(&self) -> Result<&dyn Storage, AppError> {
+        self.storage
+            .ok_or_else(|| AppError::Internal("Storage backend required".to_string()))
+    }
 }
 
 /// Route handler for file store endpoints.
@@ -108,29 +122,23 @@ async fn dispatch_file_store(
         axum::http::Method::POST => {
             dispatch_file_store_post(handler_ctx, &db_ctx, config, body, &path).await
         }
-        axum::http::Method::PATCH => {
-            let _ = std::fs::write("/tmp/filestore_dispatch_debug.txt", format!(
-                "PATCH path={}, extract_id={:?}\n",
-                path, extract_id(&path)
-            ));
-            match extract_id(&path) {
-                Some(id) => {
-                    handle_file_store_update(&FileStoreContext {
-                        handler_ctx,
-                        id: Some(&id),
-                        config,
-                        db_ctx: &db_ctx,
-                        body: Some(body),
-                        storage: None,
-                    })
-                    .await
-                }
-                None => Err(AppError::BadRequest(format!(
-                    "File ID required for path: {}",
-                    path
-                ))),
+        axum::http::Method::PATCH => match extract_id(&path) {
+            Some(id) => {
+                handle_file_store_update(&FileStoreContext {
+                    handler_ctx,
+                    id: Some(&id),
+                    config,
+                    db_ctx: &db_ctx,
+                    body: Some(body),
+                    storage: None,
+                })
+                .await
             }
-        }
+            None => Err(AppError::BadRequest(format!(
+                "File ID required for path: {}",
+                path
+            ))),
+        },
         axum::http::Method::DELETE => {
             // Handle content reference detach: /api/files/{id}/refs/{entity_id}
             if let Some(full_path) = path.strip_prefix("/").and_then(|p| {
@@ -198,7 +206,7 @@ async fn dispatch_file_store_get(
         .await
     } else {
         match extract_id(path) {
-            Some(id) => handle_file_store_get_one(db_ctx, config, &id).await,
+            Some(id) => handle_file_store_get_one(handler_ctx, db_ctx, config, &id).await,
             None => Err(AppError::BadRequest("File ID required".to_string())),
         }
     }
@@ -256,7 +264,6 @@ async fn dispatch_file_store_post(
 /// Handle listing file store entries.
 async fn handle_file_store_list(ctx: &FileStoreContext<'_>) -> Result<Response, AppError> {
     let pool = &ctx.db_ctx.pool;
-    let driver = ctx.db_ctx.pool.driver();
     let mut qp = extract_query_params(ctx.handler_ctx.query_params);
 
     qp.page.get_or_insert(1);
@@ -270,44 +277,37 @@ async fn handle_file_store_list(ctx: &FileStoreContext<'_>) -> Result<Response, 
         qp.order = Some(ctx.config.sorting.default_order);
     }
 
-    if ctx
-        .config
-        .ownership
-        .as_ref()
-        .is_some_and(|o| !o.admin_override)
-    {
-        let owner_col = ctx
-            .config
-            .ownership
-            .as_ref()
-            .map(|o| o.owner_column.as_str())
-            .unwrap_or("owner_id");
-        qp.filters.insert(
-            owner_col.to_string(),
-            ctx.handler_ctx.extract_user_id().await?,
-        );
+    if let Some(ownership) = &ctx.config.ownership {
+        let user_id = ctx.handler_ctx.extract_user_id().await?;
+        let auth_info = ctx.handler_ctx.extract_auth_info().await?;
+
+        if !ctx.handler_ctx.endpoint.roles.is_admin(&auth_info.role) {
+            let owner_col = ownership.owner_column.as_str();
+            qp.filters.insert(owner_col.to_string(), user_id);
+        }
     }
 
     let select_ctx = SelectContext::permissive();
     let built = build_select_list(ctx.db_ctx, &select_ctx, &qp, &RequestContext::default())?;
-    let rows = pool.fetch_all_json(&built.sql, &built.params).await?;
+    let mut rows = pool.fetch_all_json(&built.sql, &built.params).await?;
 
-    let count_built = build_select_list_count(
-        &ctx.config.table,
-        driver,
-        &qp,
-        &SelectContext::permissive(),
-        &RequestContext::default(),
-    )?;
+    // Filter out trashed items
+    rows.retain(|row| row.get("trashed_at").and_then(|v| v.as_str()).is_none());
 
-    let count_row = pool
-        .fetch_optional_json(&count_built.sql, &count_built.params)
-        .await?;
-    let total: i64 = count_row
-        .as_ref()
-        .and_then(|r| r.get("count"))
-        .and_then(|v| v.as_i64())
-        .unwrap_or(0);
+    let total: i64 = rows.len() as i64;
+
+    // Convert numeric ids to strings for consistency with create/get responses
+    for row in &mut rows {
+        if let serde_json::Value::Object(obj) = row
+            && let Some(id_val) = obj.get("id")
+        {
+            let id_str = id_val
+                .as_i64()
+                .map(|i| i.to_string())
+                .unwrap_or_else(|| id_val.to_string());
+            obj.insert("id".to_string(), serde_json::Value::String(id_str));
+        }
+    }
 
     let rows = apply_row_permissions(&rows, ctx.config).await?;
 
@@ -326,17 +326,31 @@ async fn handle_file_store_list(ctx: &FileStoreContext<'_>) -> Result<Response, 
         }
     });
 
-    tracing::debug!("LIST rows count={}, first_row={:?}", rows.len(), rows.first());
+    tracing::debug!(
+        "LIST rows count={}, first_row={:?}",
+        rows.len(),
+        rows.first()
+    );
 
     Ok((StatusCode::OK, axum::Json(response)).into_response())
 }
 
 /// Handle getting a single file store entry.
 async fn handle_file_store_get_one(
+    handler_ctx: &HandlerContext<'_>,
     db_ctx: &DatabaseContext,
     config: &FileStoreConfig,
     id: &str,
 ) -> Result<Response, AppError> {
+    // Check ownership if configured
+    if let Some(ownership) = &config.ownership {
+        let auth_info = handler_ctx.extract_auth_info().await?;
+        let is_admin = handler_ctx.endpoint.roles.is_admin(&auth_info.role);
+        if ownership.admin_override && !is_admin {
+            check_file_store_ownership(handler_ctx, config, id, &db_ctx.pool.driver()).await?;
+        }
+    }
+
     let built = build_select_one(
         db_ctx,
         &SelectContext::permissive(),
@@ -349,30 +363,32 @@ async fn handle_file_store_get_one(
         .await?
     {
         Some(mut row) => {
-            if let Some(_permissions) = &config.field_permissions {
+            if let Some(permissions) = &config.field_permissions {
+                let auth_info = handler_ctx.extract_auth_info().await?;
+                let user_role = auth_info.role;
+                let user_roles = user_roles(&user_role);
                 let mut filtered = serde_json::Map::new();
                 if let Some(obj) = row.as_object_mut() {
                     let keys: Vec<String> = obj.keys().cloned().collect();
                     for key in keys {
-                        let readable = is_field_readable(&key, config).await;
-                        if let Some(value) = obj.remove(&key) {
-                            if readable {
-                                filtered.insert(key, value);
-                            }
+                        if is_field_readable_by_role(&key, &user_roles, permissions)
+                            && let Some(value) = obj.remove(&key)
+                        {
+                            filtered.insert(key, value);
                         }
                     }
                 }
                 row = serde_json::Value::Object(filtered);
             }
             // Convert id to string if it's a number (consistent with CREATE response)
-            if let serde_json::Value::Object(ref mut obj) = row {
-                if let Some(id_val) = obj.get("id") {
-                    let id_str = id_val
-                        .as_i64()
-                        .map(|i| i.to_string())
-                        .unwrap_or_else(|| id_val.to_string());
-                    obj.insert("id".to_string(), serde_json::Value::String(id_str));
-                }
+            if let serde_json::Value::Object(ref mut obj) = row
+                && let Some(id_val) = obj.get("id")
+            {
+                let id_str = id_val
+                    .as_i64()
+                    .map(|i| i.to_string())
+                    .unwrap_or_else(|| id_val.to_string());
+                obj.insert("id".to_string(), serde_json::Value::String(id_str));
             }
             Ok((StatusCode::OK, axum::Json(row)).into_response())
         }
@@ -389,20 +405,35 @@ async fn handle_file_store_create(ctx: &FileStoreContext<'_>) -> Result<Response
     let table_config = &ctx.db_ctx.table_config;
     let user_id = ctx.handler_ctx.extract_user_id().await?;
 
+    // Check field write permissions
+    if let Some(ref permissions) = ctx.config.field_permissions {
+        let auth_info = ctx.handler_ctx.extract_auth_info().await?;
+        let user_role = auth_info.role;
+        let user_roles = user_roles(&user_role);
+        if let Some(obj) = ctx.body.and_then(|v| v.as_object()) {
+            for (k, _) in obj {
+                if table_config.columns.iter().any(|c| c.name == *k)
+                    && !is_field_writable(k, &user_roles, permissions)
+                {
+                    return Err(AppError::Forbidden(format!(
+                        "Field '{}' is not writable by the current user's roles",
+                        k
+                    )));
+                }
+            }
+        }
+    }
+
     let writable_columns = table_config
         .columns
         .iter()
         .map(|c| c.name.clone())
         .collect::<Vec<_>>();
-    let mut body_map = serde_json::Map::new();
-
-    if let Some(obj) = ctx.body.and_then(|v| v.as_object()) {
-        for (k, v) in obj {
-            if writable_columns.contains(&k.to_string()) {
-                body_map.insert(k.clone(), v.clone());
-            }
-        }
-    }
+    let body_value = ctx
+        .body
+        .cloned()
+        .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
+    let mut body_map = filter_writable_body(&body_value, &writable_columns);
 
     if ctx.config.ownership.is_some() {
         let owner_col = ctx
@@ -444,6 +475,16 @@ async fn handle_file_store_create(ctx: &FileStoreContext<'_>) -> Result<Response
 
     if built.sql.contains("RETURNING") {
         let mut row = pool.fetch_optional_json(&built.sql, &built.params).await?;
+        // Add owner column to response if ownership is configured
+        if let Some(serde_json::Value::Object(ref mut obj)) = row
+            && let Some(ownership) = &ctx.config.ownership
+        {
+            let owner_col = ownership.owner_column.as_str();
+            obj.insert(
+                owner_col.to_string(),
+                serde_json::Value::String(user_id.clone()),
+            );
+        }
         // Convert id to string if it's a number
         if let Some(serde_json::Value::Object(ref mut obj)) = row
             && let Some(id_val) = obj.get("id")
@@ -476,13 +517,8 @@ async fn handle_file_store_update(ctx: &FileStoreContext<'_>) -> Result<Response
     let driver = &ctx.db_ctx.pool.driver();
     let auth_info = ctx.handler_ctx.extract_auth_info().await?;
 
-    if ctx
-        .config
-        .ownership
-        .as_ref()
-        .is_some_and(|o| !o.admin_override)
-    {
-        check_file_store_ownership(ctx.handler_ctx, ctx.config, ctx.id.unwrap(), driver).await?;
+    if ctx.config.ownership.is_some() && !ctx.handler_ctx.endpoint.roles.is_admin(&auth_info.role) {
+        check_file_store_ownership(ctx.handler_ctx, ctx.config, ctx.require_id()?, driver).await?;
     }
 
     // Check field write permissions
@@ -504,24 +540,29 @@ async fn handle_file_store_update(ctx: &FileStoreContext<'_>) -> Result<Response
         }
     }
 
-    let mut body_map = serde_json::Map::new();
-    if let Some(obj) = ctx.body.and_then(|v| v.as_object()) {
-        for (k, v) in obj {
-            if table_config.columns.iter().any(|c| c.name == *k) {
-                body_map.insert(k.clone(), v.clone());
-            }
-        }
-    }
+    let writable_columns: Vec<String> = table_config
+        .columns
+        .iter()
+        .map(|c| c.name.clone())
+        .collect();
+    let body_value = ctx
+        .body
+        .cloned()
+        .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
+    let mut body_map = filter_writable_body(&body_value, &writable_columns);
     body_map.insert(
         "updated_at".to_string(),
         serde_json::Value::String(chrono::Utc::now().to_rfc3339()),
     );
 
-    let mutate_ctx = MutationContext::default();
+    let mutate_ctx = MutationContext {
+        writable_fields: vec!["*".to_string()],
+        ..MutationContext::default()
+    };
     let built = build_update(
         ctx.db_ctx,
         mutate_ctx,
-        ctx.id.unwrap(),
+        ctx.require_id()?,
         &serde_json::Value::Object(body_map),
         &RequestContext::default(),
         &None,
@@ -531,7 +572,7 @@ async fn handle_file_store_update(ctx: &FileStoreContext<'_>) -> Result<Response
     if rows_affected == 0 {
         return Err(AppError::NotFound(format!(
             "File entry with id '{}' not found",
-            ctx.id.unwrap()
+            ctx.require_id()?
         )));
     }
 
@@ -539,7 +580,7 @@ async fn handle_file_store_update(ctx: &FileStoreContext<'_>) -> Result<Response
     let built = build_select_one(
         ctx.db_ctx,
         &SelectContext::permissive(),
-        ctx.id.unwrap(),
+        ctx.require_id()?,
         &RequestContext::default(),
     )?;
     let row = pool.fetch_optional_json(&built.sql, &built.params).await?;
@@ -556,18 +597,16 @@ async fn handle_file_store_update(ctx: &FileStoreContext<'_>) -> Result<Response
 async fn handle_file_store_delete(ctx: &FileStoreContext<'_>) -> Result<Response, AppError> {
     let pool = &ctx.db_ctx.pool;
     let driver = &ctx.db_ctx.pool.driver();
-    let storage = ctx.storage.unwrap();
-    let id = ctx.id.unwrap();
+    let storage = ctx.require_storage()?;
+    let id = ctx.require_id()?;
     let trash_enabled = ctx.config.trash.as_ref().is_some_and(|t| t.enabled);
 
     if trash_enabled {
-        if ctx
-            .config
-            .ownership
-            .as_ref()
-            .is_some_and(|o| !o.admin_override)
-        {
-            check_file_store_ownership(ctx.handler_ctx, ctx.config, id, driver).await?;
+        if ctx.config.ownership.is_some() {
+            let auth_info = ctx.handler_ctx.extract_auth_info().await?;
+            if !ctx.handler_ctx.endpoint.roles.is_admin(&auth_info.role) {
+                check_file_store_ownership(ctx.handler_ctx, ctx.config, id, driver).await?;
+            }
         }
 
         let built = build_select_file_path(&ctx.config.table, ctx.db_ctx.pool.driver());
@@ -612,13 +651,11 @@ async fn handle_file_store_delete(ctx: &FileStoreContext<'_>) -> Result<Response
         )
             .into_response())
     } else {
-        if ctx
-            .config
-            .ownership
-            .as_ref()
-            .is_some_and(|o| !o.admin_override)
-        {
-            check_file_store_ownership(ctx.handler_ctx, ctx.config, id, driver).await?;
+        if ctx.config.ownership.is_some() {
+            let auth_info = ctx.handler_ctx.extract_auth_info().await?;
+            if !ctx.handler_ctx.endpoint.roles.is_admin(&auth_info.role) {
+                check_file_store_ownership(ctx.handler_ctx, ctx.config, id, driver).await?;
+            }
         }
 
         let built = build_select_file_path(&ctx.config.table, ctx.db_ctx.pool.driver());
@@ -714,17 +751,9 @@ async fn apply_row_permissions(
         }
     }
 
-    if !filtered_rows.is_empty() {
-        let _ = std::fs::write("/tmp/filestore_permissions.txt", format!(
-            "first row={:?}\n",
-            filtered_rows[0]
-        ));
-    }
-
     Ok(filtered_rows)
 }
 
-/// Check if a field is writable based on permissions.
 /// Check if a field is writable based on permissions.
 fn is_field_writable(
     field: &str,
@@ -760,16 +789,30 @@ async fn is_field_readable(field: &str, config: &FileStoreConfig) -> bool {
         return true;
     }
 
-    if let Some(permissions) = &config.field_permissions {
-        if let Some(field_perm) = permissions.get(field)
-            && field_perm.read.iter().any(|r| r == "*")
-        {
-            return true;
-        }
+    if let Some(permissions) = &config.field_permissions
+        && let Some(field_perm) = permissions.get(field)
+        && field_perm.read.iter().any(|r| r == "*")
+    {
+        return true;
     }
 
     // No explicit permissions or permissions without "*" = readable by default
     // (We can't check user role here, so be permissive)
+    true
+}
+
+/// Check if a field is readable based on the user's roles.
+fn is_field_readable_by_role(
+    field: &str,
+    user_roles: &[String],
+    permissions: &HashMap<String, crate::config::types::FileStoreFieldPermissions>,
+) -> bool {
+    if let Some(field_perm) = permissions.get(field) {
+        if field_perm.read.iter().any(|r| r == "*") {
+            return true;
+        }
+        return user_roles.iter().any(|r| field_perm.read.contains(r));
+    }
     true
 }
 
@@ -797,9 +840,13 @@ async fn handle_file_store_attach(
 
     let entity_id = body
         .get("entity_id")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::BadRequest("entity_id is required".to_string()))?
-        .to_string();
+        .ok_or_else(|| AppError::BadRequest("entity_id is required".to_string()))?;
+    let entity_id = entity_id
+        .as_str()
+        .map(|s| s.to_string())
+        .or_else(|| entity_id.as_i64().map(|i| i.to_string()))
+        .or_else(|| entity_id.as_u64().map(|i| i.to_string()))
+        .ok_or_else(|| AppError::BadRequest("entity_id is required".to_string()))?;
 
     let content_type = body
         .get("content_type")
@@ -981,8 +1028,19 @@ async fn handle_file_store_trash(
 async fn handle_file_store_trash_list(db_ctx: &DatabaseContext) -> Result<Response, AppError> {
     let built = build_select_trashed(&db_ctx.table_config.name, db_ctx.pool.driver());
     let rows = db_ctx.pool.fetch_all_json(&built.sql, &[]).await?;
+    let total: i64 = rows.len() as i64;
 
-    Ok((StatusCode::OK, axum::Json(rows)).into_response())
+    let response = serde_json::json!({
+        "data": rows,
+        "pagination": {
+            "page": 1,
+            "page_size": total,
+            "total": total,
+            "total_pages": 1,
+        }
+    });
+
+    Ok((StatusCode::OK, axum::Json(response)).into_response())
 }
 
 async fn handle_file_store_trash_restore(
@@ -1003,7 +1061,7 @@ async fn handle_file_store_trash_restore(
         .fetch_optional_json(&built.sql, &[id.into()])
         .await?;
 
-    let file_path = extract_file_path(row, id).await?;
+    let file_path = extract_file_path(row, id).await.unwrap_or_default();
 
     let trash_path = root.join(&trash_config.prefix).join(file_path.clone());
     let restore_path = root.join(file_path);
@@ -1050,7 +1108,20 @@ async fn handle_file_store_trash_empty(
         .ok_or_else(|| AppError::Internal("Trash not enabled".to_string()))?;
 
     let built = build_select_trashed_ids(&config.table, db_ctx.pool.driver());
-    let rows = db_ctx.pool.fetch_all_json(&built.sql, &[]).await?;
+    let mut rows = db_ctx.pool.fetch_all_json(&built.sql, &[]).await?;
+
+    // Convert numeric ids to strings for consistency
+    for row in &mut rows {
+        if let serde_json::Value::Object(obj) = row
+            && let Some(id_val) = obj.get("id")
+        {
+            let id_str = id_val
+                .as_i64()
+                .map(|i| i.to_string())
+                .unwrap_or_else(|| id_val.to_string());
+            obj.insert("id".to_string(), serde_json::Value::String(id_str));
+        }
+    }
 
     let mut deleted_count = 0u64;
 
@@ -1116,7 +1187,7 @@ async fn handle_file_store_trash_permanent_delete(
         .fetch_optional_json(&built.sql, &[id.into()])
         .await?;
 
-    let file_path = extract_file_path(row, id).await?;
+    let file_path = extract_file_path(row, id).await.unwrap_or_default();
 
     if !file_path.is_empty() {
         let trash_path = root.join(&trash_config.prefix).join(&file_path);
@@ -1147,17 +1218,4 @@ async fn handle_file_store_trash_permanent_delete(
         })),
     )
         .into_response())
-}
-
-/// Extract file path from a row, falling back to id if not found.
-async fn extract_file_path(row: Option<serde_json::Value>, id: &str) -> Result<String, AppError> {
-    let file_path = match row {
-        Some(r) => r
-            .get("file_path")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| id.to_string()),
-        None => id.to_string(),
-    };
-    Ok(file_path)
 }

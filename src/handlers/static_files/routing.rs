@@ -66,22 +66,13 @@ pub async fn handle_static_files(
     }
 
     let request_path = uri.path();
-    let relative_str = extract_relative_path(request_path, &endpoint.path);
-    let relative = percent_encoding::percent_decode_str(&relative_str)
-        .decode_utf8()
-        .map_err(|_| AppError::BadRequest("Invalid UTF-8 in path".to_string()))?
-        .into_owned();
-
-    if relative.split('/').any(|seg| seg == ".." || seg == ".") {
-        return Err(AppError::Forbidden("Path traversal denied".to_string()));
-    }
+    let relative = extract_relative_path(request_path, &endpoint.path)?;
 
     match method {
         Method::HEAD => {
             // For HEAD, call GET handler then strip body
-            let resp = crate::handlers::static_files::serving::handle_static_get(
-                state,
-                StaticGetContext {
+            let resp =
+                crate::handlers::static_files::serving::handle_static_get(StaticGetContext {
                     config: static_config,
                     relative: &relative,
                     root: &root,
@@ -89,40 +80,26 @@ pub async fn handle_static_files(
                     query: query.as_ref(),
                     headers: &headers,
                     storage,
-                },
-            )
-            .await?;
-            let (_, body) = resp.into_parts();
-            let response = Response::new(body);
-            // Copy headers from the original response
+                })
+                .await?;
+            let parts = resp.into_parts();
+            let response = (parts.0, axum::body::Body::empty()).into_response();
             Ok(response)
         }
         Method::GET => {
-            crate::handlers::static_files::serving::handle_static_get(
-                state,
-                StaticGetContext {
-                    config: static_config,
-                    relative: &relative,
-                    root: &root,
-                    request_path,
-                    query: query.as_ref(),
-                    headers: &headers,
-                    storage,
-                },
-            )
+            crate::handlers::static_files::serving::handle_static_get(StaticGetContext {
+                config: static_config,
+                relative: &relative,
+                root: &root,
+                request_path,
+                query: query.as_ref(),
+                headers: &headers,
+                storage,
+            })
             .await
         }
         Method::DELETE => {
-            handle_file_delete(
-                storage.as_ref(),
-                state,
-                &endpoint,
-                static_config,
-                &relative,
-                &root,
-                &headers,
-            )
-            .await
+            handle_file_delete(storage.as_ref(), static_config, &relative, &root).await
         }
         Method::OPTIONS => {
             let mut response = (StatusCode::OK).into_response();
@@ -145,7 +122,6 @@ pub async fn handle_static_files(
 pub async fn handle_file_upload_route(
     multipart: axum::extract::Multipart,
     state: State<AppState>,
-    uri: Uri,
     method: Method,
     endpoint: EndpointConfig,
     headers: axum::http::HeaderMap,
@@ -165,23 +141,11 @@ pub async fn handle_file_upload_route(
                 )));
             }
 
-            let request_path = uri.path();
-            let relative_str = extract_relative_path(request_path, &endpoint.path);
-            let relative = percent_encoding::percent_decode_str(&relative_str)
-                .decode_utf8()
-                .map_err(|_| AppError::BadRequest("Invalid UTF-8 in path".to_string()))?
-                .into_owned();
-
-            if relative.split('/').any(|seg| seg == ".." || seg == ".") {
-                return Err(AppError::Forbidden("Path traversal denied".to_string()));
-            }
-
             crate::handlers::static_files::upload::handle_file_upload(
                 multipart,
                 state,
                 &endpoint,
                 static_config,
-                &relative,
                 &root,
                 &headers,
                 storage,

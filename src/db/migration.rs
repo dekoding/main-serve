@@ -179,6 +179,7 @@ pub async fn run_migrations(
 
 /// A column as it currently exists in the database.
 #[derive(Debug)]
+/// item
 struct ExistingColumn {
     name: String,
 }
@@ -365,6 +366,7 @@ async fn alter_existing_table(
 
 /// Generate an ALTER TABLE ... ADD COLUMN statement for a single column.
 #[must_use]
+/// item
 fn generate_add_column(table_name: &str, col: &ColumnConfig, driver: DatabaseDriver) -> String {
     let mut col_def = format!(
         "{} {}",
@@ -393,6 +395,7 @@ fn generate_add_column(table_name: &str, col: &ColumnConfig, driver: DatabaseDri
 
 /// Generate an ALTER TABLE ... DROP COLUMN statement.
 #[must_use]
+/// item
 fn generate_drop_column(table_name: &str, column_name: &str, driver: DatabaseDriver) -> String {
     let col = quote_ident(column_name, driver);
     format!(
@@ -403,6 +406,7 @@ fn generate_drop_column(table_name: &str, column_name: &str, driver: DatabaseDri
 
 /// Generate a CREATE TABLE IF NOT EXISTS statement.
 #[must_use]
+/// item
 fn generate_create_table(table: &TableConfig, driver: DatabaseDriver) -> String {
     let mut parts: Vec<String> = Vec::new();
 
@@ -500,6 +504,7 @@ fn generate_fk_def(fk: &crate::config::types::ForeignKeyConfig, driver: Database
 
 /// Generate an index creation statement.
 #[must_use]
+/// item
 fn generate_create_index(table_name: &str, column_name: &str, driver: DatabaseDriver) -> String {
     let idx_name = index_name(table_name, column_name);
     match driver {
@@ -518,12 +523,14 @@ fn generate_create_index(table_name: &str, column_name: &str, driver: DatabaseDr
     }
 }
 
+/// item
 fn index_name(table_name: &str, column_name: &str) -> String {
     format!("idx_{table_name}_{column_name}")
 }
 
 /// Quote an object name (table or index) for the current driver.
 #[must_use]
+/// quote_object_name
 pub fn quote_object_name(name: &str, driver: DatabaseDriver) -> String {
     match driver {
         DatabaseDriver::Mysql => format!("`{name}`"),
@@ -533,6 +540,7 @@ pub fn quote_object_name(name: &str, driver: DatabaseDriver) -> String {
 
 /// Quote a column identifier for the current driver.
 #[must_use]
+/// item
 fn quote_ident(name: &str, driver: DatabaseDriver) -> String {
     quote_object_name(name, driver)
 }
@@ -675,6 +683,7 @@ fn sort_tables_topologically(tables: &[TableConfig]) -> Result<Vec<TableConfig>,
     let mut result = Vec::new();
     let mut head = 0usize;
     while head < queue.len() {
+        // SAFETY: head < queue.len() is guaranteed by the while condition.
         let idx = queue[head];
         head += 1;
         result.push(idx);
@@ -707,7 +716,8 @@ fn sort_tables_topologically(tables: &[TableConfig]) -> Result<Vec<TableConfig>,
         )));
     }
 
-    // Build result in sorted order
+    // Build result in sorted order.
+    // SAFETY: result contains indices into tables (from topological sort of table indices).
     Ok(result.iter().map(|&idx| tables[idx].clone()).collect())
 }
 

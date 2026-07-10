@@ -1,7 +1,10 @@
 /// Auth middleware module: validation, extractors, handlers, and layer.
 pub mod extractor;
+/// handler
 pub mod handler;
+/// validate
 pub mod validate;
+/// validators
 pub mod validators;
 
 use axum::middleware::Next;

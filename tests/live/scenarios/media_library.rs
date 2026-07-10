@@ -278,7 +278,7 @@ async fn test_media_list() {
     let client = server.client();
 
     // Upload some media first
-    let token = register_and_login(&client, &server).await;
+    let token = register_and_login(&client).await;
     let authed = LiveClient::new(server.base_url()).with_bearer_token(&token);
 
     // Upload two images
@@ -364,7 +364,7 @@ async fn test_media_filtering() {
     let (server, temp_dir) = setup_media_server().await;
     let client = server.client();
 
-    let token = register_and_login(&client, &server).await;
+    let token = register_and_login(&client).await;
     let authed = LiveClient::new(server.base_url()).with_bearer_token(&token);
 
     // Upload a PNG
@@ -417,7 +417,7 @@ async fn test_media_image_resize() {
     let (server, temp_dir) = setup_media_server().await;
     let client = server.client();
 
-    let token = register_and_login(&client, &server).await;
+    let token = register_and_login(&client).await;
     let authed = LiveClient::new(server.base_url()).with_bearer_token(&token);
 
     // Upload a PNG
@@ -473,7 +473,7 @@ async fn test_unauthorized_media_access() {
     let _ = temp_dir;
 }
 
-async fn register_and_login(client: &LiveClient, _server: &BinaryHandle) -> String {
+async fn register_and_login(client: &LiveClient) -> String {
     client
         .post_json(
             "/_main-serve/register",

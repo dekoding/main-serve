@@ -28,6 +28,7 @@ use crate::error::AppError;
 /// invalid, the program would fail at startup (first access of the LazyLock),
 /// which is the correct behavior for a programming error in a static pattern.
 #[allow(clippy::expect_used)]
+/// item
 static ENV_VAR_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-((?:[^}])*))?\}").expect("env var regex is valid")
 });
