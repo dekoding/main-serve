@@ -83,7 +83,7 @@ pub async fn handle_media_update(
     if rows_affected == 0 {
         return Err(AppError::NotFound(format!(
             "Media item with id '{}' not found",
-            &id
+            id
         )));
     }
 

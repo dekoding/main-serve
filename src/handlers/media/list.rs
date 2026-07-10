@@ -111,7 +111,7 @@ pub async fn handle_media_get(db_ctx: &DatabaseContext, id: &str) -> Result<Resp
         Some(row) => Ok((StatusCode::OK, axum::Json(row)).into_response()),
         None => Err(AppError::NotFound(format!(
             "Media item with id '{}' not found",
-            &id
+            id
         ))),
     }
 }

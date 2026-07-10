@@ -278,7 +278,7 @@ pub async fn handle_media_trash_delete(
     if rows_affected == 0 {
         return Err(AppError::NotFound(format!(
             "Media item with id '{}' not found",
-            &id
+            id
         )));
     }
 

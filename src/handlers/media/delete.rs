@@ -66,7 +66,7 @@ pub async fn delete_media_permanently(
     if rows_affected == 0 {
         return Err(AppError::NotFound(format!(
             "Media item with id '{}' not found",
-            &id
+            id
         )));
     }
 
