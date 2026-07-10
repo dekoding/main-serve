@@ -3,6 +3,7 @@ use serde::Deserialize;
 /// CORS policy configuration (global or per-endpoint override).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// CorsConfig
 pub struct CorsConfig {
     /// Allowed origins (`"*"` for all).
     pub allowed_origins: Vec<String>,
@@ -17,6 +18,7 @@ pub struct CorsConfig {
 }
 
 impl Default for CorsConfig {
+    /// item
     fn default() -> Self {
         Self {
             allowed_origins: vec![],

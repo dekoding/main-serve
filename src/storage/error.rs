@@ -4,6 +4,7 @@ use thiserror::Error;
 
 /// Error type for storage operations.
 #[derive(Debug, Error)]
+/// StorageError
 pub enum StorageError {
     /// File or directory not found.
     #[error("Not found: {0:?}")]
@@ -47,8 +48,9 @@ pub enum StorageError {
 }
 
 impl From<StorageError> for crate::error::AppError {
+    /// item
     fn from(err: StorageError) -> Self {
-        match &err {
+        match err {
             StorageError::NotFound(path) => {
                 crate::error::AppError::NotFound(format!("File not found: {}", path.display()))
             }
@@ -63,8 +65,8 @@ impl From<StorageError> for crate::error::AppError {
             StorageError::InvalidFilename(msg) => {
                 crate::error::AppError::BadRequest(format!("Invalid filename: {msg}"))
             }
-            StorageError::Io(path, _) => crate::error::AppError::FileOperation(format!(
-                "File operation failed: {}",
+            StorageError::Io(path, err) => crate::error::AppError::FileOperation(format!(
+                "File operation failed: {}: {err}",
                 path.display()
             )),
             StorageError::InvalidBackend(msg) => {

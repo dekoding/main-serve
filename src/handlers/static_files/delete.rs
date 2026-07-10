@@ -1,24 +1,19 @@
 use std::path::Path;
 
-use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
 use crate::config::types::StaticFilesConfig;
 use crate::error::AppError;
-use crate::handlers::static_files::upload::sanitize_filename;
-use crate::server::state::AppState;
+use crate::handlers::common::path::sanitize_filename;
 use crate::storage::Storage;
 
 /// Handle file deletion (DELETE).
 pub async fn handle_file_delete(
     storage: &dyn Storage,
-    _state: State<AppState>,
-    _endpoint: &crate::config::types::EndpointConfig,
     config: &StaticFilesConfig,
     relative: &str,
     root: &Path,
-    _headers: &axum::http::HeaderMap,
 ) -> Result<Response, AppError> {
     let upload_config = config
         .upload

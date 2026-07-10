@@ -201,6 +201,7 @@ pub(crate) fn extract_bearer_token(auth_header: &str) -> Option<&str> {
     auth_header.strip_prefix("Bearer ")
 }
 
+/// item
 fn map_algorithm(alg: JwtAlgorithm) -> Algorithm {
     match alg {
         JwtAlgorithm::HS256 => Algorithm::HS256,

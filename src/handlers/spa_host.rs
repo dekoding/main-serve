@@ -2,16 +2,20 @@
 ///
 /// Serves static files with SPA-style fallback: non-existent paths return
 /// the index file with the configured fallback status code. Read-only (GET/HEAD only).
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use axum::http::HeaderValue;
-use axum::http::StatusCode;
+use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use http::header;
 
+use crate::config::types::mime_from_path;
 use crate::config::types::{EndpointConfig, SpaHostConfig};
 use crate::error::AppError;
-use crate::handlers::static_files::utils::{apply_static_headers, mime_from_path};
+use crate::handlers::common::path::extract_relative_path;
+use crate::handlers::common::store::resolve_store;
+use crate::handlers::common::utils::{
+    apply_cache_control, apply_content_length, apply_content_type,
+};
 use crate::server::state::AppState;
 use crate::storage::Storage;
 
@@ -56,60 +60,34 @@ pub(crate) async fn handle_spa_host(
         return handle_spa_head(state, uri, config, &headers).await;
     }
 
-    // Only GET is supported for SPA host
-    let store = state
-        .get_store(&config.storage)
-        .ok_or_else(|| AppError::Internal(format!("Store '{}' not found", config.storage)))?;
-
-    let root = if let Some(path) = store.root_path() {
-        path
-    } else {
-        PathBuf::from(&config.storage)
-    };
+    let (storage, root) = resolve_store(state, &config.storage)?;
 
     let request_path = uri.path();
-    let ep_prefix = endpoint
-        .path
-        .trim_end_matches("/*")
-        .trim_end_matches("{*rest}");
-    let relative = request_path
-        .strip_prefix(ep_prefix)
-        .unwrap_or(request_path)
-        .trim_start_matches('/');
-
-    // Path traversal check
-    if !relative.is_empty() {
-        let decoded = percent_encoding::percent_decode_str(relative)
-            .decode_utf8()
-            .map_err(|_| AppError::BadRequest("Invalid UTF-8 in path".to_string()))?;
-        if decoded.split('/').any(|seg| seg == ".." || seg == ".") {
-            return Err(AppError::Forbidden("Path traversal denied".to_string()));
-        }
-    }
+    let relative = extract_relative_path(request_path, &endpoint.path)?;
 
     let resolved = if relative.is_empty() {
         root.clone()
     } else {
-        let decoded = percent_encoding::percent_decode_str(relative)
+        let decoded = percent_encoding::percent_decode_str(&relative)
             .decode_utf8()
             .map_err(|_| AppError::BadRequest("Invalid UTF-8 in path".to_string()))?;
         root.join(decoded.as_ref())
     };
 
     // Check if the path points to a directory - try index file
-    let meta = store.metadata(&resolved).await.ok();
+    let meta = storage.metadata(&resolved).await.ok();
     if meta.as_ref().is_some_and(|m| !m.is_file) {
         let index_path = resolved.join(&config.index);
-        if store.metadata(&index_path).await.is_ok_and(|m| m.is_file) {
-            return serve_spa_file(&*store, &index_path, config, &headers).await;
+        if storage.metadata(&index_path).await.is_ok_and(|m| m.is_file) {
+            return serve_spa_file(&*storage, &index_path, config, &headers).await;
         }
         // Directory not found, fall through to SPA fallback
     }
 
     // Try to serve the file
-    match serve_spa_file(&*store, &resolved, config, &headers).await {
+    match serve_spa_file(&*storage, &resolved, config, &headers).await {
         Ok(response) => Ok(response),
-        Err(AppError::NotFound(_)) => serve_spa_fallback(&*store, &root, config, &headers).await,
+        Err(AppError::NotFound(_)) => serve_spa_fallback(&*storage, &root, config, &headers).await,
         Err(e) => Err(e),
     }
 }
@@ -121,15 +99,7 @@ pub(crate) async fn handle_spa_head(
     config: &SpaHostConfig,
     headers: &axum::http::HeaderMap,
 ) -> Result<Response, AppError> {
-    let store = state
-        .get_store(&config.storage)
-        .ok_or_else(|| AppError::Internal(format!("Store '{}' not found", config.storage)))?;
-
-    let root = if let Some(path) = store.root_path() {
-        path
-    } else {
-        PathBuf::from(&config.storage)
-    };
+    let (storage, root) = resolve_store(state, &config.storage)?;
 
     let request_path = uri.path();
     let relative = request_path.trim_start_matches('/');
@@ -140,29 +110,20 @@ pub(crate) async fn handle_spa_head(
         root.join(relative)
     };
 
-    match store.metadata(&resolved).await {
+    match storage.metadata(&resolved).await {
         Ok(meta) => {
             let content_type = mime_from_path(&resolved);
-            let cache_control =
-                get_cache_control(&resolved, config.cache_max_age, &config.cache_rules);
 
             let mut response = Response::new(axum::body::Body::empty());
             *response.status_mut() = StatusCode::OK;
-            response.headers_mut().insert(
-                header::CONTENT_TYPE,
-                HeaderValue::from_str(&content_type)
-                    .unwrap_or(HeaderValue::from_static("application/octet-stream")),
+            apply_content_type(&mut response, content_type);
+            apply_cache_control(
+                &mut response,
+                config.cache_max_age,
+                Some(&resolved),
+                &config.cache_rules,
             );
-            response.headers_mut().insert(
-                header::CONTENT_LENGTH,
-                HeaderValue::from_str(&meta.size.to_string())
-                    .unwrap_or(HeaderValue::from_static("0")),
-            );
-            response.headers_mut().insert(
-                header::CACHE_CONTROL,
-                HeaderValue::from_str(&cache_control)
-                    .unwrap_or(HeaderValue::from_static("public, max-age=3600")),
-            );
+            apply_content_length(&mut response, &meta.size.to_string());
 
             if config.etag {
                 let etag_value = format!("\"{}-{}\"", resolved.display(), meta.size);
@@ -193,23 +154,21 @@ pub(crate) async fn handle_spa_head(
         }
         Err(_) => {
             let index_path = root.join(&config.index);
-            match store.metadata(&index_path).await {
+            match storage.metadata(&index_path).await {
                 Ok(meta) => {
                     let content_type = mime_from_path(&index_path);
                     let status =
                         StatusCode::from_u16(config.fallback_status).unwrap_or(StatusCode::OK);
                     let mut response = Response::new(axum::body::Body::empty());
                     *response.status_mut() = status;
-                    response.headers_mut().insert(
-                        header::CONTENT_TYPE,
-                        HeaderValue::from_str(&content_type)
-                            .unwrap_or(HeaderValue::from_static("application/octet-stream")),
+                    apply_content_type(&mut response, content_type);
+                    apply_cache_control(
+                        &mut response,
+                        config.cache_max_age,
+                        Some(&index_path),
+                        &config.cache_rules,
                     );
-                    response.headers_mut().insert(
-                        header::CONTENT_LENGTH,
-                        HeaderValue::from_str(&meta.size.to_string())
-                            .unwrap_or(HeaderValue::from_static("0")),
-                    );
+                    apply_content_length(&mut response, &meta.size.to_string());
                     Ok(response)
                 }
                 Err(_) => Ok((StatusCode::NOT_FOUND, "").into_response()),
@@ -238,13 +197,16 @@ async fn serve_spa_file(
         .map_err(|_| AppError::NotFound(format!("File not found: {}", path.display())))?;
 
     let mut response = (StatusCode::OK, contents).into_response();
-    apply_static_headers(&mut response, &content_type, config.cache_max_age);
+    apply_content_type(&mut response, content_type);
+    apply_cache_control(
+        &mut response,
+        config.cache_max_age,
+        Some(path),
+        &config.cache_rules,
+    );
+    apply_content_length(&mut response, &meta.size.to_string());
 
     let resp_headers = response.headers_mut();
-    resp_headers.insert(
-        header::CONTENT_LENGTH,
-        HeaderValue::from_str(&meta.size.to_string()).unwrap_or(HeaderValue::from_static("0")),
-    );
 
     if config.etag {
         let etag_value = format!("\"{}-{}\"", path.display(), meta.size);
@@ -287,35 +249,24 @@ async fn serve_spa_fallback(
     match storage.metadata(&index_path).await {
         Ok(meta) => {
             let content_type = mime_from_path(&index_path);
-            let cache_control =
-                get_cache_control(&index_path, config.cache_max_age, &config.cache_rules);
-
             let contents = storage.read(&index_path).await.map_err(|_| {
                 AppError::NotFound(format!("Index file not found: {}", index_path.display()))
             })?;
 
             let status = StatusCode::from_u16(config.fallback_status).unwrap_or(StatusCode::OK);
             let mut response = (status, contents).into_response();
-            let resp_headers = response.headers_mut();
-            resp_headers.insert(
-                header::CONTENT_TYPE,
-                HeaderValue::from_str(&content_type)
-                    .unwrap_or(HeaderValue::from_static("application/octet-stream")),
+            apply_content_type(&mut response, content_type);
+            apply_cache_control(
+                &mut response,
+                config.cache_max_age,
+                Some(&index_path),
+                &config.cache_rules,
             );
-            resp_headers.insert(
-                header::CONTENT_LENGTH,
-                HeaderValue::from_str(&meta.size.to_string())
-                    .unwrap_or(HeaderValue::from_static("0")),
-            );
-            resp_headers.insert(
-                header::CACHE_CONTROL,
-                HeaderValue::from_str(&cache_control)
-                    .unwrap_or(HeaderValue::from_static("public, max-age=3600")),
-            );
+            apply_content_length(&mut response, &meta.size.to_string());
 
             if config.etag {
                 let etag_value = format!("\"{}-{}\"", index_path.display(), meta.size);
-                resp_headers.insert(
+                response.headers_mut().insert(
                     header::ETAG,
                     HeaderValue::from_str(&etag_value)
                         .unwrap_or(HeaderValue::from_static("\"none\"")),
@@ -329,23 +280,6 @@ async fn serve_spa_fallback(
             config.index
         ))),
     }
-}
-
-/// Get the Cache-Control header value for a path.
-fn get_cache_control(
-    path: &Path,
-    default_max_age: u64,
-    cache_rules: &[crate::config::types::CacheRuleConfig],
-) -> String {
-    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-
-    for rule in cache_rules {
-        if rule.extensions.iter().any(|e| e == ext) {
-            return rule.cache_control.clone();
-        }
-    }
-
-    format!("public, max-age={default_max_age}")
 }
 
 /// Return 405 Method Not Allowed for SPA host (read-only endpoints).

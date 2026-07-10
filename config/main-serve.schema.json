@@ -1208,14 +1208,6 @@
                     "$ref": "#/definitions/MediaDelete",
                     "description": "Delete configuration."
                 },
-                "attach_to_content": {
-                    "$ref": "#/definitions/MediaAttachToContent",
-                    "description": "Attach media to content entities configuration."
-                },
-                "detach_from_content": {
-                    "$ref": "#/definitions/MediaDetachFromContent",
-                    "description": "Detach media from content entities configuration."
-                },
                 "user_scope": {
                     "$ref": "#/definitions/MediaUserScope",
                     "description": "User scoping configuration."

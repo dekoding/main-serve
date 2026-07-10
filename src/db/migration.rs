@@ -179,6 +179,7 @@ pub async fn run_migrations(
 
 /// A column as it currently exists in the database.
 #[derive(Debug)]
+/// item
 struct ExistingColumn {
     name: String,
 }
@@ -193,7 +194,10 @@ async fn get_existing_columns(
 ) -> Result<Vec<ExistingColumn>, AppError> {
     let rows = match pool {
         DatabasePool::Sqlite(_) => {
-            let sql = format!("PRAGMA table_info(\"{table_name}\")");
+            let sql = format!(
+                "PRAGMA table_info({})",
+                quote_object_name(table_name, pool.driver())
+            );
             pool.fetch_all_json(&sql, &[]).await?
         }
         DatabasePool::Postgres(_) => {
@@ -362,6 +366,7 @@ async fn alter_existing_table(
 
 /// Generate an ALTER TABLE ... ADD COLUMN statement for a single column.
 #[must_use]
+/// item
 fn generate_add_column(table_name: &str, col: &ColumnConfig, driver: DatabaseDriver) -> String {
     let mut col_def = format!(
         "{} {}",
@@ -390,6 +395,7 @@ fn generate_add_column(table_name: &str, col: &ColumnConfig, driver: DatabaseDri
 
 /// Generate an ALTER TABLE ... DROP COLUMN statement.
 #[must_use]
+/// item
 fn generate_drop_column(table_name: &str, column_name: &str, driver: DatabaseDriver) -> String {
     let col = quote_ident(column_name, driver);
     format!(
@@ -400,6 +406,7 @@ fn generate_drop_column(table_name: &str, column_name: &str, driver: DatabaseDri
 
 /// Generate a CREATE TABLE IF NOT EXISTS statement.
 #[must_use]
+/// item
 fn generate_create_table(table: &TableConfig, driver: DatabaseDriver) -> String {
     let mut parts: Vec<String> = Vec::new();
 
@@ -497,6 +504,7 @@ fn generate_fk_def(fk: &crate::config::types::ForeignKeyConfig, driver: Database
 
 /// Generate an index creation statement.
 #[must_use]
+/// item
 fn generate_create_index(table_name: &str, column_name: &str, driver: DatabaseDriver) -> String {
     let idx_name = index_name(table_name, column_name);
     match driver {
@@ -515,12 +523,14 @@ fn generate_create_index(table_name: &str, column_name: &str, driver: DatabaseDr
     }
 }
 
+/// item
 fn index_name(table_name: &str, column_name: &str) -> String {
     format!("idx_{table_name}_{column_name}")
 }
 
 /// Quote an object name (table or index) for the current driver.
 #[must_use]
+/// quote_object_name
 pub fn quote_object_name(name: &str, driver: DatabaseDriver) -> String {
     match driver {
         DatabaseDriver::Mysql => format!("`{name}`"),
@@ -530,6 +540,7 @@ pub fn quote_object_name(name: &str, driver: DatabaseDriver) -> String {
 
 /// Quote a column identifier for the current driver.
 #[must_use]
+/// item
 fn quote_ident(name: &str, driver: DatabaseDriver) -> String {
     quote_object_name(name, driver)
 }
@@ -614,10 +625,13 @@ fn fk_action_to_sql(action: &ForeignKeyAction) -> &'static str {
 /// This ensures foreign key constraints are valid when CREATE TABLE is executed,
 /// which is required by Postgres and `MySQL` (`SQLite` ignores FK constraints by default).
 ///
+/// Uses Kahn's algorithm with VecDeque for O(n) queue operations instead of
+/// Vec::remove(0) which is O(n) per dequeue, resulting in O(n^2) total.
+///
 /// # Errors
 ///
-/// Returns `AppError::Internal` if the input contains inconsistent state
-/// (e.g., a foreign key references a table not in the input list).
+/// Returns `AppError::Internal` if a cycle is detected in the dependency graph
+/// (i.e., two or more tables have circular foreign key references).
 fn sort_tables_topologically(tables: &[TableConfig]) -> Result<Vec<TableConfig>, AppError> {
     // Build a map of table_name -> index
     let table_map: std::collections::HashMap<&str, usize> = tables
@@ -640,7 +654,8 @@ fn sort_tables_topologically(tables: &[TableConfig]) -> Result<Vec<TableConfig>,
         }
     }
 
-    // Kahn's algorithm for topological sort
+    // Kahn's algorithm for topological sort.
+    // Uses a Vec with an index pointer for O(1) dequeue, avoiding Vec::remove(0)'s O(n).
     let mut in_degree: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
     let mut reverse: std::collections::HashMap<usize, Vec<usize>> =
         std::collections::HashMap::new();
@@ -657,6 +672,7 @@ fn sort_tables_topologically(tables: &[TableConfig]) -> Result<Vec<TableConfig>,
         }
     }
 
+    // Collect initial zero-degree nodes, sorted for deterministic ordering.
     let mut queue: Vec<usize> = in_degree
         .iter()
         .filter(|&(_, &deg)| deg == 0)
@@ -665,8 +681,11 @@ fn sort_tables_topologically(tables: &[TableConfig]) -> Result<Vec<TableConfig>,
     queue.sort_unstable();
 
     let mut result = Vec::new();
-    while let Some(idx) = queue.first().copied() {
-        queue.remove(0);
+    let mut head = 0usize;
+    while head < queue.len() {
+        // SAFETY: head < queue.len() is guaranteed by the while condition.
+        let idx = queue[head];
+        head += 1;
         result.push(idx);
         if let Some(dependents) = reverse.get(&idx) {
             for &dependent in dependents {
@@ -675,20 +694,118 @@ fn sort_tables_topologically(tables: &[TableConfig]) -> Result<Vec<TableConfig>,
                 })?;
                 *degree -= 1;
                 if *degree == 0 {
-                    queue.push(dependent);
-                    queue.sort_unstable();
+                    // Insert in sorted position for deterministic ordering.
+                    let new_val = dependent;
+                    let insert_pos = queue[head..].partition_point(|&x| x < new_val);
+                    queue.insert(head + insert_pos, new_val);
                 }
             }
         }
     }
 
-    // If there's a cycle, return the original order
+    // If there's a cycle, not all nodes were processed.
     if result.len() != tables.len() {
-        return Ok(tables.to_vec());
+        let cycle_tables: Vec<&str> = tables
+            .iter()
+            .filter(|t| !result.contains(&table_map[t.name.as_str()]))
+            .map(|t| t.name.as_str())
+            .collect();
+        return Err(AppError::Internal(format!(
+            "Circular dependency detected among tables: [{}]",
+            cycle_tables.join(", ")
+        )));
     }
 
-    // Build result in sorted order
+    // Build result in sorted order.
+    // SAFETY: result contains indices into tables (from topological sort of table indices).
     Ok(result.iter().map(|&idx| tables[idx].clone()).collect())
+}
+
+// =============================================================================
+// Media-specific column enforcement
+// =============================================================================
+
+/// Ensure media-specific columns exist on tables used by media endpoints.
+///
+/// The `file_path` column is required by the media handler for tracking
+/// the stored file location, but it is not part of the standard media
+/// presets (auto, tags, etc.). This function adds it if missing.
+///
+/// # Errors
+///
+/// Returns `AppError::Database` if the ALTER TABLE statement fails.
+pub async fn ensure_media_columns(
+    endpoints: &[crate::config::types::EndpointConfig],
+    pools: &HashMap<String, DatabasePool>,
+) -> Result<(), AppError> {
+    // Collect unique (database, table) pairs from media endpoints.
+    let mut media_tables: Vec<(String, String)> = Vec::new();
+    for endpoint in endpoints {
+        if let Some(media) = &endpoint.media {
+            let key = (media.database.clone(), media.table.clone());
+            if !media_tables.contains(&key) {
+                media_tables.push(key);
+            }
+        }
+    }
+
+    for (db_name, table_name) in &media_tables {
+        let pool = pools
+            .get(db_name)
+            .ok_or_else(|| AppError::Config(format!("Database '{}' not found", db_name)))?;
+
+        let driver = pool.driver();
+        let col_exists = match driver {
+            DatabaseDriver::Sqlite => {
+                let sql = format!(
+                    "SELECT COUNT(*) as cnt FROM pragma_table_info({}) WHERE name = 'file_path'",
+                    quote_object_name(table_name, driver)
+                );
+                let row = pool.fetch_optional_json(&sql, &[]).await?;
+                row.and_then(|r| r.get("cnt").and_then(|v| v.as_i64()))
+                    .map(|c| c > 0)
+                    .unwrap_or(false)
+            }
+            DatabaseDriver::Postgres => {
+                let sql = "SELECT COUNT(*) as cnt FROM information_schema.columns \
+                           WHERE table_name = $1 AND column_name = 'file_path'";
+                let row = pool
+                    .fetch_optional_json(sql, &[serde_json::Value::String(table_name.to_owned())])
+                    .await?;
+                row.and_then(|r| r.get("cnt").and_then(|v| v.as_i64()))
+                    .map(|c| c > 0)
+                    .unwrap_or(false)
+            }
+            DatabaseDriver::Mysql => {
+                let sql = "SELECT COUNT(*) as cnt FROM information_schema.columns \
+                           WHERE table_name = ? AND column_name = 'file_path'";
+                let row = pool
+                    .fetch_optional_json(sql, &[serde_json::Value::String(table_name.to_owned())])
+                    .await?;
+                row.and_then(|r| r.get("cnt").and_then(|v| v.as_i64()))
+                    .map(|c| c > 0)
+                    .unwrap_or(false)
+            }
+        };
+
+        if !col_exists {
+            let add_col_sql = format!(
+                "ALTER TABLE {} ADD COLUMN \"file_path\" TEXT",
+                quote_object_name(table_name, driver)
+            );
+            tracing::info!(
+                "Adding 'file_path' column to media table '{table_name}' in database '{db_name}'"
+            );
+            tracing::debug!("DDL: {add_col_sql}");
+            pool.execute_raw(&add_col_sql).await.map_err(|e| {
+                AppError::Config(format!(
+                    "Failed to add file_path column to '{table_name}': {e}"
+                ))
+            })?;
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

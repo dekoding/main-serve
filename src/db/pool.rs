@@ -13,6 +13,7 @@ use crate::error::AppError;
 
 /// A database connection pool that abstracts over the supported backends.
 #[derive(Debug, Clone)]
+/// DatabasePool
 pub enum DatabasePool {
     Sqlite(sqlx::SqlitePool),
     Postgres(sqlx::PgPool),
@@ -153,6 +154,7 @@ impl DatabasePool {
 
     /// Get the driver type of this pool.
     #[must_use]
+    /// driver
     pub fn driver(&self) -> DatabaseDriver {
         match self {
             DatabasePool::Sqlite(_) => DatabaseDriver::Sqlite,
@@ -162,8 +164,15 @@ impl DatabasePool {
     }
 
     /// Gracefully close the pool, draining connections.
-    pub async fn close(&self) {
-        dispatch!(self, |p| p.close().await);
+    ///
+    /// # Errors
+    ///
+    /// Returns `AppError::Database` if the driver-specific pool close fails.
+    pub async fn close(&self) -> Result<(), AppError> {
+        dispatch!(self, |p| {
+            p.close().await;
+            Ok(())
+        })
     }
 }
 
@@ -189,7 +198,9 @@ pub async fn create_pools(
 pub async fn close_pools(pools: &HashMap<String, DatabasePool>) {
     for (name, pool) in pools {
         tracing::info!("Closing database pool '{name}'...");
-        pool.close().await;
+        if let Err(e) = pool.close().await {
+            tracing::debug!("Failed to close pool '{name}': {e}");
+        }
     }
 }
 
@@ -304,7 +315,14 @@ macro_rules! impl_db_helpers {
                                 None => serde_json::Value::Null,
                             })
                     })
-                    .unwrap_or(serde_json::Value::Null);
+                    .unwrap_or_else(|e| {
+                        tracing::debug!(
+                            "Row coercion failed for column at ordinal {}; \
+                             falling back to NULL. Error: {e}",
+                            col.ordinal()
+                        );
+                        serde_json::Value::Null
+                    });
                 map.insert(name, value);
             }
             serde_json::Value::Object(map)

@@ -4,21 +4,177 @@
 /// - `GET /_main-serve/oauth2/authorize` - redirects to `IdP`
 /// - `GET /_main-serve/oauth2/callback` - handles `IdP` callback
 use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::Duration;
 
-use axum::{
-    extract::{Query, State},
-    response::Response,
-};
+use axum::extract::{Query, State};
+use axum::response::Response;
 
-use crate::{
-    error::AppError,
-    middleware::auth::validators::oauth2::{
-        cleanup_expired, exchange_code, fetch_userinfo, generate_pkce_pair,
-    },
-    server::state::AppState,
+use crate::config::types::JwtConfig;
+use crate::config::types::OAuth2Config;
+use crate::error::AppError;
+use crate::middleware::auth::validators::oauth2::{
+    PendingOAuth2, cleanup_expired, exchange_code, fetch_userinfo, generate_pkce_pair,
 };
+use crate::server::state::AppState;
 
 use crate::middleware::auth::validators::jwt::create_token;
+
+/// Shared config reader for OAuth2 operations.
+///
+/// Reads the OAuth2 and JWT configuration from `AppState`, validating that
+/// both are properly configured. Returns the config values cloned for
+/// downstream use without holding the read lock.
+///
+/// # Errors
+///
+/// Returns `AppError::Config` if OAuth2 or JWT is not configured.
+async fn get_oauth2_config(
+    state: &AppState,
+) -> Result<(Arc<OAuth2Config>, Arc<JwtConfig>), AppError> {
+    let config = state.config.read().await;
+    let oauth2 = config
+        .auth
+        .oauth2
+        .as_ref()
+        .ok_or_else(|| AppError::Config("OAuth2 is not configured".to_string()))?;
+    let jwt_config = config.auth.jwt.as_ref().ok_or_else(|| {
+        AppError::Config(
+            "JWT config is required for OAuth2 code flow (used to mint tokens after login)"
+                .to_string(),
+        )
+    })?;
+    Ok((Arc::new(oauth2.clone()), Arc::new(jwt_config.clone())))
+}
+
+/// Validate the OAuth2 state parameter and pending entry.
+///
+/// Removes the pending state entry (one-time use) and verifies it has not
+/// expired. Returns the `PendingOAuth2` entry for downstream use.
+///
+/// # Errors
+///
+/// Returns `AppError::Auth` if the state is missing, invalid, or expired.
+async fn validate_state(
+    state: &AppState,
+    state_param: &str,
+    state_ttl: Duration,
+) -> Result<PendingOAuth2, AppError> {
+    let pending_entry = {
+        let mut pending = state.oauth2_pending.lock().await;
+        cleanup_expired(&mut pending, state_ttl);
+        pending.remove(state_param)
+    };
+    let pending = pending_entry
+        .ok_or_else(|| AppError::Auth("Invalid or expired OAuth2 state".to_string()))?;
+
+    if pending.created_at.elapsed() >= state_ttl {
+        return Err(AppError::Auth("OAuth2 state has expired".to_string()));
+    }
+
+    Ok(pending)
+}
+
+/// Exchange the authorization code for tokens at the IdP.
+///
+/// Returns the access token string extracted from the token response.
+///
+/// # Errors
+///
+/// Returns `AppError::Auth` if the token exchange fails or the response
+/// is missing an access token.
+async fn exchange_token(
+    oauth2: &OAuth2Config,
+    code: &str,
+    code_verifier: &str,
+) -> Result<String, AppError> {
+    let token_response = exchange_code(oauth2, code, code_verifier).await?;
+
+    token_response
+        .get("access_token")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::Auth("Token response missing access_token".to_string()))
+        .map(|t| t.to_string())
+}
+
+/// Fetch user info from the IdP using the access token.
+///
+/// Returns the subject and optional role from the userinfo endpoint.
+///
+/// # Errors
+///
+/// Returns `AppError::Config` if the userinfo URL is empty, or
+/// `AppError::Auth` if the userinfo request fails.
+async fn get_userinfo(
+    oauth2: &OAuth2Config,
+    access_token: &str,
+) -> Result<(String, Option<String>), AppError> {
+    if oauth2.userinfo_url.is_empty() {
+        return Err(AppError::Config(
+            "OAuth2 userinfo_url is required for the code flow".to_string(),
+        ));
+    }
+    fetch_userinfo(
+        &oauth2.userinfo_url,
+        access_token,
+        oauth2.role_mapping.as_ref(),
+    )
+    .await
+}
+
+/// Mint a Main Serve JWT for the authenticated user.
+///
+/// Generates a new JTI and creates a token using the provided JWT config.
+///
+/// # Errors
+///
+/// Returns `AppError::Internal` if token creation fails.
+fn mint_jwt(
+    sub: &str,
+    role: Option<&str>,
+    jwt_config: &JwtConfig,
+) -> Result<(String, String), AppError> {
+    let jti = uuid::Uuid::new_v4().to_string();
+    let jwt = create_token(sub, role, jwt_config, Some(&jti), None)?;
+    Ok((jti, jwt))
+}
+
+/// Build the redirect response with auth cookie.
+///
+/// Returns a 302 redirect to `success_url` with the JWT set as an
+/// `HttpOnly` cookie.
+///
+/// # Errors
+///
+/// Returns `AppError::Config` if `success_url` contains invalid characters
+/// (CRLF), or `AppError::Internal` if the response builder fails.
+fn build_redirect_response(
+    success_url: &str,
+    cookie_name: &str,
+    jwt: &str,
+    has_tls: bool,
+    max_age: u64,
+) -> Result<Response, AppError> {
+    // Reject success_url values that could cause header injection via CRLF.
+    if success_url.contains('\r') || success_url.contains('\n') {
+        return Err(AppError::Config(
+            "OAuth2 success_url contains invalid characters".to_string(),
+        ));
+    }
+
+    let mut cookie_value =
+        format!("{cookie_name}={jwt}; HttpOnly; SameSite=Lax; Path=/; Max-Age={max_age}");
+    if has_tls {
+        cookie_value.push_str("; Secure");
+    }
+
+    axum::http::Response::builder()
+        .status(axum::http::StatusCode::FOUND)
+        .header("location", success_url)
+        .header("set-cookie", &cookie_value)
+        .body(axum::body::Body::empty())
+        .map_err(|e| AppError::Internal(format!("Failed to build redirect response: {e}")))
+}
 
 /// Handle `GET /_main-serve/oauth2/authorize`.
 ///
@@ -139,89 +295,34 @@ pub async fn handle_oauth2_callback(
             })
     };
 
-    // Look up and remove the pending state (one-time use).
-    let pending_entry = {
-        let mut pending = state.oauth2_pending.lock().await;
-        cleanup_expired(&mut pending, state_ttl);
-        pending.remove(state_param)
-    };
-    let pending = pending_entry
-        .ok_or_else(|| AppError::Auth("Invalid or expired OAuth2 state".to_string()))?;
+    // Step 1: Validate state and retrieve pending entry.
+    let pending = validate_state(&state, state_param, state_ttl).await?;
 
-    if pending.created_at.elapsed() >= state_ttl {
-        return Err(AppError::Auth("OAuth2 state has expired".to_string()));
-    }
+    // Step 2: Read OAuth2 and JWT config.
+    let (oauth2, jwt_config) = get_oauth2_config(&state).await?;
 
-    let config = state.config.read().await;
-    let oauth2 = config
-        .auth
-        .oauth2
-        .as_ref()
-        .ok_or_else(|| AppError::Config("OAuth2 is not configured".to_string()))?;
-    let jwt_config = config.auth.jwt.as_ref().ok_or_else(|| {
-        AppError::Config(
-            "JWT config is required for OAuth2 code flow (used to mint tokens after login)"
-                .to_string(),
-        )
-    })?;
+    // Step 3: Exchange authorization code for tokens.
+    let access_token = exchange_token(&oauth2, code, &pending.code_verifier).await?;
 
-    // Exchange the authorization code for tokens at the IdP.
-    let token_response = exchange_code(oauth2, code, &pending.code_verifier).await?;
+    // Step 4: Fetch user info.
+    let (sub, role) = get_userinfo(&oauth2, &access_token).await?;
 
-    let access_token = token_response
-        .get("access_token")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| AppError::Auth("Token response missing access_token".to_string()))?;
+    // Step 5: Mint JWT.
+    let (_jti, jwt) = mint_jwt(&sub, role.as_deref(), &jwt_config)?;
 
-    // Fetch user info to get subject and role.
-    let (sub, role) = if oauth2.userinfo_url.is_empty() {
-        return Err(AppError::Config(
-            "OAuth2 userinfo_url is required for the code flow".to_string(),
-        ));
-    } else {
-        fetch_userinfo(
-            &oauth2.userinfo_url,
-            access_token,
-            oauth2.role_mapping.as_ref(),
-        )
-        .await?
-    };
-
-    // Mint a Main Serve JWT using the existing jwt config.
-    let jti = uuid::Uuid::new_v4().to_string();
-    let jwt = create_token(&sub, role.as_deref(), jwt_config, Some(&jti), None)?;
-
-    // Collect values from config before dropping the read lock.
+    // Step 6: Build redirect response.
     let success_url = if oauth2.success_url.is_empty() {
         "/".to_string()
     } else {
         oauth2.success_url.clone()
     };
-    // Reject success_url values that could cause header injection via CRLF.
-    if success_url.contains('\r') || success_url.contains('\n') {
-        return Err(AppError::Config(
-            "OAuth2 success_url contains invalid characters".to_string(),
-        ));
-    }
     let cookie_name = if oauth2.cookie_name.is_empty() {
         "main_serve_token".to_string()
     } else {
         oauth2.cookie_name.clone()
     };
-    let has_tls = config.server.tls.is_some();
+    let has_tls = state.config.read().await.server.tls.is_some();
     let max_age = jwt_config.expiry;
-    drop(config);
 
-    let mut cookie_value =
-        format!("{cookie_name}={jwt}; HttpOnly; SameSite=Lax; Path=/; Max-Age={max_age}");
-    if has_tls {
-        cookie_value.push_str("; Secure");
-    }
-
-    axum::http::Response::builder()
-        .status(axum::http::StatusCode::FOUND)
-        .header("location", &success_url)
-        .header("set-cookie", &cookie_value)
-        .body(axum::body::Body::empty())
-        .map_err(|e| AppError::Internal(format!("Failed to build redirect response: {e}")))
+    build_redirect_response(&success_url, &cookie_name, &jwt, has_tls, max_age)
 }

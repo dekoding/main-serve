@@ -3,7 +3,6 @@ use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-use async_trait::async_trait;
 use base64::Engine;
 use chrono::{DateTime, FixedOffset, Utc};
 use http::Method;
@@ -13,7 +12,11 @@ use sha2::{Digest, Sha256};
 use crate::config::types::StoreConfig;
 use crate::storage::{DirEntry, FileMetadata, Result, Storage, StorageError};
 
+/// item
 const AZURE_BLOB_API_VERSION: &str = "2023-11-03";
+
+/// Maximum number of retry attempts for copy status polling.
+const MAX_COPY_RETRIES: u32 = 60;
 
 /// Characters that must be percent-encoded in Azure blob names.
 const BLOB_NAME_ENCODE_SET: &AsciiSet = &NON_ALPHANUMERIC
@@ -143,7 +146,9 @@ impl AzureStorage {
         let mut opad = vec![0x5cu8; block_size];
         for (i, (i_op, o_op)) in ipad.iter_mut().zip(opad.iter_mut()).enumerate() {
             if i < key.len() {
+                // SAFETY: k is padded/hashed to block_size and i iterates over block_size-sized vectors, so k[i] is a valid index.
                 *i_op ^= k[i];
+                // SAFETY: Same invariant as above.
                 *o_op ^= k[i];
             }
         }
@@ -328,6 +333,7 @@ type ListResult = (Vec<(String, u64)>, Vec<String>);
 /// Azure list containers response XML structure.
 #[derive(Debug, Clone, Default, serde::Deserialize)]
 #[serde(rename = "EnumerationResults", default)]
+/// item
 struct ListResponse {
     #[serde(rename = "Blobs", default)]
     blob_group: Option<BlobGroup>,
@@ -338,6 +344,7 @@ struct ListResponse {
 /// Group of blobs in the list response.
 #[derive(Debug, Clone, Default, serde::Deserialize)]
 #[serde(rename = "Blobs", default)]
+/// item
 struct BlobGroup {
     #[serde(rename = "Blob", default)]
     blobs: Vec<AzureBlob>,
@@ -345,6 +352,7 @@ struct BlobGroup {
 
 /// A single blob entry in the list response.
 #[derive(Debug, Clone, serde::Deserialize)]
+/// item
 struct AzureBlob {
     #[serde(rename = "Name")]
     name: String,
@@ -354,6 +362,7 @@ struct AzureBlob {
 
 /// Properties of a blob from the list response.
 #[derive(Debug, Clone, Default, serde::Deserialize)]
+/// item
 struct BlobProperties {
     #[serde(rename = "Content-Length", default)]
     size: Option<String>,
@@ -361,6 +370,7 @@ struct BlobProperties {
 
 /// A virtual directory prefix from the list response.
 #[derive(Debug, Clone, serde::Deserialize)]
+/// item
 struct BlobPrefix {
     #[serde(rename = "Name")]
     name: String,
@@ -382,7 +392,7 @@ fn base64_encode(data: &[u8]) -> String {
     base64::engine::general_purpose::STANDARD.encode(data)
 }
 
-#[async_trait]
+#[async_trait::async_trait]
 impl Storage for AzureStorage {
     async fn exists(&self, path: &Path) -> bool {
         let blob_name = self.path_to_blob_name(path);
@@ -806,7 +816,7 @@ impl Storage for AzureStorage {
         self.handle_response(response, &to_blob).await?;
 
         if copy_status == "pending" || copy_status == "success" {
-            for _ in 0..60 {
+            for _ in 0..MAX_COPY_RETRIES {
                 let check_url = self.blob_url(&to_blob, "comp=properties");
                 let check_response = self.client.head(&check_url).send().await;
                 if let Ok(r) = check_response {
@@ -859,10 +869,12 @@ impl Storage for AzureStorage {
 }
 
 #[cfg(all(test, feature = "azure"))]
+/// item
 mod tests {
     use super::*;
 
     #[test]
+    /// item
     fn test_path_to_blob_name() {
         let storage = AzureStorage {
             account_name: "test".to_string(),
@@ -884,6 +896,7 @@ mod tests {
     }
 
     #[test]
+    /// item
     fn test_build_canonicalized_resource() {
         let storage = AzureStorage {
             account_name: "myaccount".to_string(),
@@ -900,6 +913,7 @@ mod tests {
     }
 
     #[test]
+    /// item
     fn test_sign_request_format() {
         let storage = AzureStorage {
             account_name: "myaccount".to_string(),

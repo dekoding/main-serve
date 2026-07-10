@@ -18,8 +18,15 @@ const GCS_API_URL: &str = "https://storage.googleapis.com/storage/v1";
 /// Google OAuth2 token endpoint.
 const OAUTH2_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 
+/// Safety margin subtracted from token expiry to avoid using near-expired tokens.
+const TOKEN_SAFETY_MARGIN_SECS: u64 = 60;
+
+/// Timeout for HTTP client requests to GCS and OAuth2 endpoints.
+const HTTP_TIMEOUT_SECS: u64 = 30;
+
 /// Service account credentials parsed from JSON.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Clone, Deserialize)]
+/// item
 struct ServiceAccountCredentials {
     /// The client email address.
     client_email: String,
@@ -27,8 +34,19 @@ struct ServiceAccountCredentials {
     private_key: String,
 }
 
+impl std::fmt::Debug for ServiceAccountCredentials {
+    /// item
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ServiceAccountCredentials")
+            .field("client_email", &self.client_email)
+            .field("private_key", &"[REDACTED]")
+            .finish()
+    }
+}
+
 /// Cached OAuth2 access token.
 #[derive(Clone)]
+/// item
 struct AuthToken {
     /// The access token string.
     token: String,
@@ -37,17 +55,18 @@ struct AuthToken {
 }
 
 impl AuthToken {
-    /// Check if this token is still valid (with 60-second safety margin).
+    /// Check if this token is still valid (with safety margin).
     fn is_valid(&self) -> bool {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-        now < self.expires_at - 60
+        now < self.expires_at - TOKEN_SAFETY_MARGIN_SECS
     }
 }
 
 impl std::fmt::Debug for AuthToken {
+    /// item
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AuthToken")
             .field("expires_at", &self.expires_at)
@@ -68,9 +87,10 @@ struct AuthTokenCache {
 }
 
 impl AuthTokenCache {
+    /// item
     fn new(credentials: ServiceAccountCredentials) -> std::result::Result<Self, StorageError> {
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
+            .timeout(std::time::Duration::from_secs(HTTP_TIMEOUT_SECS))
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|e| StorageError::Internal(format!("Failed to build HTTP client: {e}")))?;
@@ -136,6 +156,7 @@ impl AuthTokenCache {
         }
 
         #[derive(Deserialize)]
+        /// item
         struct TokenResponse {
             access_token: String,
             expires_in: u64,
@@ -152,7 +173,7 @@ impl AuthTokenCache {
 
         Ok(AuthToken {
             token: token_resp.access_token,
-            expires_at: now + token_resp.expires_in - 60,
+            expires_at: now + token_resp.expires_in - TOKEN_SAFETY_MARGIN_SECS,
         })
     }
 
@@ -187,6 +208,7 @@ impl AuthTokenCache {
 
 /// JWT claims for GCS OAuth2 service account authentication.
 #[derive(Debug, serde::Serialize)]
+/// item
 struct GcsJwtClaims {
     iss: String,
     sub: String,
@@ -207,6 +229,7 @@ pub struct GcsStorage {
 }
 
 #[derive(Debug, Deserialize)]
+/// item
 struct GcsObjectMetadata {
     #[serde(rename = "name")]
     name: String,
@@ -238,6 +261,7 @@ impl GcsObjectMetadata {
 }
 
 #[derive(Debug, Deserialize)]
+/// item
 struct GcsListResponse {
     /// Object items in the listing.
     #[serde(default)]
@@ -266,7 +290,7 @@ impl GcsStorage {
         let credentials = Self::load_credentials(&gcs.credentials)?;
 
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
+            .timeout(std::time::Duration::from_secs(HTTP_TIMEOUT_SECS))
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|e| StorageError::Internal(format!("Failed to build HTTP client: {e}")))?;
@@ -878,10 +902,12 @@ impl Storage for GcsStorage {
 }
 
 #[cfg(all(test, feature = "gcs"))]
+/// item
 mod tests {
     use super::*;
 
     #[test]
+    /// item
     fn test_path_to_object_name() {
         assert_eq!(
             GcsStorage::path_to_object_name(Path::new("/foo/bar.txt")),
@@ -899,6 +925,7 @@ mod tests {
     }
 
     #[test]
+    /// item
     fn test_map_http_error_not_found() {
         let err =
             GcsStorage::map_http_error(reqwest::StatusCode::NOT_FOUND, "test.txt", "Not Found");
@@ -906,6 +933,7 @@ mod tests {
     }
 
     #[test]
+    /// item
     fn test_map_http_error_forbidden() {
         let err =
             GcsStorage::map_http_error(reqwest::StatusCode::FORBIDDEN, "test.txt", "Access Denied");
@@ -913,6 +941,7 @@ mod tests {
     }
 
     #[test]
+    /// item
     fn test_load_credentials_from_json() {
         let json = r#"{"client_email": "test@example.com", "private_key": "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----"}"#;
         let result = GcsStorage::load_credentials(json);

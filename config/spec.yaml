@@ -1195,26 +1195,6 @@ endpoints:
         admin_override: true
 
       # -----------------------------------------------------------------------
-      # Content Entity Attach / Detach
-      # -----------------------------------------------------------------------
-
-      # Whether users can attach media items to content entities. Omit to disable.
-      # Type: object (optional)
-      attach_to_content:
-        # Whether this feature is enabled. Defaults to true when section is present.
-        # Type: boolean
-        # Default: true (when section is present)
-        enabled: true
-
-      # Whether users can detach media items from content entities. Omit to disable.
-      # Type: object (optional)
-      detach_from_content:
-        # Whether this feature is enabled. Defaults to true when section is present.
-        # Type: boolean
-        # Default: true (when section is present)
-        enabled: true
-
-      # -----------------------------------------------------------------------
       # User Scoping
       # -----------------------------------------------------------------------
 

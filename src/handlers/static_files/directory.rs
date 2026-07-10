@@ -5,10 +5,9 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::response::Response;
 
+use crate::config::types::html_escape;
 use crate::error::AppError;
-use crate::handlers::static_files::utils::{
-    apply_static_headers, format_modified, format_size, html_escape,
-};
+use crate::handlers::common::utils::{apply_content_type, format_modified, format_size};
 use crate::storage::Storage;
 use percent_encoding::percent_decode_str;
 
@@ -25,7 +24,6 @@ pub(crate) struct DirEntryInfo {
 }
 
 /// Generate an HTML directory listing for the given directory.
-#[allow(clippy::unwrap_used)] // writeln! on String is infallible
 pub(crate) async fn generate_directory_listing(
     storage: &dyn Storage,
     dir: &Path,
@@ -111,18 +109,17 @@ pub(crate) async fn generate_directory_listing(
             .map_or_else(|| "-".to_string(), |t| format_modified(*t));
 
         html.push_str("<tr>");
-        writeln!(
+        let _ = writeln!(
             html,
             "<td class=\"perms\">{perms}</td><td>{owner}</td><td>{group}</td>\
              <td class=\"size\">{size_str}</td><td>{modified_str}</td><td>{link}</td></tr>"
-        )
-        .unwrap();
+        );
     }
 
     html.push_str("</table>\n</body></html>\n");
 
     let mut response = (StatusCode::OK, html).into_response();
-    apply_static_headers(&mut response, "text/html; charset=utf-8", 0);
+    apply_content_type(&mut response, "text/html; charset=utf-8");
     Ok(response)
 }
 

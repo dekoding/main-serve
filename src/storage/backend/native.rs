@@ -14,6 +14,7 @@ use std::os::unix::fs::MetadataExt;
 /// root directory. All paths passed to storage methods are resolved
 /// relative to this root.
 #[derive(Clone)]
+/// NativeStorage
 pub struct NativeStorage {
     /// Root directory for this storage instance.
     /// All paths are resolved relative to this directory.
@@ -23,6 +24,7 @@ pub struct NativeStorage {
 impl NativeStorage {
     /// Create a new native storage instance rooted at the given path.
     #[must_use]
+    /// new
     pub fn new(root: PathBuf) -> Self {
         Self { root }
     }
@@ -38,6 +40,7 @@ impl NativeStorage {
 }
 
 impl Default for NativeStorage {
+    /// item
     fn default() -> Self {
         Self::new(PathBuf::from("."))
     }
@@ -47,7 +50,7 @@ impl Default for NativeStorage {
 impl Storage for NativeStorage {
     async fn exists(&self, path: &Path) -> bool {
         let resolved = self.resolve(path);
-        fs::try_exists(&resolved).await.unwrap_or(false)
+        fs::try_exists(&resolved).await.is_ok_and(|exists| exists)
     }
 
     async fn is_file(&self, path: &Path) -> bool {
@@ -111,7 +114,11 @@ impl Storage for NativeStorage {
 
         file.write_all(contents)
             .await
-            .map_err(|e| StorageError::Io(resolved, e))?;
+            .map_err(|e| StorageError::Io(resolved.clone(), e))?;
+
+        file.sync_all()
+            .await
+            .map_err(|e| StorageError::Io(resolved.clone(), e))?;
 
         Ok(())
     }
@@ -248,6 +255,7 @@ impl Storage for NativeStorage {
         Ok(meta.len())
     }
 
+    /// item
     fn root_path(&self) -> Option<PathBuf> {
         Some(self.root.clone())
     }

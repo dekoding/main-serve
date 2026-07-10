@@ -7,14 +7,14 @@ use axum::response::Response;
 use http::HeaderValue;
 use std::collections::HashMap;
 use std::path::Path;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::config::types::EndpointConfig;
 use crate::config::types::StaticFilesConfig;
 use crate::error::AppError;
+use crate::handlers::common::path::extract_relative_path;
+use crate::handlers::common::store::resolve_store;
 use crate::handlers::static_files::delete::handle_file_delete;
-use crate::middleware::auth::extractor::AuthInfo;
 use crate::middleware::cors;
 use crate::server::state::AppState;
 use crate::storage::Storage;
@@ -28,78 +28,6 @@ pub(crate) struct StaticGetContext<'a> {
     pub query: Option<&'a Query<HashMap<String, String>>>,
     pub headers: &'a axum::http::HeaderMap,
     pub storage: Arc<dyn Storage>,
-}
-
-/// Extract the relative file path from a request URI and endpoint path.
-///
-/// Strips the endpoint's base path prefix (handling `/*` and `{*rest}`
-/// wildcards) from the request path and returns the remaining segment.
-#[must_use]
-pub fn extract_relative_path(request_path: &str, endpoint_path: &str) -> String {
-    let ep_path = endpoint_path
-        .trim_end_matches("/*")
-        .trim_end_matches("{*rest}");
-    request_path
-        .strip_prefix(ep_path)
-        .unwrap_or(request_path)
-        .trim_start_matches('/')
-        .to_string()
-}
-
-/// Extract authentication info from request.
-///
-/// # Errors
-///
-/// Returns `AppError::Auth` if authentication fails.
-/// Returns `AppError::Config` if the auth config is missing.
-///
-/// The `implicit_hasher` allow is needed because the function passes
-/// `query_params` (a `&HashMap<String, String>`) to `validate::authenticate`,
-/// which invokes the default `DefaultHasher` for lookups. An explicit
-/// `RandomState` type parameter would be verbose without practical benefit.
-#[allow(clippy::implicit_hasher)] // passes &HashMap to validator which uses .get()
-pub async fn extract_auth_info(
-    state: &AppState,
-    endpoint: &EndpointConfig,
-    headers: &axum::http::HeaderMap,
-    query_params: &HashMap<String, String>,
-) -> Result<AuthInfo, AppError> {
-    if endpoint.auth == "none" {
-        return Ok(AuthInfo::default());
-    }
-    let auth_config = state.config.read().await.auth.clone();
-    crate::middleware::auth::validate::authenticate::<crate::server::state::InMemoryRevocationStore>(
-        &endpoint.auth,
-        &auth_config,
-        headers,
-        query_params,
-        None,
-    )
-    .await
-}
-
-/// Resolve the storage store and root path for a static files endpoint.
-///
-/// Returns the store (Arc<dyn Storage>) and its root path (`PathBuf`).
-/// For native stores, resolves the actual filesystem path.
-/// For cloud stores, returns the store and a conceptual root.
-fn resolve_store(
-    state: &AppState,
-    static_config: &StaticFilesConfig,
-) -> Result<(Arc<dyn Storage>, PathBuf), AppError> {
-    let store_name = &static_config.storage;
-    let storage = state
-        .get_store(store_name)
-        .ok_or_else(|| AppError::Internal(format!("Store '{store_name}' not found")))?;
-
-    let root = if let Some(path) = storage.root_path() {
-        path
-    } else {
-        // For cloud stores, use the store name as a conceptual root
-        PathBuf::from(store_name)
-    };
-
-    Ok((storage, root))
 }
 
 /// Handle a static file endpoint - serves files, uploads, or deletes based on method.
@@ -128,7 +56,7 @@ pub async fn handle_static_files(
         .as_ref()
         .ok_or_else(|| AppError::Internal("Static file configuration missing".to_string()))?;
 
-    let (storage, root) = resolve_store(&state, static_config)?;
+    let (storage, root) = resolve_store(&state, &static_config.storage)?;
 
     if !storage.exists(&root).await {
         return Err(AppError::Internal(format!(
@@ -138,21 +66,13 @@ pub async fn handle_static_files(
     }
 
     let request_path = uri.path();
-    let relative_str = extract_relative_path(request_path, &endpoint.path);
-    let relative = percent_encoding::percent_decode_str(&relative_str)
-        .decode_utf8()
-        .map_err(|_| AppError::BadRequest("Invalid UTF-8 in path".to_string()))?
-        .into_owned();
-
-    if relative.split('/').any(|seg| seg == ".." || seg == ".") {
-        return Err(AppError::Forbidden("Path traversal denied".to_string()));
-    }
+    let relative = extract_relative_path(request_path, &endpoint.path)?;
 
     match method {
-        Method::GET => {
-            crate::handlers::static_files::serving::handle_static_get(
-                state,
-                StaticGetContext {
+        Method::HEAD => {
+            // For HEAD, call GET handler then strip body
+            let resp =
+                crate::handlers::static_files::serving::handle_static_get(StaticGetContext {
                     config: static_config,
                     relative: &relative,
                     root: &root,
@@ -160,21 +80,26 @@ pub async fn handle_static_files(
                     query: query.as_ref(),
                     headers: &headers,
                     storage,
-                },
-            )
+                })
+                .await?;
+            let parts = resp.into_parts();
+            let response = (parts.0, axum::body::Body::empty()).into_response();
+            Ok(response)
+        }
+        Method::GET => {
+            crate::handlers::static_files::serving::handle_static_get(StaticGetContext {
+                config: static_config,
+                relative: &relative,
+                root: &root,
+                request_path,
+                query: query.as_ref(),
+                headers: &headers,
+                storage,
+            })
             .await
         }
         Method::DELETE => {
-            handle_file_delete(
-                storage.as_ref(),
-                state,
-                &endpoint,
-                static_config,
-                &relative,
-                &root,
-                &headers,
-            )
-            .await
+            handle_file_delete(storage.as_ref(), static_config, &relative, &root).await
         }
         Method::OPTIONS => {
             let mut response = (StatusCode::OK).into_response();
@@ -197,7 +122,6 @@ pub async fn handle_static_files(
 pub async fn handle_file_upload_route(
     multipart: axum::extract::Multipart,
     state: State<AppState>,
-    uri: Uri,
     method: Method,
     endpoint: EndpointConfig,
     headers: axum::http::HeaderMap,
@@ -208,7 +132,7 @@ pub async fn handle_file_upload_route(
                 AppError::Internal("Static file configuration missing".to_string())
             })?;
 
-            let (storage, root) = resolve_store(&state, static_config)?;
+            let (storage, root) = resolve_store(&state, &static_config.storage)?;
 
             if !storage.exists(&root).await {
                 return Err(AppError::Internal(format!(
@@ -217,23 +141,11 @@ pub async fn handle_file_upload_route(
                 )));
             }
 
-            let request_path = uri.path();
-            let relative_str = extract_relative_path(request_path, &endpoint.path);
-            let relative = percent_encoding::percent_decode_str(&relative_str)
-                .decode_utf8()
-                .map_err(|_| AppError::BadRequest("Invalid UTF-8 in path".to_string()))?
-                .into_owned();
-
-            if relative.split('/').any(|seg| seg == ".." || seg == ".") {
-                return Err(AppError::Forbidden("Path traversal denied".to_string()));
-            }
-
             crate::handlers::static_files::upload::handle_file_upload(
                 multipart,
                 state,
                 &endpoint,
                 static_config,
-                &relative,
                 &root,
                 &headers,
                 storage,

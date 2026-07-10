@@ -1,15 +1,28 @@
 use std::collections::HashMap;
 
 use super::types::{AppConfig, EndpointAction, RoleHierarchy, StoreBackend, StoreConfig};
+
+/// Minimum valid HTTP status code.
+const HTTP_STATUS_MIN: u16 = 100;
+/// Maximum valid HTTP status code.
+const HTTP_STATUS_MAX: u16 = 599;
 use crate::error::AppError;
 
 /// Characters allowed in SQL expressions from config (join ON clauses,
 /// computed field expressions, where clauses). This rejects semicolons,
-/// comments, and other dangerous SQL metacharacters while still allowing
-/// typical expressions like `table.col = other.col` or `COUNT(*)`, and
-/// interpolation syntax like `${request.user.id}`.
+/// comments, backticks, command substitution, newlines, and other dangerous
+/// SQL metacharacters while still allowing typical expressions like
+/// `table.col = other.col` or `COUNT(*)`, and interpolation syntax like
+/// `${request.user.id}`.
 fn is_safe_sql_fragment(s: &str) -> bool {
-    !s.is_empty() && !s.contains(';') && !s.contains("--") && !s.contains("/*")
+    !s.is_empty()
+        && !s.contains(';')
+        && !s.contains("--")
+        && !s.contains("/*")
+        && !s.contains('`')
+        && !s.contains("$(")
+        && !s.contains('\n')
+        && !s.contains('\r')
 }
 
 /// Validate a fully parsed `AppConfig` for semantic correctness.
@@ -21,6 +34,8 @@ fn is_safe_sql_fragment(s: &str) -> bool {
 ///
 /// Returns `AppError::Validation` containing all validation errors joined
 /// into a single message.
+#[must_use = "Result ignored"]
+/// validate_config
 pub fn validate_config(config: &AppConfig) -> Result<(), AppError> {
     let mut errors: Vec<String> = Vec::new();
 
@@ -336,10 +351,10 @@ fn validate_endpoints(config: &AppConfig, errors: &mut Vec<String>) {
                         "{label}: action is 'custom_response' but no custom_response config provided"
                     ));
                 } else if let Some(cr) = ep.custom_response.as_ref()
-                    && (cr.status < 100 || cr.status > 599)
+                    && (cr.status < HTTP_STATUS_MIN || cr.status > HTTP_STATUS_MAX)
                 {
                     errors.push(format!(
-                        "{label}: custom_response.status must be a valid HTTP status code (100-599)"
+                        "{label}: custom_response.status must be a valid HTTP status code ({HTTP_STATUS_MIN}-{HTTP_STATUS_MAX})"
                     ));
                 }
             }
@@ -502,6 +517,7 @@ fn validate_role_hierarchy(role_hierarchy: &Option<RoleHierarchy>, errors: &mut 
     }
 
     for role in roles.keys() {
+        // SAFETY: The key was just inserted in the loop above.
         if state[role] == 0
             && let Some(cycle_path) = dfs_detect_cycle(role, roles, &mut state)
         {
@@ -742,7 +758,7 @@ mod tests {
     }
 
     // Helper function to construct endpoint configs with all action variants.
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)] // make_endpoint is a test helper that constructs complete EndpointConfigs; refactoring into multiple helpers would add unnecessary boilerplate in test code
     fn make_endpoint(
         path: &str,
         method: types::HttpMethod,

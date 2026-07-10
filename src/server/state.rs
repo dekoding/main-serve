@@ -8,17 +8,16 @@ use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
-use async_trait::async_trait;
 use tokio::sync::{Mutex, RwLock};
 
 use crate::config::AppConfig;
-use crate::config::types::DatabaseDriver;
-use crate::config::types::EndpointConfig;
-use crate::config::types::RoleHierarchy;
 use crate::config::types::StoreConfig;
-use crate::db::migration::quote_object_name;
+use crate::config::types::{EndpointConfig, RegisterConfig};
+use crate::config::types::{JwtConfig, RoleHierarchy};
 use crate::db::pool::DatabasePool;
+use crate::db::query::revocation;
 use crate::error::AppError;
+use crate::handlers::common::utils::DatabaseContext;
 use crate::middleware::auth::validators::oauth2::PendingOAuth2;
 use crate::middleware::rate_limit::RateLimiter;
 use crate::server::prefix_match::{find_prefix_match, find_wildcard_match};
@@ -29,7 +28,8 @@ use crate::storage::{Storage, create_store};
 /// Both the in-memory and database-backed revocation stores implement
 /// this trait, allowing `AppState` to hold either variant behind a
 /// single type.
-#[async_trait]
+#[async_trait::async_trait]
+/// RevocationStoreBackend
 pub trait RevocationStoreBackend: Send + Sync {
     /// Check whether the given JTI has been revoked.
     async fn is_revoked(&self, jti: &str) -> bool;
@@ -44,18 +44,11 @@ pub trait RevocationStoreBackend: Send + Sync {
 /// Tracks revoked JWTs by their `jti` claim value until their original
 /// expiry time. Entries are lazily cleaned up during revocation checks
 /// and periodic cleanup runs.
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
+/// InMemoryRevocationStore
 pub struct InMemoryRevocationStore {
-    /// Map of JTI -> revocation expiry instant.
-    revoked: tokio::sync::Mutex<std::collections::HashMap<String, Instant>>,
-}
-
-impl Clone for InMemoryRevocationStore {
-    fn clone(&self) -> Self {
-        // InMemoryRevocationStore is always behind Arc, so this should
-        // never be called directly. We panic to make that explicit.
-        panic!("InMemoryRevocationStore is always Arc-wrapped in AppState")
-    }
+    /// Map of JTI -> revocation expiry instant, wrapped in Arc for shared cloning.
+    revoked: Arc<tokio::sync::Mutex<std::collections::HashMap<String, Instant>>>,
 }
 
 impl InMemoryRevocationStore {
@@ -86,7 +79,8 @@ impl RevocationStoreBackend for InMemoryRevocationStore {
 /// with columns: `jti` (varchar primary key), `revoked_at` (timestamptz),
 /// `expires_at` (timestamptz). Entries are cleaned up periodically based
 /// on the configured interval.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
+/// DatabaseRevocationStore
 pub struct DatabaseRevocationStore {
     /// The database pool for this store.
     pool: DatabasePool,
@@ -94,17 +88,10 @@ pub struct DatabaseRevocationStore {
     table_name: String,
 }
 
-impl Clone for DatabaseRevocationStore {
-    fn clone(&self) -> Self {
-        // DatabaseRevocationStore is always behind Arc, so this should
-        // never be called directly. We panic to make that explicit.
-        panic!("DatabaseRevocationStore is always Arc-wrapped in AppState")
-    }
-}
-
 impl DatabaseRevocationStore {
     /// Create a new database-backed revocation store.
     #[must_use]
+    /// new
     pub fn new(pool: DatabasePool, table_name: String) -> Self {
         Self { pool, table_name }
     }
@@ -117,11 +104,8 @@ impl DatabaseRevocationStore {
     ///
     /// Returns `AppError::Database` if the deletion query fails.
     pub async fn cleanup_expired(&self) -> Result<(), AppError> {
-        let sql = format!(
-            "DELETE FROM {} WHERE expires_at < NOW()",
-            quote_object_name(&self.table_name, self.pool.driver())
-        );
-        let _ = self.pool.execute_raw(&sql).await?;
+        let built = revocation::build_revoke_cleanup(&self.table_name, self.pool.driver());
+        let _ = self.pool.execute_raw(&built.sql).await?;
         Ok(())
     }
 
@@ -131,12 +115,12 @@ impl DatabaseRevocationStore {
     ///
     /// Returns `AppError::Database` if the lookup query fails.
     pub async fn is_revoked_db(&self, jti: &str) -> bool {
-        let sql = format!(
-            "SELECT 1 FROM {} WHERE jti = {} LIMIT 1",
-            quote_object_name(&self.table_name, self.pool.driver()),
-            placeholder(self.pool.driver())
-        );
-        let result = self.pool.fetch_optional_json(&sql, &[jti.into()]).await;
+        let built =
+            revocation::build_revoke_check(&self.table_name, self.pool.driver(), jti.into());
+        let result = self
+            .pool
+            .fetch_optional_json(&built.sql, &built.params)
+            .await;
         matches!(result, Ok(Some(_)))
     }
 
@@ -154,52 +138,17 @@ impl DatabaseRevocationStore {
         let revoked_at_str = now.to_rfc3339();
         let expires_at_str = expires_at_utc.to_rfc3339();
 
-        let sql = match self.pool.driver() {
-            DatabaseDriver::Sqlite => format!(
-                "INSERT OR REPLACE INTO {} (jti, revoked_at, expires_at) \
-                 VALUES ($1, $2, $3)",
-                quote_object_name(&self.table_name, DatabaseDriver::Sqlite)
-            ),
-            DatabaseDriver::Postgres => format!(
-                "INSERT INTO {} (jti, revoked_at, expires_at) \
-                 VALUES ($1, $2, $3) \
-                 ON CONFLICT (jti) DO UPDATE SET expires_at = EXCLUDED.expires_at",
-                quote_object_name(&self.table_name, DatabaseDriver::Postgres)
-            ),
-            DatabaseDriver::Mysql => format!(
-                "INSERT INTO {} (jti, revoked_at, expires_at) \
-                 VALUES (?, ?, ?) \
-                 ON DUPLICATE KEY UPDATE expires_at = VALUES(expires_at)",
-                quote_object_name(&self.table_name, DatabaseDriver::Mysql)
-            ),
-        };
+        let built = revocation::build_revoke_insert(
+            &self.table_name,
+            jti,
+            &revoked_at_str,
+            &expires_at_str,
+            self.pool.driver(),
+        )?;
 
-        match self.pool.driver() {
-            DatabaseDriver::Sqlite => {
-                self.pool
-                    .execute_with_params(
-                        &sql,
-                        &[jti.into(), revoked_at_str.into(), expires_at_str.into()],
-                    )
-                    .await?;
-            }
-            DatabaseDriver::Postgres => {
-                self.pool
-                    .execute_with_params(
-                        &sql,
-                        &[jti.into(), revoked_at_str.into(), expires_at_str.into()],
-                    )
-                    .await?;
-            }
-            DatabaseDriver::Mysql => {
-                self.pool
-                    .execute_with_params(
-                        &sql,
-                        &[jti.into(), revoked_at_str.into(), expires_at_str.into()],
-                    )
-                    .await?;
-            }
-        };
+        self.pool
+            .execute_with_params(&built.sql, &built.params)
+            .await?;
 
         Ok(())
     }
@@ -218,6 +167,7 @@ impl RevocationStoreBackend for DatabaseRevocationStore {
 
 /// Unified revocation store that can be either in-memory or database-backed.
 #[derive(Debug)]
+/// RevocationStoreImpl
 pub enum RevocationStoreImpl {
     /// In-memory store.
     InMemory(Arc<InMemoryRevocationStore>),
@@ -226,6 +176,7 @@ pub enum RevocationStoreImpl {
 }
 
 impl Clone for RevocationStoreImpl {
+    /// item
     fn clone(&self) -> Self {
         match self {
             Self::InMemory(inner) => Self::InMemory(inner.clone()),
@@ -271,6 +222,7 @@ impl RevocationStoreImpl {
     ///
     /// Returns `None` for the in-memory variant.
     #[must_use]
+    /// cleanup_interval_secs
     pub fn cleanup_interval_secs(&self) -> Option<u64> {
         match self {
             Self::Database(_) => None, // Caller passes interval from config
@@ -279,16 +231,9 @@ impl RevocationStoreImpl {
     }
 }
 
-/// Helper: generate a single placeholder character for the given driver.
-fn placeholder(driver: DatabaseDriver) -> char {
-    match driver {
-        DatabaseDriver::Sqlite | DatabaseDriver::Postgres => '$',
-        DatabaseDriver::Mysql => '?',
-    }
-}
-
 /// Shared application state available to all handlers.
 #[derive(Clone)]
+/// AppState
 pub struct AppState {
     /// The current parsed configuration, swappable on hot-reload.
     pub config: Arc<RwLock<AppConfig>>,
@@ -375,18 +320,18 @@ impl AppState {
     /// requires a database pool at construction time. The pool is created
     /// in `build_app()` after `AppState` is initialized.
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the revocation store has already been set.
-    #[allow(clippy::expect_used)] // OnceCell::set only fails if already initialized (programming error)
-    pub fn set_revocation_store(&self, store: RevocationStoreImpl) {
+    /// Returns `AppError::Internal` if the revocation store has already been set.
+    pub fn set_revocation_store(&self, store: RevocationStoreImpl) -> Result<(), AppError> {
         self.revocation_store
             .set(store)
-            .expect("Revocation store already initialized");
+            .map_err(|_| AppError::Internal("Revocation store already initialized".to_string()))
     }
 
     /// Get a storage store by name.
     #[must_use]
+    /// get_store
     pub fn get_store(&self, name: &str) -> Option<Arc<dyn Storage>> {
         self.stores.get(name).cloned()
     }
@@ -445,6 +390,78 @@ impl AppState {
         // Check for wildcard pattern matches (e.g., /app/{*rest} matches /app/foo/bar)
         find_wildcard_match(&configs, path, method_check)
     }
+
+    /// Resolve database pool and table config.
+    pub async fn get_db_context(&self, db: &str, table: &str) -> Result<DatabaseContext, AppError> {
+        let pool = self.db_pool(db).await?;
+
+        let table_config = {
+            let config_guard = self.config.read().await;
+            config_guard
+                .tables
+                .iter()
+                .find(|t| t.name == table && t.database == db)
+                .ok_or_else(|| {
+                    AppError::Internal(format!(
+                        "Table '{}' in database '{}' not found in config",
+                        table, db
+                    ))
+                })?
+                .clone()
+        };
+        Ok(DatabaseContext { pool, table_config })
+    }
+
+    /// Get database pool from state
+    pub async fn db_pool(&self, db: &str) -> Result<DatabasePool, AppError> {
+        let pool = {
+            let pools = self.db_pools.read().await;
+            pools
+                .get(db)
+                .ok_or_else(|| AppError::Internal(format!("Database '{}' has no pool", db)))?
+                .clone()
+        };
+        Ok(pool)
+    }
+
+    /// Helper function to get the registration database pool and config.
+    pub async fn registration_pool(&self) -> Result<(DatabasePool, RegisterConfig), AppError> {
+        let (pool, register_config) = {
+            let register_config = {
+                let config = self.config.read().await;
+                config.auth.register.as_ref().cloned().ok_or_else(|| {
+                    AppError::Config("User registration is not enabled".to_string())
+                })?
+            };
+
+            let pool = self.db_pool(&register_config.database).await?;
+            (pool, register_config)
+        };
+        Ok((pool, register_config))
+    }
+
+    /// Get JWT configuration from app state.
+    ///
+    /// # Errors
+    ///
+    /// Returns `AppError::Config` if JWT is not configured.
+    pub async fn jwt_config(&self) -> Result<JwtConfig, AppError> {
+        let config = self.config.read().await;
+        let jwt_config = config
+            .auth
+            .jwt
+            .as_ref()
+            .ok_or_else(|| AppError::Config("JWT is not configured".to_string()))?;
+        Ok(JwtConfig {
+            secret: jwt_config.secret.clone(),
+            algorithm: jwt_config.algorithm,
+            issuer: jwt_config.issuer.clone(),
+            audience: String::new(),
+            expiry: 3600,
+            role_claim: "role".to_string(),
+            revocation: None,
+        })
+    }
 }
 
 /// Compute the transitive closure of the role hierarchy.
@@ -453,6 +470,7 @@ impl AppState {
 /// parents, etc.) and returns a map from role name to the set of inherited
 /// roles. Roles not present in the hierarchy map to an empty set.
 #[must_use]
+/// compute_role_inheritance
 pub fn compute_role_inheritance(
     role_hierarchy: &Option<RoleHierarchy>,
 ) -> HashMap<String, HashSet<String>> {
@@ -530,12 +548,12 @@ pub async fn build_stores_from_config(
     Ok(stores)
 }
 
+#[must_use]
 /// Recompute store changes between old and new configurations.
 ///
 /// Returns two vectors:
 /// - `unchanged`: Store names that exist in both configs with the same backend+root
 /// - `changed_or_removed`: Store names that need recreation (changed or removed from config)
-#[must_use]
 pub fn compute_store_changes(
     old_configs: &HashMap<String, StoreConfig>,
     new_configs: &HashMap<String, StoreConfig>,

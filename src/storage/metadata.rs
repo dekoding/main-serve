@@ -3,6 +3,7 @@ use std::time::SystemTime;
 
 /// Metadata for a file or directory entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// FileMetadata
 pub struct FileMetadata {
     /// Name of the file or directory.
     pub name: String,
@@ -19,6 +20,7 @@ pub struct FileMetadata {
 impl FileMetadata {
     /// Create a new `FileMetadata` instance.
     #[must_use]
+    /// new
     pub fn new(name: String, is_file: bool, size: u64) -> Self {
         Self {
             name,
@@ -31,6 +33,7 @@ impl FileMetadata {
 
     /// Check if this metadata represents a directory.
     #[must_use]
+    /// is_dir
     pub fn is_dir(&self) -> bool {
         !self.is_file
     }
@@ -38,6 +41,7 @@ impl FileMetadata {
 
 /// A directory entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
+/// DirEntry
 pub struct DirEntry {
     /// Name of the entry.
     pub name: String,
@@ -60,6 +64,7 @@ pub struct DirEntry {
 impl DirEntry {
     /// Create a new `DirEntry` instance.
     #[must_use]
+    /// new
     pub fn new(name: String, is_dir: bool, size: u64) -> Self {
         Self {
             name,
@@ -110,6 +115,7 @@ impl DirEntry {
 
     /// Check if this entry is a file.
     #[must_use]
+    /// is_file
     pub fn is_file(&self) -> bool {
         !self.is_dir
     }

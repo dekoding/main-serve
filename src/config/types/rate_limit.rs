@@ -3,6 +3,7 @@ use serde::Deserialize;
 /// Rate limiting configuration (global or per-endpoint override).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// RateLimitConfig
 pub struct RateLimitConfig {
     /// Whether rate limiting is active.
     pub enabled: bool,
@@ -19,11 +20,13 @@ pub struct RateLimitConfig {
     pub cleanup_threshold: usize,
 }
 
+/// item
 fn default_cleanup_threshold() -> usize {
     10_000
 }
 
 impl Default for RateLimitConfig {
+    /// item
     fn default() -> Self {
         Self {
             enabled: false,
@@ -39,6 +42,7 @@ impl Default for RateLimitConfig {
 /// How to extract the rate-limit key from a request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
+/// RateLimitKeyStrategy
 pub enum RateLimitKeyStrategy {
     Ip,
     Header,

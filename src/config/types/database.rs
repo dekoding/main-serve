@@ -4,6 +4,7 @@ use serde::Deserialize;
 /// A named database connection configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// DatabaseConfig
 pub struct DatabaseConfig {
     /// Database backend to use.
     pub driver: DatabaseDriver,
@@ -24,11 +25,13 @@ pub struct DatabaseConfig {
     pub acquire_timeout: u64,
 }
 
+/// item
 fn default_acquire_timeout() -> u64 {
     5
 }
 
 impl Default for DatabaseConfig {
+    /// item
     fn default() -> Self {
         Self {
             driver: DatabaseDriver::Sqlite,
@@ -45,6 +48,7 @@ impl Default for DatabaseConfig {
 /// Supported database backends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
+/// DatabaseDriver
 pub enum DatabaseDriver {
     Postgres,
     Mysql,
@@ -54,6 +58,7 @@ pub enum DatabaseDriver {
 /// Schema for a single database table (used for migrations and query building).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
+/// TableConfig
 pub struct TableConfig {
     /// Name of the table as it appears in the database.
     pub name: String,
@@ -70,6 +75,7 @@ pub struct TableConfig {
 /// A column definition within a table.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// ColumnConfig
 pub struct ColumnConfig {
     /// Column name.
     pub name: String,
@@ -89,6 +95,7 @@ pub struct ColumnConfig {
 }
 
 impl Default for ColumnConfig {
+    /// item
     fn default() -> Self {
         Self {
             name: String::new(),
@@ -105,6 +112,7 @@ impl Default for ColumnConfig {
 /// Supported column data types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
+/// ColumnType
 pub enum ColumnType {
     Integer,
     Bigint,
@@ -131,6 +139,7 @@ pub enum ColumnType {
 /// A foreign key constraint on a table.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
+/// ForeignKeyConfig
 pub struct ForeignKeyConfig {
     /// Column in this table that holds the foreign key.
     pub column: String,
@@ -146,6 +155,7 @@ pub struct ForeignKeyConfig {
     pub on_update: ForeignKeyAction,
 }
 
+/// item
 fn default_fk_action() -> ForeignKeyAction {
     ForeignKeyAction::Restrict
 }
@@ -153,6 +163,7 @@ fn default_fk_action() -> ForeignKeyAction {
 /// Foreign key referential actions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
+/// ForeignKeyAction
 pub enum ForeignKeyAction {
     Cascade,
     SetNull,

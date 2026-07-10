@@ -6,33 +6,22 @@
 use std::collections::HashMap;
 use std::fmt::Write;
 
-use crate::config::types::{ColumnType, CrudConfig, DatabaseDriver, SortOrder, TableConfig};
+use crate::config::types::listing::SortOrder;
+use crate::config::types::{ColumnType, DatabaseDriver, TableConfig};
 use crate::db::query::helpers::{
-    FilterExpression, FilterOperator, build_filter_param, extract_base_column, extract_jsonb_path,
-    is_bracket_notation, is_jsonb_column, is_jsonb_path, is_valid_expression,
-    is_valid_filter_column, is_valid_sort_field, parse_filter_key, parse_sort_field, placeholder,
-    resolve_single_key,
+    FilterExpression, FilterOperator, VALUE_INTERPOLATION_RE, build_filter_param,
+    extract_base_column, extract_jsonb_path, is_bracket_notation, is_jsonb_column, is_jsonb_path,
+    is_valid_expression, is_valid_filter_column, is_valid_sort_field, parse_filter_key,
+    parse_sort_field, placeholder, resolve_single_key,
 };
 use crate::db::query::traits::{FilterBehavior, MysqlFilter, PostgresFilter, SqliteFilter};
-use crate::db::query::types::{BuiltQuery, QueryParams};
+use crate::db::query::types::{BuiltQuery, JoinType, QueryParams, SelectContext};
 use crate::error::AppError;
 use crate::middleware::auth::extractor::RequestContext;
 
-impl SelectBuilder {
-    /// Get the filter behavior for this driver.
-    fn filter_behavior(&self) -> Box<dyn FilterBehavior> {
-        match self.driver {
-            DatabaseDriver::Postgres => Box::new(PostgresFilter),
-            DatabaseDriver::Mysql => Box::new(MysqlFilter),
-            DatabaseDriver::Sqlite => Box::new(SqliteFilter),
-        }
-    }
-}
-
-/// Accumulator for building SELECT query clauses.
-///
-/// Collects fields, joins, computed fields, WHERE conditions, ordering,
-/// and pagination parameters before emitting a `BuiltQuery`.
+/// SelectBuilder accumulates the clauses of a SELECT statement so that both
+/// list and single-get queries share the same logic for fields, joins,
+/// computed fields, and WHERE conditions.
 pub struct SelectBuilder {
     table: String,
     select_fields: Vec<String>,
@@ -44,12 +33,19 @@ pub struct SelectBuilder {
     params: Vec<serde_json::Value>,
     param_idx: usize,
     driver: DatabaseDriver,
+    filter_behavior: Box<dyn FilterBehavior>,
 }
 
 impl SelectBuilder {
     /// Start a new SELECT against `table` with the given main-table fields.
     #[must_use]
+    /// new
     pub fn new(table: &str, fields: Vec<String>, driver: DatabaseDriver) -> Self {
+        let filter_behavior: Box<dyn FilterBehavior> = match driver {
+            DatabaseDriver::Postgres => Box::new(PostgresFilter),
+            DatabaseDriver::Mysql => Box::new(MysqlFilter),
+            DatabaseDriver::Sqlite => Box::new(SqliteFilter),
+        };
         Self {
             table: table.to_string(),
             select_fields: fields,
@@ -61,6 +57,7 @@ impl SelectBuilder {
             params: Vec::new(),
             param_idx: 1,
             driver,
+            filter_behavior,
         }
     }
 
@@ -81,17 +78,17 @@ impl SelectBuilder {
     }
 
     /// Append JOIN clauses and their requested fields.
-    pub fn apply_joins(&mut self, crud: &CrudConfig) {
-        if crud.joins.is_empty() {
+    pub fn apply_joins(&mut self, ctx: &SelectContext) {
+        if ctx.joins.is_empty() {
             return;
         }
         self.qualify_main_fields();
 
-        for join in &crud.joins {
+        for join in &ctx.joins {
             let keyword = match join.join_type {
-                crate::config::types::JoinType::Inner => "INNER JOIN",
-                crate::config::types::JoinType::Left => "LEFT JOIN",
-                crate::config::types::JoinType::Right => "RIGHT JOIN",
+                JoinType::Inner => "INNER JOIN",
+                JoinType::Left => "LEFT JOIN",
+                JoinType::Right => "RIGHT JOIN",
             };
             self.joins
                 .push(format!("{} {} ON {}", keyword, join.table, join.on));
@@ -108,8 +105,8 @@ impl SelectBuilder {
     }
 
     /// Append computed (virtual) fields as SQL expressions in the SELECT list.
-    pub fn apply_computed_fields(&mut self, crud: &CrudConfig) {
-        for cf in &crud.computed_fields {
+    pub fn apply_computed_fields(&mut self, ctx: &SelectContext) {
+        for cf in &ctx.computed_fields {
             self.computed
                 .push(format!("{} AS {}", cf.expression, cf.name));
         }
@@ -118,10 +115,10 @@ impl SelectBuilder {
     /// Append the `where_clause` from config, resolving dynamic parameters if present.
     pub fn apply_where_clause(
         &mut self,
-        crud: &CrudConfig,
+        ctx: &SelectContext,
         context: &RequestContext,
     ) -> Result<(), AppError> {
-        if let Some(ref wc) = crud.where_clause {
+        if let Some(ref wc) = ctx.where_clause {
             let interpolated = self.interpolate_where_clause(wc, context)?;
             self.conditions.push(format!("({interpolated})"));
         }
@@ -134,9 +131,7 @@ impl SelectBuilder {
         wc: &str,
         context: &RequestContext,
     ) -> Result<String, AppError> {
-        use regex::Regex;
-        let re = Regex::new(r"\$\{([^}]+)\}")
-            .map_err(|e| AppError::Internal(format!("Invalid interpolation regex: {e}")))?;
+        let re = &*VALUE_INTERPOLATION_RE;
         let mut last_match_end = 0;
         let mut new_string = String::new();
 
@@ -185,7 +180,7 @@ impl SelectBuilder {
     /// Append user-supplied filter conditions as parameterized WHERE terms.
     pub fn apply_filters(
         &mut self,
-        crud: &CrudConfig,
+        ctx: &SelectContext,
         filters: &HashMap<String, String>,
         table_config: &TableConfig,
     ) -> Result<(), AppError> {
@@ -197,7 +192,7 @@ impl SelectBuilder {
                 .first()
                 .ok_or_else(|| AppError::BadRequest(format!("Invalid filter key: {key}")))?;
 
-            let allowed = &crud.filtering.allowed_fields;
+            let allowed = &ctx.filtering_allowed_fields;
             // For allowed_fields check, extract the base column name
             let allowed_base = extract_base_column(base_column);
             if !allowed.contains(&"*".to_string()) && !allowed.contains(&allowed_base) {
@@ -238,74 +233,76 @@ impl SelectBuilder {
     }
 
     /// Applies a single filter expression to the query.
+    ///
+    /// Split into two phases to avoid borrow conflicts between the stored
+    /// `filter_behavior` (immutable) and the mutation targets (mutable).
     fn apply_filter_expression(
         &mut self,
         expr: &FilterExpression,
         value: &str,
         column_type: Option<&crate::config::types::ColumnType>,
     ) -> Result<(), AppError> {
-        let behavior = self.filter_behavior();
-        self.apply_filter_common(expr, value, column_type, &*behavior)
-    }
-
-    /// Unified filter logic using the `FilterBehavior` trait.
-    fn apply_filter_common(
-        &mut self,
-        expr: &FilterExpression,
-        value: &str,
-        column_type: Option<&crate::config::types::ColumnType>,
-        behavior: &dyn FilterBehavior,
-    ) -> Result<(), AppError> {
         let path_str = expr.path.join(".");
         let base_column = expr.path.first().cloned().unwrap_or_default();
         let is_jsonb_field = expr.path.len() > 1
             || column_type.is_some_and(|ct| matches!(ct, ColumnType::Jsonb | ColumnType::Json));
 
-        let values: Vec<String> = match expr.operator {
-            FilterOperator::In | FilterOperator::NotIn => {
-                value.split(',').map(|s| s.trim().to_string()).collect()
-            }
-            FilterOperator::Contains => {
-                if is_jsonb_field {
-                    vec![value.to_string()]
-                } else {
-                    vec![format!("%{}%", value)]
-                }
-            }
-            _ => vec![value.to_string()],
-        };
-        let num_params = values.len();
-
-        // Handle Exists separately (no parameters added).
         if expr.operator == FilterOperator::Exists {
-            let exists_cond =
-                self.build_exists(is_jsonb_field, &base_column, &path_str, behavior)?;
+            // Build condition in a block so fb is dropped before mutating self.
+            let exists_cond = {
+                let fb = &*self.filter_behavior;
+                self.build_exists(is_jsonb_field, &base_column, &path_str, fb)?
+            };
+            // fb is out of scope; borrow on filter_behavior is released.
             self.conditions.push(exists_cond);
             return Ok(());
         }
 
-        let condition = self.build_filter_condition(
-            expr.operator,
-            &base_column,
-            is_jsonb_field,
-            &path_str,
-            num_params,
-            value,
-            behavior,
-        );
+        // Phase 1: Build condition strings (immutable borrow of self).
+        let (condition, values) = {
+            let fb = &*self.filter_behavior;
+            let values: Vec<String> = match expr.operator {
+                FilterOperator::In | FilterOperator::NotIn => {
+                    value.split(',').map(|s| s.trim().to_string()).collect()
+                }
+                FilterOperator::Contains => {
+                    if is_jsonb_field {
+                        vec![value.to_string()]
+                    } else {
+                        vec![format!("%{}%", value)]
+                    }
+                }
+                _ => vec![value.to_string()],
+            };
+
+            let condition = self.build_filter_condition(
+                expr.operator,
+                &base_column,
+                is_jsonb_field,
+                &path_str,
+                values.len(),
+                value,
+                fb,
+            );
+            (condition, values)
+        };
+        // fb is out of scope; borrow on filter_behavior is released.
+
+        // Phase 2: Apply mutations (mutable borrow of self).
         self.conditions.push(condition);
 
         for v in &values {
             let param_value = build_filter_param(v, column_type, self.driver);
             self.params.push(param_value);
         }
-        self.param_idx += num_params;
+        self.param_idx += values.len();
 
         Ok(())
     }
 
     /// Build the SQL condition string for a single filter operator.
     #[allow(clippy::too_many_arguments)] // needed for 14-operator dispatch
+    /// item
     fn build_filter_condition(
         &self,
         operator: FilterOperator,
@@ -634,22 +631,22 @@ impl SelectBuilder {
     /// Set the ORDER BY clause from config + request params.
     pub fn apply_sorting(
         &mut self,
-        crud: &CrudConfig,
+        ctx: &SelectContext,
         table_config: &TableConfig,
         query_params: &QueryParams,
     ) -> Result<(), AppError> {
-        if !crud.sorting.enabled {
+        if !ctx.sorting_enabled {
             return Ok(());
         }
         let sort_field = query_params.sort.as_deref().unwrap_or_else(|| {
-            if crud.sorting.default_field.is_empty() {
+            if ctx.sorting_default_field.is_empty() {
                 table_config
                     .columns
                     .iter()
                     .find(|c| c.primary_key)
                     .map_or("id", |c| c.name.as_str())
             } else {
-                &crud.sorting.default_field
+                &ctx.sorting_default_field
             }
         });
 
@@ -666,14 +663,14 @@ impl SelectBuilder {
             )));
         }
 
-        let allowed = &crud.sorting.allowed_fields;
+        let allowed = &ctx.sorting_allowed_fields;
         if !allowed.contains(&"*".to_string()) && !allowed.contains(&sort_field.to_string()) {
             return Err(AppError::BadRequest(format!(
                 "Sorting by '{sort_field}' is not allowed"
             )));
         }
 
-        let order = query_params.order.unwrap_or(crud.sorting.default_order);
+        let order = query_params.order.unwrap_or(ctx.sorting_default_order);
         let order_str = match order {
             SortOrder::Asc => "ASC",
             SortOrder::Desc => "DESC",
@@ -723,14 +720,14 @@ impl SelectBuilder {
     }
 
     /// Set LIMIT/OFFSET from pagination config + request params.
-    pub fn apply_pagination(&mut self, crud: &CrudConfig, query_params: &QueryParams) {
-        if !crud.pagination.enabled {
+    pub fn apply_pagination(&mut self, ctx: &SelectContext, query_params: &QueryParams) {
+        if !ctx.pagination_enabled {
             return;
         }
         let page_size = query_params
             .page_size
-            .unwrap_or(crud.pagination.default_page_size)
-            .min(crud.pagination.max_page_size);
+            .unwrap_or(ctx.pagination_default_page_size)
+            .min(ctx.pagination_max_page_size);
         let page = query_params.page.unwrap_or(1).max(1);
         let offset = (page - 1) * page_size;
 
@@ -754,6 +751,7 @@ impl SelectBuilder {
     /// Render the final SQL string and return params.
     #[must_use]
     #[allow(clippy::unwrap_used)] // write! on String is infallible
+    /// build
     pub fn build(self) -> BuiltQuery {
         let mut select = self.select_fields;
         for c in &self.computed {
@@ -763,23 +761,24 @@ impl SelectBuilder {
         let mut sql = format!("SELECT {} FROM {}", select.join(", "), self.table);
 
         for j in &self.joins {
-            write!(sql, " {j}").unwrap();
+            // Writing to String cannot fail.
+            let _ = write!(sql, " {j}");
         }
 
         if !self.conditions.is_empty() {
-            write!(sql, " WHERE {}", self.conditions.join(" AND ")).unwrap();
+            let _ = write!(sql, " WHERE {}", self.conditions.join(" AND "));
         }
 
         if let Some(ref ob) = self.order_by {
-            write!(sql, " ORDER BY {ob}").unwrap();
+            let _ = write!(sql, " ORDER BY {ob}");
         }
 
         if let Some((ref limit, ref offset)) = self.limit_offset {
             if offset == "0" && !limit.starts_with('$') && !limit.starts_with('?') {
                 // Literal LIMIT (e.g. "LIMIT 1") - skip OFFSET.
-                write!(sql, " LIMIT {limit}").unwrap();
+                let _ = write!(sql, " LIMIT {limit}");
             } else {
-                write!(sql, " LIMIT {limit} OFFSET {offset}").unwrap();
+                let _ = write!(sql, " LIMIT {limit} OFFSET {offset}");
             }
         }
 

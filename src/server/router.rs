@@ -1,3 +1,4 @@
+use axum::routing::MethodRouter;
 use std::collections::HashMap;
 use tower_http::compression::CompressionLayer;
 
@@ -160,6 +161,17 @@ pub async fn build_router(config: &AppConfig, state: AppState) -> Router {
                 );
             }
         }
+
+        if endpoint.action == EndpointAction::SpaHost && path.ends_with("{*rest}") {
+            let bare = path.trim_end_matches("{*rest}").trim_end_matches('/');
+            if bare.is_empty() {
+                router = register_spa_bare_routes(router, "/", endpoint, endpoint_cors);
+            } else {
+                router = register_spa_bare_routes(router, bare, endpoint, endpoint_cors);
+                router =
+                    register_spa_bare_routes(router, &format!("{bare}/"), endpoint, endpoint_cors);
+            }
+        }
     }
 
     let router = router.with_state(state.clone());
@@ -231,6 +243,52 @@ fn register_static_bare_routes(
     router
 }
 
+/// Register SPA host routes for a bare path (with or without trailing slash).
+///
+/// Registers all configured HTTP methods plus OPTIONS (if not already present)
+/// and applies the endpoint's CORS configuration.
+fn register_spa_bare_routes(
+    mut router: Router<AppState>,
+    path: &str,
+    endpoint: &EndpointConfig,
+    cors: &crate::config::types::CorsConfig,
+) -> Router<AppState> {
+    let mut combined_router = Router::new();
+    for method in &endpoint.methods {
+        combined_router = add_endpoint_route(combined_router, path, *method, endpoint, Some(cors));
+    }
+    if !endpoint.methods.contains(&ConfigHttpMethod::Options) {
+        combined_router = add_endpoint_route(
+            combined_router,
+            path,
+            ConfigHttpMethod::Options,
+            endpoint,
+            Some(cors),
+        );
+    }
+    let combined_router = combined_router.layer(build_cors_layer(cors));
+    router = router.merge(combined_router);
+    router
+}
+
+/// item
+fn check_use_cors(
+    mut app: Router<AppState>,
+    path: &str,
+    method_router: MethodRouter<AppState>,
+    cors: Option<&crate::config::types::CorsConfig>,
+) -> Router<AppState> {
+    if let Some(cors_config) = cors {
+        app = app
+            .route(path, method_router)
+            .route_layer(build_cors_layer(cors_config));
+    } else {
+        app = app.route(path, method_router);
+    }
+    app
+}
+
+/// item
 fn add_endpoint_route(
     mut app: Router<AppState>,
     path: &str,
@@ -251,13 +309,7 @@ fn add_endpoint_route(
                 ConfigHttpMethod::Options => axum::routing::options(handler),
             };
 
-            if let Some(cors_config) = cors {
-                app = app
-                    .route(path, method_router)
-                    .route_layer(build_cors_layer(cors_config));
-            } else {
-                app = app.route(path, method_router);
-            }
+            app = check_use_cors(app, path, method_router, cors);
         }
 
         EndpointAction::Crud => {
@@ -272,13 +324,7 @@ fn add_endpoint_route(
                 ConfigHttpMethod::Options => axum::routing::options(handler),
             };
 
-            if let Some(cors_config) = cors {
-                app = app
-                    .route(path, method_router)
-                    .route_layer(build_cors_layer(cors_config));
-            } else {
-                app = app.route(path, method_router);
-            }
+            app = check_use_cors(app, path, method_router, cors);
         }
 
         EndpointAction::Proxy => {
@@ -293,13 +339,7 @@ fn add_endpoint_route(
                 ConfigHttpMethod::Options => axum::routing::options(handler),
             };
 
-            if let Some(cors_config) = cors {
-                app = app
-                    .route(path, method_router)
-                    .route_layer(build_cors_layer(cors_config));
-            } else {
-                app = app.route(path, method_router);
-            }
+            app = check_use_cors(app, path, method_router, cors);
         }
 
         EndpointAction::StaticFiles => {
@@ -321,13 +361,7 @@ fn add_endpoint_route(
                     ConfigHttpMethod::Get => axum::routing::get(handle_static_files_route),
                 };
 
-                if let Some(cors_config) = cors {
-                    app = app
-                        .route(path, method_router)
-                        .route_layer(build_cors_layer(cors_config));
-                } else {
-                    app = app.route(path, method_router);
-                }
+                app = check_use_cors(app, path, method_router, cors);
             } else {
                 let handler = handle_static_files_route;
                 let method_router = match method {
@@ -340,13 +374,7 @@ fn add_endpoint_route(
                     ConfigHttpMethod::Options => axum::routing::options(handler),
                 };
 
-                if let Some(cors_config) = cors {
-                    app = app
-                        .route(path, method_router)
-                        .route_layer(build_cors_layer(cors_config));
-                } else {
-                    app = app.route(path, method_router);
-                }
+                app = check_use_cors(app, path, method_router, cors);
             }
         }
 
@@ -373,13 +401,7 @@ fn add_endpoint_route(
                 }
             };
 
-            if let Some(cors_config) = cors {
-                app = app
-                    .route(path, method_router)
-                    .route_layer(build_cors_layer(cors_config));
-            } else {
-                app = app.route(path, method_router);
-            }
+            app = check_use_cors(app, path, method_router, cors);
         }
         EndpointAction::Media => {
             let media_handler = handle_media_route;
@@ -392,45 +414,42 @@ fn add_endpoint_route(
                 .and_then(|m| m.upload.as_ref())
                 .is_some_and(|u| u.max_size > 0);
 
-            match method {
-                ConfigHttpMethod::Post | ConfigHttpMethod::Put | ConfigHttpMethod::Patch
-                    if has_upload =>
-                {
-                    // Register upload route for POST/PUT/PATCH
-                    let upload_method_router = match method {
-                        ConfigHttpMethod::Post => axum::routing::post(media_upload_handler),
-                        ConfigHttpMethod::Put => axum::routing::put(media_upload_handler),
-                        ConfigHttpMethod::Patch => axum::routing::patch(media_upload_handler),
-                        _ => unreachable!(),
-                    };
-                    if let Some(cors_config) = cors {
-                        app = app
-                            .route(path, upload_method_router)
-                            .route_layer(build_cors_layer(cors_config));
-                    } else {
-                        app = app.route(path, upload_method_router);
-                    }
-                }
-                _ => {}
-            }
-
-            // Register regular media routes for all methods
-            let method_router = match method {
-                ConfigHttpMethod::Get => axum::routing::get(media_handler),
-                ConfigHttpMethod::Post => axum::routing::post(media_handler),
-                ConfigHttpMethod::Put => axum::routing::put(media_handler),
-                ConfigHttpMethod::Patch => axum::routing::patch(media_handler),
-                ConfigHttpMethod::Delete => axum::routing::delete(media_handler),
-                ConfigHttpMethod::Head => axum::routing::head(media_handler),
-                ConfigHttpMethod::Options => axum::routing::options(media_handler),
+            // Track which methods got an upload handler to avoid overlapping routes
+            let upload_methods: std::collections::HashSet<ConfigHttpMethod> = if has_upload {
+                [
+                    ConfigHttpMethod::Post,
+                    ConfigHttpMethod::Put,
+                    ConfigHttpMethod::Patch,
+                ]
+                .into_iter()
+                .collect()
+            } else {
+                std::collections::HashSet::new()
             };
 
-            if let Some(cors_config) = cors {
-                app = app
-                    .route(path, method_router)
-                    .route_layer(build_cors_layer(cors_config));
+            // Register upload route for POST/PUT/PATCH when upload is enabled
+            if has_upload && upload_methods.contains(&method) {
+                let upload_method_router = match method {
+                    ConfigHttpMethod::Post => axum::routing::post(media_upload_handler),
+                    ConfigHttpMethod::Put => axum::routing::put(media_upload_handler),
+                    ConfigHttpMethod::Patch => axum::routing::patch(media_upload_handler),
+                    _ => unreachable!(),
+                };
+                app = check_use_cors(app, path, upload_method_router, cors);
             } else {
-                app = app.route(path, method_router);
+                // Register regular media routes for methods without upload handlers
+                // or when upload is not enabled
+                let method_router = match method {
+                    ConfigHttpMethod::Get => axum::routing::get(media_handler),
+                    ConfigHttpMethod::Post => axum::routing::post(media_handler),
+                    ConfigHttpMethod::Put => axum::routing::put(media_handler),
+                    ConfigHttpMethod::Patch => axum::routing::patch(media_handler),
+                    ConfigHttpMethod::Delete => axum::routing::delete(media_handler),
+                    ConfigHttpMethod::Head => axum::routing::head(media_handler),
+                    ConfigHttpMethod::Options => axum::routing::options(media_handler),
+                };
+
+                app = check_use_cors(app, path, method_router, cors);
             }
         }
 
@@ -446,13 +465,7 @@ fn add_endpoint_route(
                 ConfigHttpMethod::Options => axum::routing::options(handler),
             };
 
-            if let Some(cors_config) = cors {
-                app = app
-                    .route(path, method_router)
-                    .route_layer(build_cors_layer(cors_config));
-            } else {
-                app = app.route(path, method_router);
-            }
+            app = check_use_cors(app, path, method_router, cors);
         }
     }
     app
@@ -471,7 +484,7 @@ async fn handle_custom_response_route(
         .await
         .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
 
-    Ok(handle_custom_response(endpoint).await.into_response())
+    Ok(handle_custom_response(endpoint).await?.into_response())
 }
 
 #[debug_handler]
@@ -499,7 +512,10 @@ async fn handle_crud_route(
         .and_then(|v| v.to_str().ok())
         .is_some_and(|t| t.contains("application/json"))
     {
-        let bytes = axum::body::to_bytes(body, usize::MAX)
+        let config = state.config.read().await;
+        let max_body_size = config.server.max_body_size;
+        drop(config);
+        let bytes = axum::body::to_bytes(body, max_body_size)
             .await
             .map_err(|e| AppError::Body(e.to_string()))?;
         serde_json::from_slice(&bytes)
@@ -521,7 +537,7 @@ async fn handle_crud_route(
             .collect(),
         method: method.to_string(),
         path: path_str.to_string(),
-        query_params: query_map.clone(),
+        raw_query_params: query_map.clone(),
     };
     let response = handle_crud(
         state,
@@ -560,7 +576,6 @@ async fn handle_upload_route(
     state: State<AppState>,
     matched_path: MatchedPath,
     method: axum::http::Method,
-    uri: Uri,
     headers: HeaderMap,
     multipart: Multipart,
 ) -> Result<Response, AppError> {
@@ -571,7 +586,7 @@ async fn handle_upload_route(
         .await
         .ok_or_else(|| AppError::NotFound("Endpoint not found".to_string()))?;
 
-    handle_file_upload_route(multipart, state, uri, method, endpoint, headers).await
+    handle_file_upload_route(multipart, state, method, endpoint, headers).await
 }
 
 #[debug_handler]

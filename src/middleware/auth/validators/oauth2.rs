@@ -13,6 +13,7 @@ use crate::error::AppError;
 
 /// Pending `OAuth2` authorization flow (stored between authorize and callback).
 #[derive(Debug)]
+/// PendingOAuth2
 pub struct PendingOAuth2 {
     /// PKCE code verifier to include in the token exchange.
     pub code_verifier: String,
@@ -188,8 +189,7 @@ pub(crate) async fn exchange_code(
 
     if !response.status().is_success() {
         let status = response.status();
-        let body = response.text().await.unwrap_or_default();
-        tracing::warn!("OAuth2 token endpoint returned {status}: {body}");
+        tracing::warn!("OAuth2 provider returned HTTP {status}");
         return Err(AppError::Auth("OAuth2 token exchange failed".to_string()));
     }
 

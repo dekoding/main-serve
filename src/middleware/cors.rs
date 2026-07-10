@@ -4,6 +4,40 @@ use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 
 use crate::config::types::CorsConfig;
 
+/// Default CORS max-age value in seconds (24 hours).
+const DEFAULT_CORS_MAX_AGE: &str = "86400";
+
+/// Select the appropriate CORS origin string based on config and request origin.
+///
+/// When `allow_credentials` is true, echoes back the request's origin if it's
+/// in the allowed list (or if wildcard is allowed). Otherwise returns the
+/// first allowed origin, or `"*"` if it's in the allowed list.
+fn get_cors_origin(
+    allowed_origins: &[String],
+    allow_credentials: bool,
+    request_origin: Option<&HeaderValue>,
+) -> String {
+    if allow_credentials {
+        request_origin
+            .and_then(|origin_value| {
+                let origin_str = origin_value.to_str().ok()?;
+                if allowed_origins.contains(&"*".to_string()) {
+                    Some(origin_str.to_string())
+                } else {
+                    allowed_origins
+                        .iter()
+                        .find(|allowed| *allowed == origin_str)
+                        .cloned()
+                }
+            })
+            .unwrap_or_else(|| "*".to_string())
+    } else if allowed_origins.iter().any(|o| o == "*") {
+        "*".to_string()
+    } else {
+        allowed_origins.first().cloned().unwrap_or_default()
+    }
+}
+
 /// Build a `CorsLayer` from a `CorsConfig`.
 ///
 /// Creates a `tower_http::cors::CorsLayer` that can be applied
@@ -73,35 +107,13 @@ pub fn apply_cors_headers(
     // Allow-Origin: Select the appropriate origin header value.
     // When credentials are allowed, we cannot use "*" and must echo back
     // the specific origin from the request if it's in our allowed list.
-    let allowed_origin = if config.allow_credentials {
-        // With credentials, we must echo the request's origin if allowed.
-        origin.and_then(|origin_value| {
-            let origin_str = origin_value.to_str().ok()?;
-            if config.allowed_origins.contains(&"*".to_string()) {
-                // Allow all with credentials - echo back the origin.
-                Some(origin_str.to_string())
-            } else {
-                config
-                    .allowed_origins
-                    .iter()
-                    .find(|allowed| *allowed == origin_str)
-                    .cloned()
-            }
-        })
-    } else if config.allowed_origins.iter().any(|o| o == "*") {
-        Some("*".to_string())
-    } else {
-        config.allowed_origins.first().cloned()
-    };
-
-    let origin_value = allowed_origin
-        .as_deref()
-        .and_then(|s| HeaderValue::from_str(s).ok())
-        .unwrap_or_else(|| HeaderValue::from_static("*"));
+    let origin_value = get_cors_origin(&config.allowed_origins, config.allow_credentials, origin);
+    let origin_header =
+        HeaderValue::from_str(&origin_value).unwrap_or_else(|_| HeaderValue::from_static("*"));
 
     response
         .headers_mut()
-        .insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin_value);
+        .insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin_header);
 
     // Allow-Methods: Comma-separated list of allowed HTTP methods.
     if !config.allowed_methods.is_empty() {
@@ -137,7 +149,7 @@ pub fn apply_cors_headers(
     response.headers_mut().insert(
         header::ACCESS_CONTROL_MAX_AGE,
         HeaderValue::from_str(&config.max_age.to_string())
-            .unwrap_or(HeaderValue::from_static("86400")),
+            .unwrap_or(HeaderValue::from_static(DEFAULT_CORS_MAX_AGE)),
     );
 }
 

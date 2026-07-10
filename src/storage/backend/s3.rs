@@ -6,7 +6,6 @@
 /// objects for empty directories.
 use std::path::{Path, PathBuf};
 
-use async_trait::async_trait;
 use aws_credential_types::Credentials;
 use aws_sdk_s3::Client as S3Client;
 use aws_smithy_types::byte_stream::ByteStream;
@@ -126,7 +125,7 @@ impl S3Storage {
     }
 }
 
-#[async_trait]
+#[async_trait::async_trait]
 impl Storage for S3Storage {
     async fn exists(&self, path: &Path) -> bool {
         let key = self.path_to_key(path);
@@ -549,11 +548,15 @@ impl Storage for S3Storage {
 }
 
 #[cfg(all(test, feature = "s3"))]
+/// item
 mod tests {
     use super::*;
 
+    /// item
     fn make_storage() -> S3Storage {
         let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .enable_io()
             .build()
             .unwrap();
         let config = rt.block_on(aws_config::load_from_env());
@@ -564,6 +567,7 @@ mod tests {
     }
 
     #[test]
+    /// item
     fn test_path_to_key() {
         let storage = make_storage();
         assert_eq!(
@@ -579,6 +583,7 @@ mod tests {
     }
 
     #[test]
+    /// item
     fn test_map_error_not_found() {
         assert!(matches!(
             S3Storage::map_error("NoSuchKey notfound 404", "test.txt"),
@@ -595,6 +600,7 @@ mod tests {
     }
 
     #[test]
+    /// item
     fn test_map_error_forbidden() {
         assert!(matches!(
             S3Storage::map_error("accessdenied", "test.txt"),
@@ -611,6 +617,7 @@ mod tests {
     }
 
     #[test]
+    /// item
     fn test_map_error_service_unavailable() {
         assert!(matches!(
             S3Storage::map_error("503 service unavailable", "test.txt"),
@@ -623,6 +630,7 @@ mod tests {
     }
 
     #[test]
+    /// item
     fn test_create_dir_key_format() {
         let storage = make_storage();
         let key = storage.path_to_key(Path::new("mydir"));

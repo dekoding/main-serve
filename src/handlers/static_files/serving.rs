@@ -2,22 +2,22 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use axum::body::Body;
-use axum::extract::State;
-use axum::http::HeaderValue;
-use axum::http::StatusCode;
-use axum::response::IntoResponse;
-use axum::response::Response;
+use axum::http::{HeaderValue, StatusCode};
+use axum::response::{IntoResponse, Response};
 use http::header;
-use image::ImageFormat;
 use tokio::io::AsyncReadExt;
 use tokio_util::io::ReaderStream;
 
-use crate::config::types::ImageResizeConfig;
-use crate::config::types::StaticFilesConfig;
+use crate::config::types::{CacheRuleConfig, ImageResizeConfig, StaticFilesConfig, mime_from_path};
 use crate::error::AppError;
+use crate::handlers::common::helpers::is_image_path;
+use crate::handlers::common::resize::{
+    ResizeParams, build_resize_response, parse_resize_params, resize_image,
+};
+use crate::handlers::common::utils::{
+    apply_cache_control, apply_content_length, apply_content_range, apply_content_type,
+};
 use crate::handlers::static_files::routing::StaticGetContext;
-use crate::handlers::static_files::utils::{apply_static_headers, mime_from_path};
-use crate::server::AppState;
 use crate::storage::Storage;
 
 /// Handle GET requests - serve files with optional image resize or streaming.
@@ -26,10 +26,7 @@ use crate::storage::Storage;
 ///
 /// Returns `AppError::Forbidden` if path traversal is detected.
 /// Returns `AppError::NotFound` if the file is not found.
-pub(crate) async fn handle_static_get(
-    _state: State<AppState>,
-    ctx: StaticGetContext<'_>,
-) -> Result<Response, AppError> {
+pub(crate) async fn handle_static_get(ctx: StaticGetContext<'_>) -> Result<Response, AppError> {
     let storage = &*ctx.storage;
     let resolved = if ctx.relative.is_empty() {
         ctx.root.to_path_buf()
@@ -108,24 +105,47 @@ pub async fn serve_file(
         return Ok(resized);
     }
 
-    // Handle range requests with streaming.
+    // Handle range requests.
     if config.range_requests
         && let Some(range_header) = headers.get(header::RANGE)
         && let Ok(range_str) = range_header.to_str()
-        && let Some(streaming_config) = &config.streaming
-        && streaming_config.enabled
-        && file_size > streaming_config.threshold
     {
-        return handle_range_streaming(
-            storage,
-            path,
-            range_str,
+        // Determine streaming threshold.
+        let streaming_threshold = config
+            .streaming
+            .as_ref()
+            .and_then(|s| s.enabled.then_some(s.threshold))
+            .unwrap_or(u64::MAX);
+
+        if file_size > streaming_threshold
+            && let Some(streaming_config) = config.streaming.as_ref()
+        {
+            return handle_range_streaming(
+                storage,
+                path,
+                range_str,
+                file_size,
+                content_type,
+                streaming_config,
+                config,
+            )
+            .await;
+        }
+        // For small files, read full content and extract range.
+        let content = storage
+            .read(path)
+            .await
+            .map_err(|_| AppError::NotFound(format!("File not found: {}", path.display())))?;
+
+        return handle_range_small_file(
+            &content,
             file_size,
-            &content_type,
-            streaming_config,
+            range_str,
+            content_type,
             config.cache_max_age,
-        )
-        .await;
+            path,
+            &config.cache_rules,
+        );
     }
 
     // Check if streaming is enabled.
@@ -136,10 +156,11 @@ pub async fn serve_file(
         return handle_streaming(
             storage,
             path,
-            &content_type,
+            content_type,
             streaming_config,
             config.cache_max_age,
             file_size,
+            &config.cache_rules,
         )
         .await;
     }
@@ -151,12 +172,14 @@ pub async fn serve_file(
         .map_err(|_| AppError::NotFound(format!("File not found: {}", path.display())))?;
 
     let mut response = (StatusCode::OK, content.to_vec()).into_response();
-    apply_static_headers(&mut response, &content_type, config.cache_max_age);
-
-    response.headers_mut().insert(
-        header::CONTENT_LENGTH,
-        HeaderValue::from_str(&content.len().to_string()).unwrap_or(HeaderValue::from_static("0")),
+    apply_content_type(&mut response, content_type);
+    apply_cache_control(
+        &mut response,
+        config.cache_max_age,
+        Some(path),
+        &config.cache_rules,
     );
+    apply_content_length(&mut response, &content.len().to_string());
 
     Ok(response)
 }
@@ -172,7 +195,7 @@ async fn handle_range_streaming(
     file_size: u64,
     content_type: &str,
     streaming_config: &crate::config::types::StreamingConfig,
-    cache_max_age: u64,
+    config: &StaticFilesConfig,
 ) -> Result<Response, AppError> {
     // Parse Range: bytes=START-END
     let range_value = range_str
@@ -203,7 +226,9 @@ async fn handle_range_streaming(
     if start >= file_size || start > end {
         return Ok(build_range_not_satisfiable_response(
             file_size,
-            cache_max_age,
+            config.cache_max_age,
+            path,
+            &config.cache_rules,
         ));
     }
 
@@ -223,31 +248,19 @@ async fn handle_range_streaming(
     let mut response = Response::new(body);
     *response.status_mut() = StatusCode::PARTIAL_CONTENT;
 
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_str(content_type)
-            .unwrap_or(HeaderValue::from_static("application/octet-stream")),
-    );
-
-    response.headers_mut().insert(
-        header::CONTENT_RANGE,
-        HeaderValue::from_str(&format!("bytes {start}-{end}/{file_size}"))
-            .unwrap_or(HeaderValue::from_static("bytes */0")),
-    );
-
-    response.headers_mut().insert(
-        header::CONTENT_LENGTH,
-        HeaderValue::from_str(&content_length.to_string()).unwrap_or(HeaderValue::from_static("0")),
-    );
+    apply_content_type(&mut response, content_type);
+    apply_content_range(&mut response, &format!("bytes {start}-{end}/{file_size}"));
+    apply_content_length(&mut response, &content_length.to_string());
 
     response
         .headers_mut()
         .insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
 
-    response.headers_mut().insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_str(&format!("public, max-age={}", cache_max_age))
-            .unwrap_or(HeaderValue::from_static("public, max-age=3600")),
+    apply_cache_control(
+        &mut response,
+        config.cache_max_age,
+        Some(path),
+        &config.cache_rules,
     );
 
     Ok(response)
@@ -265,6 +278,7 @@ async fn handle_streaming(
     streaming_config: &crate::config::types::StreamingConfig,
     cache_max_age: u64,
     file_size: u64,
+    cache_rules: &[CacheRuleConfig],
 ) -> Result<Response, AppError> {
     let reader = storage
         .seek_read(path, 0)
@@ -277,48 +291,28 @@ async fn handle_streaming(
     let mut response = Response::new(body);
     *response.status_mut() = StatusCode::OK;
 
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_str(content_type)
-            .unwrap_or(HeaderValue::from_static("application/octet-stream")),
-    );
-
-    response.headers_mut().insert(
-        header::CONTENT_LENGTH,
-        HeaderValue::from_str(&format!("{file_size}")).unwrap_or(HeaderValue::from_static("0")),
-    );
-
-    response.headers_mut().insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_str(&format!("public, max-age={}", cache_max_age))
-            .unwrap_or(HeaderValue::from_static("public, max-age=3600")),
-    );
+    apply_content_length(&mut response, &format!("{file_size}"));
+    apply_content_type(&mut response, content_type);
+    apply_cache_control(&mut response, cache_max_age, Some(path), cache_rules);
 
     Ok(response)
 }
 
 /// Build response for range not satisfiable (416).
 #[must_use]
-fn build_range_not_satisfiable_response(file_size: u64, cache_max_age: u64) -> Response {
+/// item
+fn build_range_not_satisfiable_response(
+    file_size: u64,
+    cache_max_age: u64,
+    path: &Path,
+    cache_rules: &[CacheRuleConfig],
+) -> Response {
     let mut response = Response::new(Body::empty());
     *response.status_mut() = StatusCode::RANGE_NOT_SATISFIABLE;
 
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        HeaderValue::from_static("application/octet-stream"),
-    );
-
-    response.headers_mut().insert(
-        header::CONTENT_RANGE,
-        HeaderValue::from_str(&format!("bytes */{file_size}"))
-            .unwrap_or(HeaderValue::from_static("bytes */0")),
-    );
-
-    response.headers_mut().insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_str(&format!("public, max-age={cache_max_age}"))
-            .unwrap_or(HeaderValue::from_static("public, max-age=3600")),
-    );
+    apply_content_type(&mut response, "application/octet-stream");
+    apply_cache_control(&mut response, cache_max_age, Some(path), cache_rules);
+    apply_content_range(&mut response, &format!("bytes */{file_size}"));
 
     response
 }
@@ -327,18 +321,20 @@ fn build_range_not_satisfiable_response(file_size: u64, cache_max_age: u64) -> R
 pub(crate) async fn handle_image_resize(
     storage: &dyn Storage,
     path: &Path,
-    query_params: Option<&HashMap<String, String>>,
+    query_params: Option<&std::collections::HashMap<String, String>>,
     config: &ImageResizeConfig,
 ) -> Result<Option<Response>, AppError> {
-    let empty_map = HashMap::new();
-    let query = query_params.unwrap_or(&empty_map);
+    let params = query_params.map_or(
+        ResizeParams {
+            width: None,
+            height: None,
+            fit: None,
+            output_format: None,
+        },
+        |qp| parse_resize_params(qp),
+    );
 
-    let width = query.get("w").and_then(|w| w.parse().ok());
-    let height = query.get("h").and_then(|h| h.parse().ok());
-    let fit = query.get("fit").map(std::string::String::as_str);
-    let output_format = query.get("format").map(std::string::String::as_str);
-
-    if width.is_none() && height.is_none() && output_format.is_none() {
+    if params.width.is_none() && params.height.is_none() && params.output_format.is_none() {
         return Ok(None);
     }
 
@@ -351,76 +347,71 @@ pub(crate) async fn handle_image_resize(
     let format = image::guess_format(&image_data)
         .map_err(|_| AppError::BadRequest("Invalid image format".to_string()))?;
 
-    let img = image::load_from_memory(&image_data)
-        .map_err(|_| AppError::BadRequest("Invalid image data".to_string()))?;
+    let (resized_bytes, content_type) = resize_image(
+        &image_data,
+        &params,
+        format,
+        u32::try_from(config.max_dimension).unwrap_or(u32::MAX),
+    )?;
 
-    // Determine target dimensions.
-    let (target_width, target_height) = match (width, height, fit) {
-        (Some(w), None, _) => (Some(w), None),
-        (None, Some(h), _) => (None, Some(h)),
-        (Some(w), Some(h), Some("cover")) => {
-            // Fill while maintaining aspect ratio (cover mode)
-            let ratio = img.width() as f64 / img.height() as f64;
-            let h_ratio = h as f64 / w as f64;
-            if ratio > h_ratio {
-                let new_h = (w as f64 / ratio) as u32;
-                (Some(w), Some(new_h))
-            } else {
-                let new_w = (h as f64 * ratio) as u32;
-                (Some(new_w), Some(h))
-            }
-        }
-        (Some(w), Some(h), _) => {
-            let max_dim = u32::try_from(config.max_dimension).unwrap_or(u32::MAX);
-            (Some(w.clamp(1, max_dim)), Some(h.clamp(1, max_dim)))
-        }
-        (None, None, None | Some(_)) => (None, None),
-    };
-
-    let resized = if let (Some(w), Some(h)) = (target_width, target_height) {
-        img.resize(w, h, image::imageops::FilterType::Lanczos3)
-    } else if let Some(w) = target_width {
-        img.resize_to_fill(w, img.height(), image::imageops::FilterType::Lanczos3)
-    } else if let Some(h) = target_height {
-        img.resize_to_fill(img.width(), h, image::imageops::FilterType::Lanczos3)
-    } else {
-        img
-    };
-
-    // Determine output format.
-    let output_format = output_format
-        .and_then(image::ImageFormat::from_extension)
-        .unwrap_or(format);
-
-    // Encode the image.
-    let mut output_bytes = Vec::new();
-    resized
-        .write_to(&mut std::io::Cursor::new(&mut output_bytes), output_format)
-        .map_err(|_| AppError::Internal("Failed to encode image".to_string()))?;
-
-    let content_type = match output_format {
-        ImageFormat::Png => "image/png",
-        ImageFormat::Jpeg => "image/jpeg",
-        ImageFormat::Gif => "image/gif",
-        ImageFormat::WebP => "image/webp",
-        _ => "application/octet-stream",
-    };
-
-    let mut response = (StatusCode::OK, output_bytes).into_response();
-    apply_static_headers(&mut response, content_type, 0);
+    let response = build_resize_response(resized_bytes, content_type, None);
     Ok(Some(response))
 }
 
-/// Check if a file path likely refers to an image based on its extension.
-#[must_use]
-pub(crate) fn is_image_path(path: &Path) -> bool {
-    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-        let ext_lower = ext.to_lowercase();
-        matches!(
-            ext_lower.as_str(),
-            "jpg" | "jpeg" | "png" | "gif" | "webp" | "bmp" | "svg"
-        )
+/// Handle range requests for small files (in-memory).
+fn handle_range_small_file(
+    content: &[u8],
+    file_size: u64,
+    range_str: &str,
+    content_type: &str,
+    cache_max_age: u64,
+    path: &Path,
+    cache_rules: &[CacheRuleConfig],
+) -> Result<Response, AppError> {
+    // Parse range header: "bytes=start-end" or "bytes=start-"
+    let bytes_range = range_str
+        .strip_prefix("bytes=")
+        .ok_or_else(|| AppError::BadRequest("Invalid Range header format".to_string()))?;
+
+    let (start, end) = if let Some((s, e)) = bytes_range.split_once('-') {
+        let start: u64 = s
+            .parse()
+            .map_err(|_| AppError::BadRequest("Invalid Range header: invalid start".to_string()))?;
+        let end: u64 = if e.is_empty() {
+            file_size - 1
+        } else {
+            e.parse().map_err(|_| {
+                AppError::BadRequest("Invalid Range header: invalid end".to_string())
+            })?
+        };
+        (start, end)
     } else {
-        false
+        return Err(AppError::BadRequest(
+            "Invalid Range header format".to_string(),
+        ));
+    };
+
+    if start >= file_size {
+        return Err(AppError::RequestedRangeNotSatisfiable(format!(
+            "Range bytes={}-{} is not satisfiable for file size {file_size}",
+            start, end
+        )));
     }
+
+    let actual_end = end.min(file_size - 1);
+    let range_size = actual_end - start + 1;
+
+    let body = content[start as usize..(actual_end + 1) as usize].to_vec();
+
+    let mut response = (StatusCode::PARTIAL_CONTENT, body).into_response();
+
+    apply_content_type(&mut response, content_type);
+    apply_content_length(&mut response, &range_size.to_string());
+    apply_content_range(
+        &mut response,
+        &format!("bytes {}-{}/{}", start, actual_end, file_size),
+    );
+    apply_cache_control(&mut response, cache_max_age, Some(path), cache_rules);
+
+    Ok(response)
 }

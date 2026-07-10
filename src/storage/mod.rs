@@ -4,7 +4,9 @@
 /// supporting multiple backends (native filesystem, in-memory for testing,
 /// S3, Azure Blob Storage, Google Cloud Storage).
 pub mod backend;
+/// error
 pub mod error;
+/// metadata
 pub mod metadata;
 
 use std::path::{Path, PathBuf};
@@ -22,6 +24,7 @@ pub type Result<T> = std::result::Result<T, StorageError>;
 /// This trait abstracts file I/O operations to support multiple backends.
 /// The native filesystem implementation is provided by `NativeStorage`.
 #[async_trait::async_trait]
+/// Storage
 pub trait Storage: Send + Sync {
     /// Check if a file or directory exists at the given path.
     async fn exists(&self, path: &Path) -> bool;

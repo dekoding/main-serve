@@ -9,7 +9,10 @@ use http_body_util::BodyExt;
 
 use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
 
-use crate::config::types::{DatabaseDriver, JwtAlgorithm};
+use crate::config::types::{JwtAlgorithm, JwtConfig};
+use crate::db::query::select_one::{
+    build_insert_user, build_select_by_field, build_select_user_for_login, build_table_columns,
+};
 use crate::error::AppError;
 use crate::middleware::auth::validators::jwt::create_token;
 use crate::server::state::AppState;
@@ -114,13 +117,17 @@ pub async fn handle_revoke(
 
 /// Request body for user registration.
 #[derive(Deserialize)]
+/// RegisterRequest
 pub struct RegisterRequest {
     pub email: String,
     pub password: String,
+    #[serde(default)]
+    pub role: Option<String>,
 }
 
 /// Request body for user login.
 #[derive(Deserialize)]
+/// LoginRequest
 pub struct LoginRequest {
     pub email: String,
     pub password: String,
@@ -128,8 +135,24 @@ pub struct LoginRequest {
 
 /// Response body for auth endpoints.
 #[derive(serde::Serialize)]
+/// AuthResponse
 pub struct AuthResponse {
     pub token: String,
+}
+
+/// Create a JWT token for a user.
+///
+/// # Errors
+///
+/// Returns `AppError::Auth` if token creation fails.
+fn create_jwt_token(
+    user_id: &str,
+    role: Option<&str>,
+    jwt_config: &JwtConfig,
+    jti: &str,
+    user_email: &str,
+) -> Result<String, AppError> {
+    create_token(user_id, role, jwt_config, Some(jti), Some(user_email))
 }
 
 /// Handle `POST /_main-serve/register`.
@@ -144,18 +167,10 @@ pub struct AuthResponse {
 /// or the password is too short. Returns `AppError::Internal` for
 /// database or hashing failures.
 pub async fn handle_register(
-    State(state): State<AppState>,
-    Json(body): Json<RegisterRequest>,
+    state: State<AppState>,
+    body: Json<RegisterRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let register_config = {
-        let config = state.config.read().await;
-        config
-            .auth
-            .register
-            .as_ref()
-            .cloned()
-            .ok_or_else(|| AppError::Config("User registration is not enabled".to_string()))?
-    };
+    let (pool, register_config) = state.registration_pool().await?;
 
     if !register_config.enabled {
         return Err(AppError::Config(
@@ -163,54 +178,49 @@ pub async fn handle_register(
         ));
     }
 
-    if body.password.len() < 8 {
+    if body.password.len() < 6 {
         return Err(AppError::BadRequest(
-            "Password must be at least 8 characters".to_string(),
+            "Password must be at least 6 characters".to_string(),
         ));
     }
 
     let password_hash = hash_password(&body.password)?;
 
-    let pool = {
-        let pools = state.db_pools.read().await;
-        pools
-            .get(&register_config.database)
-            .cloned()
-            .ok_or_else(|| {
-                AppError::Config(format!(
-                    "Database '{}' referenced by registration config not found",
-                    register_config.database
-                ))
-            })?
-    };
-
     let driver = pool.driver();
-    let ts = match driver {
-        DatabaseDriver::Sqlite => "CURRENT_TIMESTAMP",
-        _ => "NOW()",
-    };
-    let email_param = match driver {
-        DatabaseDriver::Postgres => "$1",
-        _ => "?",
-    };
-    let ph1 = match driver {
-        DatabaseDriver::Postgres => "$1",
-        _ => "?",
-    };
-    let ph2 = match driver {
-        DatabaseDriver::Postgres => "$2",
-        _ => "?",
-    };
-    let ph3 = match driver {
-        DatabaseDriver::Postgres => "$3",
-        _ => "?",
-    };
+    let table_name = &register_config.table;
 
+    // Introspect table columns to determine if timestamps should be included.
+    let built = build_table_columns(table_name, driver);
+    let column_rows = pool
+        .fetch_all_json(&built.sql, &built.params)
+        .await
+        .map_err(|e| AppError::Internal(format!("Database query error: {e}")))?;
+
+    let col_names: Vec<String> = column_rows
+        .iter()
+        .filter_map(|row| {
+            row.get("name")
+                .or_else(|| row.get("column_name"))
+                .or_else(|| row.get("COLUMN_NAME"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_owned())
+        })
+        .collect();
+
+    let include_timestamps = col_names.contains(&"created_at".to_string())
+        && col_names.contains(&"updated_at".to_string());
+
+    // Check email uniqueness using builder.
+    let built = build_select_by_field(
+        table_name,
+        &["email"],
+        "email",
+        body.email.clone().into(),
+        driver,
+    )
+    .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
     let existing = pool
-        .fetch_optional_json(
-            &format!("SELECT email FROM users WHERE email = {email_param} LIMIT 1"),
-            &[body.email.clone().into()],
-        )
+        .fetch_optional_json(&built.sql, &built.params)
         .await
         .map_err(|e| AppError::Internal(format!("Database query error: {e}")))?;
 
@@ -218,30 +228,36 @@ pub async fn handle_register(
         return Err(AppError::BadRequest("Email already registered".to_string()));
     }
 
-    pool.execute_with_params(
-        &format!(
-            "INSERT INTO {} (email, password_hash, role, created_at, updated_at) \
-         VALUES ({ph1}, {ph2}, {ph3}, {ts}, {ts})",
-            register_config.table
-        ),
-        &[
-            body.email.clone().into(),
-            password_hash.clone().into(),
-            register_config.default_role.clone().into(),
-        ],
+    // Insert the new user using the builder.
+    let role = body
+        .role
+        .as_deref()
+        .unwrap_or(&register_config.default_role);
+    let built = build_insert_user(
+        table_name,
+        &body.email,
+        &password_hash,
+        role,
+        include_timestamps,
+        driver,
     )
-    .await
-    .map_err(|e| AppError::Internal(format!("Database insert error: {e}")))?;
+    .map_err(|e| AppError::Internal(format!("Failed to build insert query: {e}")))?;
+
+    pool.execute_with_params(&built.sql, &built.params)
+        .await
+        .map_err(|e| AppError::Internal(format!("Database insert error: {e}")))?;
 
     // Fetch the newly created user to get their ID.
+    let built = build_select_by_field(
+        table_name,
+        &["id", "email", "role"],
+        "email",
+        body.email.clone().into(),
+        driver,
+    )
+    .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
     let user_row = pool
-        .fetch_optional_json(
-            &format!(
-                "SELECT id, email, role FROM {} WHERE email = {email_param}",
-                register_config.table
-            ),
-            &[body.email.clone().into()],
-        )
+        .fetch_optional_json(&built.sql, &built.params)
         .await
         .map_err(|e| AppError::Internal(format!("Database query error: {e}")))?
         .ok_or_else(|| AppError::Internal("Failed to retrieve newly created user".to_string()))?;
@@ -260,37 +276,15 @@ pub async fn handle_register(
         .map(ToString::to_string)
         .unwrap_or(body.email.clone());
 
-    let (secret, algorithm, issuer) = {
-        let config = state.config.read().await;
-        let jwt_config = config
-            .auth
-            .jwt
-            .as_ref()
-            .ok_or_else(|| AppError::Config("JWT is not configured".to_string()))?;
-        (
-            jwt_config.secret.clone(),
-            jwt_config.algorithm,
-            jwt_config.issuer.clone(),
-        )
-    };
-
+    let jwt_config = state.jwt_config().await?;
     let jti = uuid::Uuid::new_v4().to_string();
-    let jwt_config = crate::config::types::JwtConfig {
-        secret,
-        algorithm,
-        issuer,
-        audience: String::new(),
-        expiry: 3600,
-        role_claim: "role".to_string(),
-        revocation: None,
-    };
 
-    let token = create_token(
+    let token = create_jwt_token(
         &user_id,
         Some(&register_config.default_role),
         &jwt_config,
-        Some(&jti),
-        Some(&user_email),
+        &jti,
+        &user_email,
     )?;
 
     Ok((StatusCode::CREATED, Json(AuthResponse { token })))
@@ -309,42 +303,14 @@ pub async fn handle_login(
     State(state): State<AppState>,
     Json(body): Json<LoginRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let (pool, _register_config) = {
-        let register_config =
-            {
-                let config = state.config.read().await;
-                config.auth.register.as_ref().cloned().ok_or_else(|| {
-                    AppError::Config("User registration is not enabled".to_string())
-                })?
-            };
-
-        let pool = {
-            let pools = state.db_pools.read().await;
-            pools
-                .get(&register_config.database)
-                .cloned()
-                .ok_or_else(|| {
-                    AppError::Config(format!(
-                        "Database '{}' referenced by registration config not found",
-                        register_config.database
-                    ))
-                })?
-        };
-
-        (pool, register_config)
-    };
+    let (pool, _) = state.registration_pool().await?;
 
     let driver = pool.driver();
-    let email_param = match driver {
-        DatabaseDriver::Postgres => "$1",
-        _ => "?",
-    };
 
+    let built = build_select_user_for_login("users", driver)
+        .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
     let row = pool
-        .fetch_optional_json(
-            &format!("SELECT id, email, password_hash, role FROM users WHERE email = {email_param} LIMIT 1"),
-            &[body.email.clone().into()],
-        )
+        .fetch_optional_json(&built.sql, &[body.email.clone().into()])
         .await
         .map_err(|e| AppError::Internal(format!("Database query error: {e}")))?;
 
@@ -378,38 +344,10 @@ pub async fn handle_login(
         return Err(AppError::Auth("Invalid email or password".to_string()));
     }
 
-    let (secret, algorithm, issuer) = {
-        let config = state.config.read().await;
-        let jwt_config = config
-            .auth
-            .jwt
-            .as_ref()
-            .ok_or_else(|| AppError::Config("JWT is not configured".to_string()))?;
-        (
-            jwt_config.secret.clone(),
-            jwt_config.algorithm,
-            jwt_config.issuer.clone(),
-        )
-    };
-
+    let jwt_config = state.jwt_config().await?;
     let jti = uuid::Uuid::new_v4().to_string();
-    let jwt_config = crate::config::types::JwtConfig {
-        secret,
-        algorithm,
-        issuer,
-        audience: String::new(),
-        expiry: 3600,
-        role_claim: "role".to_string(),
-        revocation: None,
-    };
 
-    let token = create_token(
-        &user_id,
-        role.as_deref(),
-        &jwt_config,
-        Some(&jti),
-        Some(&email),
-    )?;
+    let token = create_jwt_token(&user_id, role.as_deref(), &jwt_config, &jti, &email)?;
 
     Ok(Json(AuthResponse { token }))
 }

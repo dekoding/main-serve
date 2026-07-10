@@ -13,12 +13,19 @@
 /// - `endpoints` - Endpoint definitions and action configs (CRUD, proxy, static, custom)
 /// - `store` - Storage backend configurations (S3, Azure, GCS, native)
 mod auth;
+/// item
 mod cors;
+/// item
 mod database;
+/// item
 mod endpoints;
+/// item
 mod logging;
+/// item
 mod rate_limit;
+/// item
 mod server;
+/// item
 mod store;
 
 use std::collections::HashMap;
@@ -56,6 +63,7 @@ pub use store::*;
 /// and `editor` inherits from `author`.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(transparent)]
+/// RoleHierarchy
 pub struct RoleHierarchy {
     /// Role name -> list of parent roles it inherits from.
     pub roles: HashMap<String, Vec<String>>,
@@ -68,6 +76,7 @@ pub struct RoleHierarchy {
 /// Top-level configuration - the direct deserialization target for the YAML file.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+/// AppConfig
 pub struct AppConfig {
     /// Server bind address, port, TLS, and runtime settings.
     pub server: ServerConfig,

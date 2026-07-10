@@ -2,6 +2,7 @@
 ///
 /// Supports path rewriting, custom header injection, and per-endpoint timeouts.
 /// Uses `reqwest` with `rustls-tls` as the HTTP client.
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use axum::body::Body;
@@ -11,6 +12,13 @@ use http_body_util::BodyExt;
 
 use crate::config::types::EndpointConfig;
 use crate::error::AppError;
+
+/// Shared HTTP client for proxy upstream connections.
+///
+/// Reusing a single client across requests enables connection pooling,
+/// reducing latency and resource usage compared to creating a new client
+/// per request.
+static PROXY_CLIENT: OnceLock<Option<reqwest::Client>> = OnceLock::new();
 
 /// Headers that are hop-by-hop per HTTP spec and must not be forwarded through a proxy.
 const HOP_BY_HOP_HEADERS: &[&str] = &[
@@ -24,6 +32,16 @@ const HOP_BY_HOP_HEADERS: &[&str] = &[
     "te",
     "trailers",
 ];
+
+/// Get a proxy client to use in the proxy handler.
+fn get_proxy_client() -> Result<&'static reqwest::Client, AppError> {
+    PROXY_CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder().build().ok() // Result -> Option
+        })
+        .as_ref()
+        .ok_or_else(|| AppError::Internal("Failed to build proxy HTTP client".to_string()))
+}
 
 /// Handle a proxy endpoint - forwards the request to the configured upstream.
 ///
@@ -72,15 +90,6 @@ pub async fn handle_proxy(
         format!("{}{}", proxy.upstream.trim_end_matches('/'), upstream_path)
     };
 
-    // Build a per-endpoint HTTP client with the configured connect and read timeouts.
-    // These timeouts are only configurable at the client level in reqwest, so each
-    // proxy endpoint gets its own client. The total timeout is applied per-request.
-    let client = reqwest::Client::builder()
-        .connect_timeout(Duration::from_secs(proxy.timeouts.connect))
-        .read_timeout(Duration::from_secs(proxy.timeouts.read))
-        .build()
-        .map_err(|e| AppError::Internal(format!("Failed to build HTTP client: {e}")))?;
-
     // Collect the incoming body.
     let body_bytes = body
         .collect()
@@ -92,7 +101,10 @@ pub async fn handle_proxy(
     let reqwest_method = reqwest::Method::from_bytes(method.as_str().as_bytes())
         .map_err(|e| AppError::Internal(format!("Invalid method: {e}")))?;
 
-    let mut upstream_req = client.request(reqwest_method, &upstream_url);
+    // Use the shared PROXY_CLIENT for connection pooling; timeouts are applied per-request.
+    let mut upstream_req = get_proxy_client()?
+        .request(reqwest_method, &upstream_url)
+        .timeout(Duration::from_secs(proxy.timeouts.total));
 
     // Forward select headers from the original request.
     for (name, value) in &headers {
@@ -111,7 +123,6 @@ pub async fn handle_proxy(
     // Send the request with per-endpoint total timeout.
     let upstream_response = upstream_req
         .body(body_bytes.to_vec())
-        .timeout(Duration::from_secs(proxy.timeouts.total))
         .send()
         .await
         .map_err(|e| AppError::Internal(format!("Proxy upstream error: {e}")))?;
