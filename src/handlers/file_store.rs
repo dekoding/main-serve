@@ -7,11 +7,8 @@ use axum::response::{IntoResponse, Response};
 
 use crate::config::types::{DatabaseDriver, FileStoreConfig};
 use crate::db::query::builders::{
-    build_delete, build_insert, build_select_list, build_select_one, build_update,
-};
-use crate::db::query::file_store_refs::{
-    build_file_store_ref_delete, build_file_store_ref_insert, build_file_store_ref_max_order,
-    build_file_store_ref_select,
+    build_delete, build_file_ref_delete, build_file_ref_insert, build_file_ref_max_order,
+    build_file_ref_select, build_insert, build_select_list, build_select_one, build_update,
 };
 use crate::db::query::helpers::extract_query_params;
 use crate::db::query::select_one::{
@@ -859,7 +856,7 @@ async fn handle_file_store_attach(
     let content_type_col = &content_refs.content_type_column;
     let order_col = &content_refs.order_column;
 
-    let built = build_file_store_ref_max_order(table, order_col, pool.driver());
+    let built = build_file_ref_max_order(table, order_col, pool.driver());
     let max_row = pool.fetch_optional_json(&built.sql, &[]).await?;
     let max_order: i64 = max_row
         .as_ref()
@@ -868,7 +865,7 @@ async fn handle_file_store_attach(
 
     let next_order = max_order + 1;
 
-    let built = build_file_store_ref_insert(
+    let built = build_file_ref_insert(
         table,
         &[
             file_id_col.as_str(),
@@ -890,7 +887,7 @@ async fn handle_file_store_attach(
     )
     .await?;
 
-    let built = build_file_store_ref_select(
+    let built = build_file_ref_select(
         table,
         file_id_col,
         entity_id_col,
@@ -934,7 +931,7 @@ async fn handle_file_store_detach(
     let entity_id_col = &content_refs.entity_id_column;
     let content_type_col = &content_refs.content_type_column;
 
-    let built = build_file_store_ref_delete(
+    let built = build_file_ref_delete(
         table,
         file_id_col,
         entity_id_col,

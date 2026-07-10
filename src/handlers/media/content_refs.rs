@@ -3,9 +3,8 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
 use crate::config::types::MediaConfig;
-use crate::db::query::media_refs::{
-    build_media_ref_delete, build_media_ref_insert, build_media_ref_max_order,
-    build_media_ref_select,
+use crate::db::query::builders::{
+    build_file_ref_delete, build_file_ref_insert, build_file_ref_max_order, build_file_ref_select,
 };
 use crate::error::AppError;
 
@@ -52,12 +51,12 @@ pub async fn handle_media_attach(
     }
 
     let table = &content_refs.table;
-    let media_id_col = &content_refs.media_id_column;
+    let file_id_col = &content_refs.media_id_column;
     let entity_id_col = &content_refs.entity_id_column;
     let content_type_col = &content_refs.content_type_column;
     let order_col = &content_refs.order_column;
 
-    let built = build_media_ref_max_order(table, order_col, pool.driver());
+    let built = build_file_ref_max_order(table, order_col, pool.driver());
     let max_row = pool.fetch_optional_json(&built.sql, &[]).await?;
     let max_order: i64 = max_row
         .as_ref()
@@ -66,10 +65,10 @@ pub async fn handle_media_attach(
 
     let next_order = max_order + 1;
 
-    let built = build_media_ref_insert(
+    let built = build_file_ref_insert(
         table,
         &[
-            media_id_col.as_str(),
+            file_id_col.as_str(),
             entity_id_col.as_str(),
             content_type_col.as_str(),
             order_col.as_str(),
@@ -88,9 +87,9 @@ pub async fn handle_media_attach(
     )
     .await?;
 
-    let built = build_media_ref_select(
+    let built = build_file_ref_select(
         table,
-        media_id_col,
+        file_id_col,
         entity_id_col,
         content_type_col,
         pool.driver(),
@@ -138,13 +137,13 @@ pub async fn handle_media_detach(
         .ok_or_else(|| AppError::BadRequest("content_type is required".to_string()))?;
 
     let table = &content_refs.table;
-    let media_id_col = &content_refs.media_id_column;
+    let file_id_col = &content_refs.media_id_column;
     let entity_id_col = &content_refs.entity_id_column;
     let content_type_col = &content_refs.content_type_column;
 
-    let built = build_media_ref_delete(
+    let built = build_file_ref_delete(
         table,
-        media_id_col,
+        file_id_col,
         entity_id_col,
         content_type_col,
         pool.driver(),
