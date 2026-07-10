@@ -112,9 +112,13 @@ impl Storage for NativeStorage {
             .await
             .map_err(|e| StorageError::Io(resolved.clone(), e))?;
 
-        file.write_all(contents)
-            .await
-            .map_err(|e| StorageError::Io(resolved, e))?;
+            file.write_all(contents)
+                .await
+                .map_err(|e| StorageError::Io(resolved.clone(), e))?;
+
+            file.sync_all()
+                .await
+                .map_err(|e| StorageError::Io(resolved.clone(), e))?;
 
         Ok(())
     }
