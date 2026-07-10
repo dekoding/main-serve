@@ -20,6 +20,7 @@ use crate::config::types::{
     ColumnConfig, ColumnType, DatabaseConfig, DatabaseDriver, ForeignKeyAction, TableConfig,
 };
 use crate::db::pool::DatabasePool;
+use crate::db::query::helpers::quote_identifier;
 use crate::error::AppError;
 
 /// Create the JWT token revocation table if it does not exist.
@@ -150,7 +151,7 @@ pub async fn run_migrations(
 
         for col in &table_config.columns {
             if col.indexed && !col.primary_key {
-                let idx_name = index_name(table_name, &col.name);
+                let idx_name = format!("idx_{table_name}_{}", col.name);
                 if driver == DatabaseDriver::Mysql && existing_indexes.contains(&idx_name) {
                     tracing::debug!(
                         "Skipping index creation for '{idx_name}' on '{table_name}' (already exists)"
@@ -196,7 +197,7 @@ async fn get_existing_columns(
         DatabasePool::Sqlite(_) => {
             let sql = format!(
                 "PRAGMA table_info({})",
-                quote_object_name(table_name, pool.driver())
+                quote_identifier(table_name, pool.driver())
             );
             pool.fetch_all_json(&sql, &[]).await?
         }
@@ -239,7 +240,7 @@ async fn get_existing_indexes(
         DatabasePool::Sqlite(_) => {
             let sql = format!(
                 "PRAGMA index_list({})",
-                quote_object_name(table_name, pool.driver())
+                quote_identifier(table_name, pool.driver())
             );
             pool.fetch_all_json(&sql, &[]).await?
         }
@@ -370,7 +371,7 @@ async fn alter_existing_table(
 fn generate_add_column(table_name: &str, col: &ColumnConfig, driver: DatabaseDriver) -> String {
     let mut col_def = format!(
         "{} {}",
-        quote_ident(&col.name, driver),
+        quote_identifier(&col.name, driver),
         column_type_to_sql(&col.column_type, driver),
     );
 
@@ -389,7 +390,7 @@ fn generate_add_column(table_name: &str, col: &ColumnConfig, driver: DatabaseDri
 
     format!(
         "ALTER TABLE {} ADD COLUMN {col_def}",
-        quote_object_name(table_name, driver)
+        quote_identifier(table_name, driver)
     )
 }
 
@@ -397,10 +398,10 @@ fn generate_add_column(table_name: &str, col: &ColumnConfig, driver: DatabaseDri
 #[must_use]
 /// item
 fn generate_drop_column(table_name: &str, column_name: &str, driver: DatabaseDriver) -> String {
-    let col = quote_ident(column_name, driver);
+    let col = quote_identifier(column_name, driver);
     format!(
         "ALTER TABLE {} DROP COLUMN {col}",
-        quote_object_name(table_name, driver)
+        quote_identifier(table_name, driver)
     )
 }
 
@@ -424,12 +425,19 @@ fn generate_create_table(table: &TableConfig, driver: DatabaseDriver) -> String 
 
     // Foreign key definitions.
     for fk in &table.foreign_keys {
-        parts.push(generate_fk_def(fk, driver));
+        parts.push(format!(
+            "  FOREIGN KEY ({}) REFERENCES {} ({}) ON DELETE {} ON UPDATE {}",
+            quote_identifier(&fk.column, driver),
+            quote_identifier(&fk.references_table, driver),
+            quote_identifier(&fk.references_column, driver),
+            fk_action_to_sql(&fk.on_delete),
+            fk_action_to_sql(&fk.on_update),
+        ));
     }
 
     format!(
         "CREATE TABLE IF NOT EXISTS {} (\n{}\n)",
-        quote_object_name(&table.name, driver),
+        quote_identifier(&table.name, driver),
         parts.join(",\n")
     )
 }
@@ -438,7 +446,7 @@ fn generate_create_table(table: &TableConfig, driver: DatabaseDriver) -> String 
 fn generate_column_def(col: &ColumnConfig, driver: DatabaseDriver) -> String {
     let mut col_def = format!(
         "  {} {}",
-        quote_ident(&col.name, driver),
+        quote_identifier(&col.name, driver),
         column_type_to_sql(&col.column_type, driver)
     );
 
@@ -471,7 +479,7 @@ fn add_pk_constraint(parts: &mut Vec<String>, columns: &[ColumnConfig], driver: 
     let pk_columns: Vec<String> = columns
         .iter()
         .filter(|c| c.primary_key)
-        .map(|c| quote_ident(&c.name, driver))
+        .map(|c| quote_identifier(&c.name, driver))
         .collect();
 
     if pk_columns.is_empty() {
@@ -490,59 +498,25 @@ fn add_pk_constraint(parts: &mut Vec<String>, columns: &[ColumnConfig], driver: 
     }
 }
 
-/// Generate a single foreign key definition DDL fragment.
-fn generate_fk_def(fk: &crate::config::types::ForeignKeyConfig, driver: DatabaseDriver) -> String {
-    format!(
-        "  FOREIGN KEY ({}) REFERENCES {} ({}) ON DELETE {} ON UPDATE {}",
-        quote_ident(&fk.column, driver),
-        quote_object_name(&fk.references_table, driver),
-        quote_ident(&fk.references_column, driver),
-        fk_action_to_sql(&fk.on_delete),
-        fk_action_to_sql(&fk.on_update),
-    )
-}
-
 /// Generate an index creation statement.
 #[must_use]
 /// item
 fn generate_create_index(table_name: &str, column_name: &str, driver: DatabaseDriver) -> String {
-    let idx_name = index_name(table_name, column_name);
+    let idx_name = format!("idx_{table_name}_{}", column_name);
     match driver {
         DatabaseDriver::Mysql => format!(
             "CREATE INDEX {} ON {} ({})",
-            quote_object_name(&idx_name, driver),
-            quote_object_name(table_name, driver),
-            quote_ident(column_name, driver),
+            quote_identifier(&idx_name, driver),
+            quote_identifier(table_name, driver),
+            quote_identifier(column_name, driver),
         ),
         DatabaseDriver::Sqlite | DatabaseDriver::Postgres => format!(
             "CREATE INDEX IF NOT EXISTS {} ON {} ({})",
-            quote_object_name(&idx_name, driver),
-            quote_object_name(table_name, driver),
-            quote_ident(column_name, driver),
+            quote_identifier(&idx_name, driver),
+            quote_identifier(table_name, driver),
+            quote_identifier(column_name, driver),
         ),
     }
-}
-
-/// item
-fn index_name(table_name: &str, column_name: &str) -> String {
-    format!("idx_{table_name}_{column_name}")
-}
-
-/// Quote an object name (table or index) for the current driver.
-#[must_use]
-/// quote_object_name
-pub fn quote_object_name(name: &str, driver: DatabaseDriver) -> String {
-    match driver {
-        DatabaseDriver::Mysql => format!("`{name}`"),
-        DatabaseDriver::Sqlite | DatabaseDriver::Postgres => format!("\"{name}\""),
-    }
-}
-
-/// Quote a column identifier for the current driver.
-#[must_use]
-/// item
-fn quote_ident(name: &str, driver: DatabaseDriver) -> String {
-    quote_object_name(name, driver)
 }
 
 /// Map a `ColumnType` to its SQL type string for the given driver.
@@ -759,7 +733,7 @@ pub async fn ensure_media_columns(
             DatabaseDriver::Sqlite => {
                 let sql = format!(
                     "SELECT COUNT(*) as cnt FROM pragma_table_info({}) WHERE name = 'file_path'",
-                    quote_object_name(table_name, driver)
+                    quote_identifier(table_name, driver)
                 );
                 let row = pool.fetch_optional_json(&sql, &[]).await?;
                 row.and_then(|r| r.get("cnt").and_then(|v| v.as_i64()))
@@ -791,7 +765,7 @@ pub async fn ensure_media_columns(
         if !col_exists {
             let add_col_sql = format!(
                 "ALTER TABLE {} ADD COLUMN \"file_path\" TEXT",
-                quote_object_name(table_name, driver)
+                quote_identifier(table_name, driver)
             );
             tracing::info!(
                 "Adding 'file_path' column to media table '{table_name}' in database '{db_name}'"

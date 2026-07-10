@@ -423,12 +423,15 @@ fn build_http_builder(
     builder
 }
 
-/// Serve plain HTTP using hyper's connection builder directly.
+/// Serve HTTP connections (plain or TLS) using hyper's connection builder directly.
 ///
 /// This bypasses `axum::serve` so we can configure HTTP/1 keep-alive timeouts
-/// via hyper's `header_read_timeout`.
-async fn serve_plain(
+/// via hyper's `header_read_timeout`. Accepts an optional TLS acceptor; when
+/// provided, each TCP stream is TLS-handshaked before being handed to
+/// `handle_connection`.
+async fn serve(
     listener: TcpListener,
+    tls_acceptor: Option<Arc<tokio_rustls::TlsAcceptor>>,
     app: axum::Router,
     shutdown_timeout: u64,
     keep_alive: u64,
@@ -451,11 +454,21 @@ async fn serve_plain(
                     }
                 };
 
+                let tls_acceptor = tls_acceptor.clone();
                 let builder = builder.clone();
                 let app = app.clone();
 
                 tasks.spawn(async move {
-                    handle_connection(tcp_stream, remote_addr, builder, app).await;
+                    if let Some(ref acceptor) = tls_acceptor {
+                        match acceptor.accept(tcp_stream).await {
+                            Ok(stream) => handle_connection(stream, remote_addr, builder, app).await,
+                            Err(e) => {
+                                tracing::debug!("TLS handshake failed from {remote_addr}: {e}");
+                            }
+                        }
+                    } else {
+                        handle_connection(tcp_stream, remote_addr, builder, app).await;
+                    }
                 });
             }
             () = &mut shutdown => {
@@ -509,10 +522,24 @@ async fn serve_plain(
     }
 }
 
-/// Serve HTTPS using tokio-rustls TLS acceptor.
-///
-/// Accepts TLS-wrapped TCP connections in a loop and hands each to hyper
-/// for HTTP processing. Shuts down gracefully on signal.
+async fn serve_plain(
+    listener: TcpListener,
+    app: axum::Router,
+    shutdown_timeout: u64,
+    keep_alive: u64,
+    rev_cleanup: Option<(oneshot::Sender<()>, tokio::task::JoinSet<()>)>,
+) {
+    serve(
+        listener,
+        None,
+        app,
+        shutdown_timeout,
+        keep_alive,
+        rev_cleanup,
+    )
+    .await
+}
+
 async fn serve_tls(
     listener: TcpListener,
     acceptor: tokio_rustls::TlsAcceptor,
@@ -521,88 +548,15 @@ async fn serve_tls(
     keep_alive: u64,
     rev_cleanup: Option<(oneshot::Sender<()>, tokio::task::JoinSet<()>)>,
 ) {
-    let shutdown = shutdown_signal(shutdown_timeout);
-    tokio::pin!(shutdown);
-
-    let builder = build_http_builder(keep_alive);
-    let mut tasks = tokio::task::JoinSet::new();
-
-    loop {
-        tokio::select! {
-            result = listener.accept() => {
-                let (tcp_stream, remote_addr) = match result {
-                    Ok(conn) => conn,
-                    Err(e) => {
-                        tracing::warn!("Failed to accept TCP connection: {e}");
-                        continue;
-                    }
-                };
-
-                let acceptor = acceptor.clone();
-                let builder = builder.clone();
-                let app = app.clone();
-
-                tasks.spawn(async move {
-                    let tls_stream = match acceptor.accept(tcp_stream).await {
-                        Ok(s) => s,
-                        Err(e) => {
-                            tracing::debug!("TLS handshake failed from {remote_addr}: {e}");
-                            return;
-                        }
-                    };
-
-                    handle_connection(tls_stream, remote_addr, builder, app).await;
-                });
-            }
-            () = &mut shutdown => {
-                tracing::info!("Stopping TLS listener...");
-                break;
-            }
-        }
-    }
-
-    // Await all in-flight connections with a timeout.
-    let conn_timeout = std::time::Duration::from_secs(5);
-    if tasks.is_empty() {
-        tracing::info!("Server shut down gracefully.");
-    } else {
-        let start = std::time::Instant::now();
-        loop {
-            if tasks.is_empty() {
-                tracing::info!("Server shut down gracefully.");
-                break;
-            }
-            if start.elapsed() >= conn_timeout {
-                tracing::warn!(
-                    "Shutdown timed out after {:?}, {} connection(s) forcibly closed",
-                    conn_timeout,
-                    tasks.len()
-                );
-                break;
-            }
-            let remaining = conn_timeout.saturating_sub(start.elapsed());
-            if tokio::time::timeout(remaining, tasks.join_next())
-                .await
-                .is_err()
-            {
-                if tasks.is_empty() {
-                    tracing::info!("Server shut down gracefully.");
-                } else {
-                    tracing::warn!(
-                        "Shutdown timed out after {:?}, {} connection(s) forcibly closed",
-                        conn_timeout,
-                        tasks.len()
-                    );
-                }
-                break;
-            }
-        }
-    }
-
-    // Signal revocation cleanup to stop.
-    if let Some((tx, _)) = rev_cleanup {
-        let _ = tx.send(());
-    }
+    serve(
+        listener,
+        Some(Arc::new(acceptor)),
+        app,
+        shutdown_timeout,
+        keep_alive,
+        rev_cleanup,
+    )
+    .await
 }
 
 /// Handle a single accepted connection by wrapping it in hyper IO and serving

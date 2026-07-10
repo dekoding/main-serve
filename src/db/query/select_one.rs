@@ -3,7 +3,7 @@
 /// These functions handle queries that don't fit the general CRUD builder API,
 /// such as field-specific lookups, file path retrieval, and schema introspection.
 use crate::config::types::DatabaseDriver;
-use crate::db::query::helpers::{placeholder, quote_identifier};
+use crate::db::query::helpers::{now_expr, placeholder, quote_identifier};
 use crate::db::query::types::BuiltQuery;
 use crate::error::AppError;
 
@@ -132,8 +132,7 @@ pub fn build_select_user_for_login(
 /// Build a driver-specific INSERT for user registration.
 ///
 /// Inserts a new user with email, password_hash, and role. Optionally includes
-/// created_at and updated_at timestamp columns with driver-appropriate
-/// timestamp expressions (`CURRENT_TIMESTAMP` for SQLite, `NOW()` for PG/MySQL).
+/// created_at and updated_at timestamp columns.
 ///
 /// - SQLite: `INSERT INTO {table} (email, password_hash, role) VALUES (?, ?, ?)`
 /// - PostgreSQL: `INSERT INTO {table} (email, password_hash, role) VALUES ($1, $2, $3)`
@@ -168,10 +167,7 @@ pub fn build_insert_user(
     ];
 
     if include_timestamps {
-        let ts = match driver {
-            DatabaseDriver::Sqlite => "CURRENT_TIMESTAMP".to_string(),
-            _ => "NOW()".to_string(),
-        };
+        let ts = now_expr(driver).to_string();
         cols.push(quote_identifier("created_at", driver));
         cols.push(quote_identifier("updated_at", driver));
         placeholders.push(ts.clone());

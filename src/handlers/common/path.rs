@@ -83,7 +83,19 @@ pub fn build_storage_path(
     subdirectory_pattern: &Option<String>,
 ) -> Result<std::path::PathBuf, AppError> {
     let final_path = if let Some(pattern) = subdirectory_pattern {
-        let expanded = expand_subdirectory_pattern(pattern, user_id)?;
+        let now = chrono::Utc::now();
+        let expanded = pattern
+            .replace("{user_id}", user_id)
+            .replace("{year}", &now.format("%Y").to_string())
+            .replace("{month}", &now.format("%m").to_string())
+            .replace("{day}", &now.format("%d").to_string())
+            .replace("{uuid}", &Uuid::new_v4().to_string());
+
+        if expanded.split('/').any(|seg| seg == "..") {
+            return Err(AppError::Forbidden(
+                "Invalid subdirectory pattern".to_string(),
+            ));
+        }
         root.join(&expanded).join(filename)
     } else {
         root.join(filename)
@@ -97,25 +109,6 @@ pub fn build_storage_path(
     }
 
     Ok(final_path)
-}
-
-/// Expand subdirectory pattern with placeholders.
-pub fn expand_subdirectory_pattern(pattern: &str, user_id: &str) -> Result<String, AppError> {
-    let now = chrono::Utc::now();
-    let expanded = pattern
-        .replace("{user_id}", user_id)
-        .replace("{year}", &now.format("%Y").to_string())
-        .replace("{month}", &now.format("%m").to_string())
-        .replace("{day}", &now.format("%d").to_string())
-        .replace("{uuid}", &Uuid::new_v4().to_string());
-
-    if expanded.split('/').any(|seg| seg == "..") {
-        return Err(AppError::Forbidden(
-            "Invalid subdirectory pattern".to_string(),
-        ));
-    }
-
-    Ok(expanded)
 }
 
 /// Extract the relative file path from a request URI and endpoint path.
