@@ -151,7 +151,7 @@ pub async fn run_migrations(
 
         for col in &table_config.columns {
             if col.indexed && !col.primary_key {
-                let idx_name = format!("idx_{table_name}_{}", &col.name);
+                let idx_name = format!("idx_{table_name}_{}", col.name);
                 if driver == DatabaseDriver::Mysql && existing_indexes.contains(&idx_name) {
                     tracing::debug!(
                         "Skipping index creation for '{idx_name}' on '{table_name}' (already exists)"
@@ -502,7 +502,7 @@ fn add_pk_constraint(parts: &mut Vec<String>, columns: &[ColumnConfig], driver: 
 #[must_use]
 /// item
 fn generate_create_index(table_name: &str, column_name: &str, driver: DatabaseDriver) -> String {
-    let idx_name = format!("idx_{table_name}_{}", &column_name);
+    let idx_name = format!("idx_{table_name}_{}", column_name);
     match driver {
         DatabaseDriver::Mysql => format!(
             "CREATE INDEX {} ON {} ({})",
