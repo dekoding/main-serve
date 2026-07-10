@@ -55,9 +55,7 @@ pub(crate) fn is_valid_identifier(s: &str) -> bool {
             .all(|c| c.is_alphanumeric() || c == '_' || c == '.' || c == '-')
 }
 
-/// Quote a SQL identifier (table/column name) to prevent SQL injection.
-/// Table names are validated at config load time, but quoting is still required
-/// by AGENTS.md security rules.
+/// Quote an object name (table or index) for the current driver.
 #[inline]
 /// quote_identifier
 pub fn quote_identifier(name: &str, driver: DatabaseDriver) -> String {
