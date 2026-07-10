@@ -656,6 +656,338 @@ async fn test_unauthorized_access() {
     server.shutdown().await.expect("server shutdown");
 }
 
+#[tokio::test]
+async fn test_insert_owner_field() {
+    let server = setup_blog_server().await;
+    let client = server.client();
+
+    // Register and login as author
+    client
+        .post_json(
+            "/_main-serve/register",
+            &json!({
+                "email": "owner_test@example.com",
+                "password": "ownerpass123"
+            }),
+        )
+        .await
+        .expect("register")
+        .error_for_status()
+        .ok();
+
+    let login_resp = client
+        .post_json(
+            "/_main-serve/login",
+            &json!({
+                "email": "owner_test@example.com",
+                "password": "ownerpass123"
+            }),
+        )
+        .await
+        .expect("login");
+
+    let _ = client.assert_status(&login_resp, StatusCode::OK).await;
+    let login_body = login_resp
+        .json::<serde_json::Value>()
+        .await
+        .expect("parse login");
+    let token = login_body
+        .get("token")
+        .and_then(|v| v.as_str())
+        .expect("token");
+
+    let authed = LiveClient::new(server.base_url()).with_bearer_token(token);
+
+    // Create a post - insert_owner should auto-set author_id
+    let create_resp = authed
+        .post_json(
+            "/api/posts",
+            &json!({
+                "title": "Owner Test Post",
+                "slug": "owner-test-post",
+                "body": "This post should have author_id set automatically.",
+                "status": "published",
+                "published_at": "2025-01-15T12:00:00Z"
+            }),
+        )
+        .await
+        .expect("create post")
+        .error_for_status()
+        .expect("create post should succeed");
+
+    let created = create_resp
+        .json::<serde_json::Value>()
+        .await
+        .expect("parse create response");
+
+    let post_data = created
+        .get("data")
+        .or(Some(&created))
+        .expect("response body");
+
+    let author_id = post_data
+        .get("author_id")
+        .expect("author_id should be set by insert_owner");
+
+    assert!(
+        author_id.as_i64().is_some(),
+        "author_id should be a valid integer"
+    );
+
+    // Verify the author_id appears in the public feed
+    let feed = client
+        .get_json::<serde_json::Value>("/api/posts")
+        .await
+        .expect("get feed");
+
+    let results = feed
+        .get("results")
+        .or_else(|| feed.get("data"))
+        .and_then(|v| v.as_array())
+        .expect("results");
+
+    let found = results
+        .iter()
+        .find(|p| p.get("author_id").and_then(|v| v.as_i64()) == author_id.as_i64());
+
+    assert!(
+        found.is_some(),
+        "post with correct author_id should appear in public feed"
+    );
+
+    server.shutdown().await.expect("server shutdown");
+}
+
+#[tokio::test]
+async fn test_update_where_clause() {
+    let server = setup_blog_server().await;
+    let client = server.client();
+
+    // Register and login as author with "author" role to access /api/posts/{id}
+    client
+        .post_json(
+            "/_main-serve/register",
+            &json!({
+                "email": "update_test@example.com",
+                "password": "updatepass123",
+                "role": "author"
+            }),
+        )
+        .await
+        .expect("register")
+        .error_for_status()
+        .ok();
+
+    let login_resp = client
+        .post_json(
+            "/_main-serve/login",
+            &json!({
+                "email": "update_test@example.com",
+                "password": "updatepass123"
+            }),
+        )
+        .await
+        .expect("login");
+
+    let _ = client.assert_status(&login_resp, StatusCode::OK).await;
+    let login_body = login_resp
+        .json::<serde_json::Value>()
+        .await
+        .expect("parse login");
+    let token = login_body
+        .get("token")
+        .and_then(|v| v.as_str())
+        .expect("token");
+
+    let authed = LiveClient::new(server.base_url()).with_bearer_token(token);
+
+    // Create a post
+    let create_resp = authed
+        .post_json(
+            "/api/posts",
+            &json!({
+                "title": "Update Test Post",
+                "slug": "update-test-post",
+                "body": "Original body.",
+                "status": "draft",
+            }),
+        )
+        .await
+        .expect("create post")
+        .error_for_status()
+        .expect("create post should succeed");
+
+    let created = create_resp
+        .json::<serde_json::Value>()
+        .await
+        .expect("parse create response");
+
+    let post_data = created
+        .get("data")
+        .or(Some(&created))
+        .expect("response body");
+
+    let post_id = post_data
+        .get("id")
+        .and_then(|v| v.as_i64())
+        .expect("post id");
+
+    // Update the post (should succeed because author_id matches)
+    let update_resp = authed
+        .put_json(
+            &format!("/api/posts/{post_id}"),
+            &json!({
+                "title": "Updated Title",
+                "body": "Updated body.",
+                "status": "published",
+                "published_at": "2025-01-15T12:00:00Z"
+            }),
+        )
+        .await
+        .expect("update post");
+
+    assert!(
+        update_resp.status().is_success(),
+        "author should be able to update their own post, got: {}",
+        update_resp.status()
+    );
+
+    // Verify the update was applied by fetching the post
+    let fetch_resp = authed
+        .get(&format!("/api/posts/{post_id}"))
+        .await
+        .expect("fetch updated post");
+    client.assert_status(&fetch_resp, StatusCode::OK).await;
+
+    let fetched = fetch_resp
+        .json::<serde_json::Value>()
+        .await
+        .expect("parse fetch response");
+
+    let fetched_title = fetched
+        .get("title")
+        .or_else(|| fetched.get("data").and_then(|d| d.get("title")))
+        .and_then(|v| v.as_str())
+        .expect("title in fetch response");
+
+    assert_eq!(
+        fetched_title, "Updated Title",
+        "title should be updated after PUT"
+    );
+
+    server.shutdown().await.expect("server shutdown");
+}
+
+#[tokio::test]
+async fn test_delete_where_clause() {
+    let server = setup_blog_server().await;
+    let client = server.client();
+
+    // Register and login as author with "author" role to access /api/posts/{id}
+    client
+        .post_json(
+            "/_main-serve/register",
+            &json!({
+                "email": "delete_test@example.com",
+                "password": "deletepass123",
+                "role": "author"
+            }),
+        )
+        .await
+        .expect("register")
+        .error_for_status()
+        .ok();
+
+    let login_resp = client
+        .post_json(
+            "/_main-serve/login",
+            &json!({
+                "email": "delete_test@example.com",
+                "password": "deletepass123"
+            }),
+        )
+        .await
+        .expect("login");
+
+    let _ = client.assert_status(&login_resp, StatusCode::OK).await;
+    let login_body = login_resp
+        .json::<serde_json::Value>()
+        .await
+        .expect("parse login");
+    let token = login_body
+        .get("token")
+        .and_then(|v| v.as_str())
+        .expect("token");
+
+    let authed = LiveClient::new(server.base_url()).with_bearer_token(token);
+
+    // Create a post
+    let create_resp = authed
+        .post_json(
+            "/api/posts",
+            &json!({
+                "title": "Delete Test Post",
+                "slug": "delete-test-post",
+                "body": "This will be deleted.",
+                "status": "draft",
+            }),
+        )
+        .await
+        .expect("create post")
+        .error_for_status()
+        .expect("create post should succeed");
+
+    let created = create_resp
+        .json::<serde_json::Value>()
+        .await
+        .expect("parse create response");
+
+    let post_data = created
+        .get("data")
+        .or(Some(&created))
+        .expect("response body");
+
+    let post_id = post_data
+        .get("id")
+        .and_then(|v| v.as_i64())
+        .expect("post id");
+
+    // Delete the post (should succeed because author_id matches)
+    let delete_resp = authed
+        .delete(&format!("/api/posts/{post_id}"))
+        .await
+        .expect("delete post");
+
+    assert!(
+        delete_resp.status().is_success() || delete_resp.status() == StatusCode::NO_CONTENT,
+        "author should be able to delete their own post, got: {}",
+        delete_resp.status()
+    );
+
+    // Verify post is gone from listings
+    let feed = client
+        .get_json::<serde_json::Value>("/api/posts")
+        .await
+        .expect("get feed");
+
+    let results = feed
+        .get("results")
+        .or_else(|| feed.get("data"))
+        .and_then(|v| v.as_array())
+        .expect("results");
+
+    let found = results
+        .iter()
+        .find(|p| p.get("slug").and_then(|v| v.as_str()) == Some("delete-test-post"));
+
+    assert!(
+        found.is_none(),
+        "deleted post should not appear in listings"
+    );
+
+    server.shutdown().await.expect("server shutdown");
+}
+
 async fn setup_blog_server() -> BinaryHandle {
     use std::time::{SystemTime, UNIX_EPOCH};
     let db_path = format!(
