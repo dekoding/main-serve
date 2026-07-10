@@ -4,18 +4,13 @@
 /// JWT token revocation store (`DatabaseRevocationStore` in `server/state.rs`).
 /// Each function generates driver-specific SQL for the supported backends.
 use crate::config::types::DatabaseDriver;
-use crate::db::query::helpers::{placeholder, quote_identifier};
+use crate::db::query::helpers::{now_expr, placeholder, quote_identifier};
 use crate::db::query::types::BuiltQuery;
 use crate::error::AppError;
 
 /// Build `DELETE FROM {table} WHERE expires_at < {now}` for cleaning up expired revocations.
-///
-/// Uses driver-appropriate NOW() equivalent: `CURRENT_TIMESTAMP` for SQLite, `NOW()` for PG/MySQL.
 pub fn build_revoke_cleanup(table_name: &str, driver: DatabaseDriver) -> BuiltQuery {
-    let now = match driver {
-        DatabaseDriver::Sqlite => "CURRENT_TIMESTAMP".to_string(),
-        _ => "NOW()".to_string(),
-    };
+    let now = now_expr(driver);
     BuiltQuery {
         sql: format!(
             "DELETE FROM {} WHERE expires_at < {}",

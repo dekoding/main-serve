@@ -3,19 +3,9 @@
 /// These functions handle UPDATE queries that don't fit the general CRUD builder API,
 /// such as trash operations and file path updates.
 use crate::config::types::DatabaseDriver;
-use crate::db::query::helpers::{placeholder, quote_identifier};
+use crate::db::query::helpers::{now_expr, placeholder, quote_identifier};
 use crate::db::query::types::BuiltQuery;
 use crate::error::AppError;
-
-/// Generate the driver-appropriate NOW() equivalent expression.
-///
-/// SQLite uses `CURRENT_TIMESTAMP`, PostgreSQL and MySQL use `NOW()`.
-fn now_expr(driver: DatabaseDriver) -> &'static str {
-    match driver {
-        DatabaseDriver::Sqlite => "CURRENT_TIMESTAMP",
-        _ => "NOW()",
-    }
-}
 
 /// Build `UPDATE {table} SET deleted_at = {now}, trashed_at = {now} WHERE id = {param}`.
 ///
