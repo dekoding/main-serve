@@ -421,7 +421,7 @@ Each column in the `columns` list defines a database column.
 | `timestamptz` | Date and time with timezone | `TIMESTAMPTZ` | `DATETIME` | `TEXT` |
 | `uuid` | UUID | `UUID` | `CHAR(36)` | `TEXT` |
 | `json` | JSON data | `JSON` | `JSON` | `TEXT` |
-| `jsonb` | Binary JSON (indexed) | `JSONB` | `JSON` | `TEXT` |
+| `jsonb` | Binary JSON (indexed) | `JSONB` | `JSON` | `JSONB` |
 | `blob` | Binary data | `BYTEA` | `BLOB` | `BLOB` |
 | `bytea` | Binary data (alias) | `BYTEA` | `BLOB` | `BLOB` |
 
