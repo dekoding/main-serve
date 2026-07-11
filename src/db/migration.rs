@@ -570,7 +570,7 @@ fn column_type_to_sql(ct: &ColumnType, driver: DatabaseDriver) -> &'static str {
         // JSON
         (ColumnType::Json, DatabaseDriver::Sqlite) => "TEXT",
         (ColumnType::Json, _) => "JSON",
-        (ColumnType::Jsonb, DatabaseDriver::Sqlite) => "TEXT",
+        (ColumnType::Jsonb, DatabaseDriver::Sqlite) => "JSONB",
         (ColumnType::Jsonb, DatabaseDriver::Postgres) => "JSONB",
         (ColumnType::Jsonb, DatabaseDriver::Mysql) => "JSON",
 
