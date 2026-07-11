@@ -1920,7 +1920,7 @@ endpoints:
 
       # Response body (inline string).
       # Type: string
-      body: '{"name": "Main Serve", "version": "0.1.1"}'
+      body: '{"name": "Main Serve", "version": "0.3.0"}'
 
       # Response headers to include.
       # Type: map of string to string

@@ -124,9 +124,33 @@ curl -X POST http://localhost:8080/api/todos \
 
 ---
 
-## 6. Add Pagination, Sorting & Filtering
+## 3. Run Main Serve
 
-Enhance your list endpoint with query features:
+```bash
+MAIN_SERVE_ADMIN_TOKEN=my-secret ./target/release/main-serve -c my-config.yaml
+```
+
+This starts the server on `http://localhost:8080`. The admin token is used for the hot reload endpoint.
+
+## 4. Test the API
+
+```bash
+# List todos (public)
+curl http://localhost:8080/api/todos
+
+# Create a todo (requires API key from auth.api_key.keys)
+curl -X POST http://localhost:8080/api/todos \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: my-demo-key" \
+  -d '{"title": "Learn Rust", "done": false}'
+
+# Health check
+curl http://localhost:8080/_main-serve/health
+```
+
+## 5. Enhance With Pagination, Sorting & Filtering
+
+The quickstart config demonstrates all the essentials. Now enhance with query features:
 
 ```yaml
   - path: "/api/todos"
@@ -165,27 +189,41 @@ curl "http://localhost:8080/api/todos?done=false"
 
 ---
 
-## 7. Serve Static Files
+## 6. Serve Static Files
 
 Add a static file endpoint to host a frontend:
 
 ```yaml
+stores:
+  assets:
+    backend: "native"
+    root: "./public"
+
+endpoints:
   - path: "/static/*"
     methods: ["get"]
     action: "static_files"
     static_files:
-      root: "./public"
+      storage: "assets"
       index: "index.html"
-      spa_fallback: true      # Great for React/Vue/Angular apps
       cache_max_age: 3600
+    auth: "none"
+
+  - path: "/app/*"
+    methods: ["get"]
+    action: "spa_host"
+    spa_host:
+      storage: "assets"
+      index: "index.html"
+      cache_max_age: 0
     auth: "none"
 ```
 
-Create a `public/` directory and place your frontend files there. With `spa_fallback: true`, any path that doesn't match a real file will serve `index.html` - perfect for single-page apps with client-side routing.
+Create a `public/` directory and place your frontend files there. The SPA host endpoint serves `index.html` for any path that doesn't match a real file - perfect for client-side routing.
 
 ---
 
-## 8. Set Up a Reverse Proxy
+## 7. Set Up a Reverse Proxy
 
 Forward requests to an upstream API:
 
@@ -211,7 +249,7 @@ A request to `/api/external/users` will be forwarded to `https://api.example.com
 
 ---
 
-## 9. Environment Variables for Secrets
+## 8. Environment Variables for Secrets
 
 Never put secrets directly in your YAML. Use `${ENV_VAR}` interpolation:
 
@@ -238,7 +276,7 @@ If `API_KEY` is not set, it falls back to `dev-key-12345`. Without a default (`$
 
 ---
 
-## 10. Validate Without Running
+## 9. Validate Without Running
 
 Check your config for errors without starting the server:
 
