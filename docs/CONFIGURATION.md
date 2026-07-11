@@ -24,10 +24,16 @@ This document provides detailed documentation for every configuration field in M
   - [API Key](#api-key)
   - [HTTP Basic](#http-basic)
   - [OAuth2 / OIDC](#oauth2--oidc)
+    - [Role Mapping](#role-mapping)
+  - [User Registration](#user-registration)
+- [Storage Backends](#storage-backends)
 - [Endpoints](#endpoints)
   - [CRUD Endpoints](#crud-endpoints)
   - [Proxy Endpoints](#proxy-endpoints)
   - [Static File Endpoints](#static-file-endpoints)
+  - [Media Endpoints](#media-endpoints)
+  - [File Store Endpoints](#file-store-endpoints)
+  - [SPA Host Endpoints](#spa-host-endpoints)
   - [Custom Response Endpoints](#custom-response-endpoints)
 - [System Endpoints](#system-endpoints)
 
@@ -598,6 +604,34 @@ auth:
 | `state_ttl` | integer | `300` (5 minutes) | Maximum lifetime in seconds for a pending OAuth2 authorization state. States older than this are expired and rejected during the callback. |
 | `max_pending_states` | integer | `1000` | Maximum number of concurrent pending OAuth2 authorization flows. Limits memory usage from abandoned or concurrent authorization attempts. |
 
+#### Role Mapping
+
+When using the authorization code flow, you can configure an automatic mapping between IdP groups/roles and Main Serve roles. This lets users authenticated through your IdP inherit the correct Main Serve permissions without manual role assignment.
+
+**Example:**
+
+```yaml
+auth:
+  oauth2:
+    role_mapping:
+      default_role: "user"
+      role_claim: "groups"
+      role_map:
+        "admins": "admin"
+        "editors": "editor"
+        "viewers": "user"
+      match_mode: "exact"
+```
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `default_role` | string | `"user"` | Main Serve role when no IdP role matches any entry in `role_map`. |
+| `role_claim` | string | `"groups"` | Name of the claim in the IdP userinfo response containing the user's roles/groups. |
+| `role_map` | map | `{}` | Mapping from IdP role/group values to Main Serve roles. Keys are IdP role names, values are Main Serve role names. |
+| `match_mode` | enum | `"exact"` | How to match IdP roles against `role_map` keys. One of: `exact` (full string match), `contains` (check if any role_map key appears in the claim value). |
+
+For IdP roles that don't match any key in `role_map`, the `default_role` is used. When `match_mode` is `"contains"`, the system checks whether any value in the role_claim list matches any key in `role_map`.
+
 **Code flow sequence:**
 1. User visits `/_main-serve/oauth2/authorize`
 2. Main Serve generates a PKCE code verifier/challenge and random state, stores them, then redirects the user to the IdP's `authorization_url`
@@ -607,6 +641,81 @@ auth:
 6. Main Serve fetches user info from `userinfo_url`
 7. Main Serve mints a JWT and sets it as an HttpOnly cookie (`cookie_name`)
 8. User is redirected to `success_url`
+
+### User Registration
+
+Enables self-service user registration with password-based authentication. When enabled, Main Serve automatically creates a `/_main-serve/register` endpoint that accepts POST requests with `username`, `password`, and `email` fields. New users are assigned the configured `default_role` and stored in the specified database table.
+
+**Example:**
+
+```yaml
+auth:
+  register:
+    enabled: true
+    table: "users"
+    database: "main"
+    default_role: "user"
+    password_hash: "argon2id"
+```
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `enabled` | boolean | `false` | Whether self-registration is active. Omit or set to `null` to disable registration entirely. |
+| `table` | string | *(required)* | Database table name where registered users are stored. Must match a table in the `tables` section. |
+| `database` | string | *(required)* | Named database to use for user storage. Must match a key in the `databases` section. |
+| `default_role` | string | `"user"` | Role automatically assigned to newly registered users. |
+| `password_hash` | enum | `"argon2id"` | Password hashing algorithm. Supports `argon2id` and `bcrypt`. |
+
+---
+
+## Storage Backends
+
+Storage backends define named storage targets that endpoints reference for file storage. They support five backends: `native` (local disk), `s3` (Amazon S3), `azure` (Azure Blob Storage), `gcs` (Google Cloud Storage), and `memory` (in-memory for testing).
+
+**Example:**
+
+```yaml
+stores:
+  local_assets:
+    backend: "native"
+    root: "./public"
+
+  media_storage:
+    backend: "s3"
+    s3:
+      region: "us-west-2"
+      bucket: "myapp-media"
+      access_key: "${S3_ACCESS_KEY}"
+      secret_key: "${S3_SECRET_KEY}"
+      force_path_style: false
+
+  video_storage:
+    backend: "native"
+    root: "/var/media/video"
+
+  test_store:
+    backend: "memory"
+```
+
+Each key under `stores` is a unique name used to reference this store from endpoints. Duplicate store names are a configuration error at load time. **At most one backend-specific config section may be present** (e.g., `root` for native, `s3:` for S3). The `backend` value must match the section present.
+
+| Field | Type | Description |
+|---|---|---|
+| `backend` | enum (required) | Storage backend type. One of: `native`, `s3`, `azure`, `gcs`, `memory`. |
+| `root` | string | Root directory for `native` storage. Required for `native` backend. |
+| `s3.region` | string | AWS region. Required for S3. |
+| `s3.bucket` | string | S3 bucket name. Required for S3. |
+| `s3.access_key` | string | S3 access key. Required for S3. Use `${ENV_VAR}`. |
+| `s3.secret_key` | string | S3 secret key. Required for S3. Use `${ENV_VAR}`. |
+| `s3.endpoint` | string | Custom endpoint URL for S3-compatible services (e.g., MinIO). Optional. |
+| `s3.force_path_style` | boolean | `false` by default. Set `true` for MinIO, LocalStack, Ceph. Path-style: `s3.amazonaws.com/bucket-key`; virtual-hosted: `bucket.s3.amazonaws.com`. |
+| `azure.account_name` | string | Azure storage account name. Required for Azure. Use `${ENV_VAR}`. |
+| `azure.account_key` | string | Azure storage account key. Required for Azure. Use `${ENV_VAR}`. |
+| `azure.container` | string | Azure blob container name. Required for Azure. |
+| `gcs.project_id` | string | GCP project ID. Required for GCS. |
+| `gcs.credentials` | string | GCS service account credentials JSON. Required for GCS. Use `${ENV_VAR}`. |
+| `gcs.bucket` | string | GCS bucket name. Required for GCS. |
+| `memory` | *(none)* | In-memory store - no additional configuration needed. Useful for unit tests or development. |
 
 ---
 
@@ -620,7 +729,7 @@ The core of Main Serve. Each entry in the `endpoints` list defines an HTTP route
 |---|---|---|---|
 | `path` | string | *(required)* | URL path pattern. Supports OpenAPI-style `{param}` path parameters and wildcards (`*`). Examples: `/api/users`, `/api/users/{id}`, `/static/*`. |
 | `methods` | list of enums | *(required)* | HTTP methods this endpoint responds to. Values: `get`, `post`, `put`, `patch`, `delete`. |
-| `action` | enum | *(required)* | What this endpoint does. One of: `crud`, `proxy`, `static`, `custom_response`. |
+| `action` | enum | *(required)* | What this endpoint does. One of: `crud`, `proxy`, `static_files`, `media`, `file_store`, `spa_host`, `custom_response`. |
 | `auth` | string | `"none"` | Authentication method. Must be `"none"` or the name of a provider defined in the `auth` section: `"jwt"`, `"api_key"`, `"basic"`, `"oauth2"`. |
 | `roles` | list of strings | *(optional)* | Roles allowed to access this endpoint. If omitted, any authenticated user is allowed. Only meaningful when `auth` is not `"none"`. |
 | `cors` | object | *(inherited)* | Per-endpoint CORS override. Same fields as the global `cors` section. If omitted, the global CORS settings apply. |
@@ -732,6 +841,9 @@ If sorting is enabled on a JSONB column, the API supports dot-notation and LHS b
 | `where_clause` | string | `null` | Static SQL boolean expression applied to all queries. Example: `"deleted_at IS NULL"` to implement soft deletes. Uses parameterized queries for safety. |
 | `joins` | list | `[]` | Table joins for enriching query results. See below. |
 | `computed_fields` | list | `[]` | Virtual columns computed from SQL expressions. See below. |
+| `update_where_clause` | string | `null` | WHERE clause applied specifically to UPDATE queries. Combined with `where_clause` using AND. Supports interpolation: `"author_id = ${request.user.id}"`. |
+| `delete_where_clause` | string | `null` | WHERE clause applied specifically to DELETE queries. Combined with `where_clause` using AND. Supports interpolation: `"author_id = ${request.user.id}"`. |
+| `insert_owner` | string | `null` | Column name to automatically populate with the authenticated user's ID on INSERT requests. The value of `${request.user.id}` is used. If the column already has a value in the request body, that takes precedence. |
 
 **Joins:**
 
@@ -800,47 +912,54 @@ Forward requests to an upstream server. The request path, headers, and body are 
 
 ### Static File Endpoints
 
-Serve files from a directory on disk, with optional file upload support, user scoping, image resizing, and streaming.
+Serve files from a storage backend with optional file upload support, image resizing, and streaming. The `storage` field references a named store defined in the `stores` section.
 
 ```yaml
 - path: "/static/*"
   methods: ["get"]
   action: "static_files"
   static_files:
-    root: "./public"
+    storage: "local_assets"
     index: "index.html"
     directory_listing: false
     cache_max_age: 3600
-    spa_fallback: false
+    etag: true
+    range_requests: true
+    head_support: true
+    cache_rules:
+      - extensions: [".html"]
+        cache_control: "no-cache"
+      - extensions: [".jpg", ".png", ".gif", ".webp", ".svg"]
+        cache_control: "public, max-age=31536000, immutable"
     upload:
       enabled: true
       max_size: 10485760
       allowed_extensions: []
       create_subdirectory: null
-      required_role: null
-    user_scope:
-      enabled: true
-      required_role: null
-      directory_pattern: "{user_id}"
-      expose_root: false
+      mime_detection: "magic"
     image_resize:
       enabled: true
       max_dimension: 4096
       supported_formats: ["jpg", "jpeg", "png", "webp"]
+      default_fit: "scale_down"
       cache_dir: null
     streaming:
       enabled: true
       buffer_size: 65536
       threshold: 1048576
+      include_content_length: true
 ```
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `root` | string | *(required)* | Root directory for static files. Can be relative (to the working directory) or absolute. |
+| `storage` | string | *(required)* | Named storage backend to serve files from. Must match a key in the `stores` section. For native stores, the `root` field becomes the effective serving root. |
 | `index` | string | `"index.html"` | Default file to serve when a directory is requested. |
 | `directory_listing` | boolean | `false` | Show a listing of directory contents when no index file is found. **Security note:** be cautious enabling this in production. |
 | `cache_max_age` | integer | `3600` (1 hour) | Value for the `Cache-Control: max-age=` response header, in seconds. Set to `0` to disable client-side caching. |
-| `spa_fallback` | boolean | `false` | When `true`, requests for paths that don't match a real file return the `index` file instead of 404. Essential for single-page applications with client-side routing (React, Vue, Angular, etc.). |
+| `etag` | boolean | `true` | Generate ETag headers for cache validation. |
+| `range_requests` | boolean | `true` | Support HTTP range requests (partial content / 206 responses). |
+| `head_support` | boolean | `true` | Support HTTP HEAD method. |
+| `cache_rules` | list of objects | `[]` | Per-extension Cache-Control rules. Each object has: `extensions` (list of strings), `cache_control` (string). Overrides `cache_max_age` for matching extensions. |
 
 **File Upload Configuration:**
 
@@ -850,16 +969,7 @@ Serve files from a directory on disk, with optional file upload support, user sc
 | `upload.max_size` | integer | `10485760` (10 MiB) | Maximum upload size in bytes. |
 | `upload.allowed_extensions` | list of strings | `[]` | Allowed file extensions (starting with dots). Empty list allows all extensions. |
 | `upload.create_subdirectory` | string | `null` | Subdirectory pattern for organizing uploads. Placeholders: `{user_id}`, `{year}`, `{month}`, `{day}`, `{uuid}`. |
-| `upload.required_role` | string | `null` | Role required to upload files. If unset, any authenticated user can upload. |
-
-**User Scoping Configuration:**
-
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `user_scope.enabled` | boolean | `false` | Enable user-scoped file browsing. When enabled, each user can only access their own directory. |
-| `user_scope.required_role` | string | `null` | Role required to access user-scoped files. If unset, any authenticated user can access their own files. |
-| `user_scope.directory_pattern` | string | `"{user_id}"` | Pattern for user-specific directories. Available placeholder: `{user_id}`. |
-| `user_scope.expose_root` | boolean | `false` | When `true`, users can also access the root directory in addition to their own subdirectory. |
+| `upload.mime_detection` | enum | `"magic"` | MIME type detection method. One of: `magic`, `extension`. |
 
 **Image Resizing Configuration:**
 
@@ -868,15 +978,165 @@ Serve files from a directory on disk, with optional file upload support, user sc
 | `image_resize.enabled` | boolean | `false` | Enable on-demand image resizing. |
 | `image_resize.max_dimension` | integer | `4096` | Maximum dimension (width or height) for auto-resize. Images larger than this are scaled down. |
 | `image_resize.supported_formats` | list of strings | `["jpg", "jpeg", "png", "webp"]` | Supported formats for image conversion. |
-| `image_resize.cache_dir` | string | `null` | Cache directory for resized images (relative to root). If unset, resized images are regenerated on each request. |
+| `image_resize.default_fit` | enum | `"scale_down"` | Default resize fit mode. One of: `scale_down`, `cover`, `contain`. |
+| `image_resize.cache_dir` | string | `null` | Cache directory for resized images. If unset, resized images are regenerated on each request. |
 
 **Streaming Configuration:**
 
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `streaming.enabled` | boolean | `false` | Enable chunked streaming for large files. |
-| `streaming.buffer_size` | integer | `65536` (64 KiB) | Chunk size in bytes for streaming. Must be lower than `threshold`. |
+| `streaming.buffer_size` | integer | `65536` (64 KiB) | Chunk size in bytes for streaming. |
 | `streaming.threshold` | integer | `1048576` (1 MiB) | Files larger than this threshold use streaming. Smaller files are read entirely into memory. |
+| `streaming.include_content_length` | boolean | `true` | Include `Content-Length` header in the response. |
+
+### Media Endpoints
+
+Full media library with metadata tracking, uploads, trash, sharing, and image resizing. Requires a database table for metadata and a storage backend for files.
+
+```yaml
+- path: "/media"
+  methods: ["get", "post", "patch", "delete"]
+  action: "media"
+  media:
+    storage: "media_storage"
+    table: "media_items"
+    database: "main"
+    columns: ["auto", "tags"]
+    metadata_columns:
+      - name: "license"
+        type: "text"
+        nullable: true
+        default: "''"
+    upload:
+      max_size: 104857600
+      allowed_extensions: [".jpg", ".png", ".pdf"]
+      bulk_supported: true
+      create_subdirectory: "{user_id}/{year}/{month}"
+    trash:
+      enabled: true
+      retention_days: 14
+      management_endpoints: true
+    sharing:
+      enabled: true
+      signing_secret: "${FILE_SHARING_SECRET}"
+      default_ttl: 86400
+    image_resize:
+      enabled: true
+      max_dimension: 4096
+      styles:
+        - name: "thumbnail"
+          max_width: 200
+          max_height: 200
+          resize_fit: "cover"
+          format: "webp"
+          quality: 85
+```
+
+**Media column presets:**
+
+| Preset | Generated Columns |
+|---|---|
+| `"auto"` | `original_name=text`, `mime_type=text`, `size=bigint`, `uploader_id=uuid`, `created_at=timestamptz`, `updated_at=timestamptz` |
+| `"tags"` | `tags=jsonb` (API-level treated as string array) |
+| `"description"` | `description=text` |
+| `"alt_text"` | `alt_text=text` |
+| `"content_type"` | `content_type=varchar` with check constraint: `image`, `video`, `audio`, `document`, `other` |
+
+**Key Media features:**
+
+| Feature | Config Path | Default | Description |
+|---|---|---|---|
+| Upload | `media.upload.enabled` | *(inherent)* | Upload is inherent to the media action. Configure with `max_size`, `allowed_extensions`, `allowed_mime_types`, `mime_detection`, `bulk_supported`, `create_subdirectory`, `versioning`, `preview_generation`. |
+| File Move | `media.move` | Omit to disable | Admins can move files anywhere; non-admins within their own tree. Supports `admin_override` and `auto_create_destination`. |
+| File Rename | `media.rename` | Omit to disable | Supports `admin_override`. |
+| File Delete | `media.delete` | Omit to disable | Supports `admin_override`. |
+| User Scoping | `media.user_scope` | Omit to disable | Modes: `user`, `shared`, `open`. Supports `admin_roles` and `allow_cross_user_browse`. |
+| Content References | `media.content_references` | Omit to disable | Associates media with content entities. Supports `on_delete` behavior: `detach`, `cascade`, `error`. |
+| Trash | `media.trash` | Omit or `enabled: false` | Retains deleted files in trash. Supports `retention_days`, `prefix`, `management_endpoints`, `admin_roles`. |
+| Sharing | `media.sharing` | Omit or `enabled: false` | Time-limited public download links. Physical copy in `{store_root}/{prefix}/{token}/{path}`. Supports `signing_secret`, `default_ttl`, `max_ttl`, `allow_any_user`. |
+| Pagination | `media.pagination` | `enabled: true, default: 20, max: 100` | List endpoint pagination. |
+| Sorting | `media.sorting` | `enabled: true` | Sort by `created_at` by default, `desc`. |
+| Filtering | `media.filtering` | `enabled: true` | Filter by `mime_type`, `original_name`, `created_at`, `size`, `content_type`, `tags`. |
+| Facets | `media.facets` | *(none)* | Faceted search for media library UI. Supports `term`, `date_range`, `numeric` facet types. |
+| Image Resize | `media.image_resize` | Omit or `enabled: false` | On-demand resizing with named styles. Supports `generate_on_upload` to pre-generate styles. |
+
+### File Store Endpoints
+
+Database-backed file catalog. Manages a table as a file registry with CRUD operations, ownership tracking, and metadata. File serving is not handled by this action -- configure a separate `static_files` endpoint pointing at the same store to serve files.
+
+```yaml
+- path: "/api/files"
+  methods: ["get", "post", "patch", "delete"]
+  action: "file_store"
+  file_store:
+    storage: "media_storage"
+    table: "files"
+    database: "main"
+    metadata_columns:
+      - name: "original_name"
+        type: "text"
+      - name: "mime_type"
+        type: "text"
+    field_permissions:
+      original_name:
+        read: ["admin", "editor"]
+        write: ["admin"]
+    ownership:
+      owner_column: "uploader_id"
+      admin_override: true
+    trash:
+      enabled: true
+      retention_days: 30
+    pagination:
+      enabled: true
+      default_page_size: 20
+```
+
+**Key File Store features:**
+
+| Feature | Config Path | Default | Description |
+|---|---|---|---|
+| Storage | `file_store.storage` | *(required)* | Named store for file storage. Must match a key in `stores`. |
+| Table | `file_store.table` | *(required)* | Database table for the file registry. Must match a table in `tables`. |
+| Database | `file_store.database` | *(required)* | Named database. Must match a key in `databases`. |
+| Metadata Columns | `file_store.metadata_columns` | *(none)* | File metadata columns tracked by the registry. Same structure as `tables.columns`. |
+| Field Permissions | `file_store.field_permissions` | *(none)* | Column-level read/write permissions by role. For auto-generated columns not listed: implicitly `read: ["*"]`, `write: []`. |
+| Ownership | `file_store.ownership` | *(none)* | Row-level authorization via owner column. Supports `owner_column` and `admin_override`. |
+| Trash | `file_store.trash` | *(none)* | Trash support with `enabled` and `retention_days`. |
+| Pagination | `file_store.pagination` | *(none)* | Optional pagination for listing. |
+| Sorting | `file_store.sorting` | *(none)* | Optional sorting for listing. |
+| Filtering | `file_store.filtering` | *(none)* | Optional filtering for listing. |
+
+### SPA Host Endpoints
+
+Serve a single-page application with automatic fallback routing. Non-existent paths and directory listings fall through to the index file. No directory browsing is exposed -- all requests resolve to the SPA entry point.
+
+```yaml
+- path: "/app/*"
+  methods: ["get", "head"]
+  action: "spa_host"
+  spa_host:
+    storage: "local_assets"
+    index: "index.html"
+    cache_max_age: 3600
+    fallback_status: 200
+    etag: true
+    cache_rules:
+      - extensions: [".html"]
+        cache_control: "no-cache, no-store"
+      - extensions: [".js", ".css", ".woff2"]
+        cache_control: "public, max-age=31536000, immutable"
+```
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `storage` | string | *(required)* | Named storage backend. Must match a key in the `stores` section. |
+| `index` | string | `"index.html"` | Index file for SPA fallback. |
+| `cache_max_age` | integer | `3600` (1 hour) | Default `Cache-Control` max-age in seconds for served files. |
+| `cache_rules` | list of objects | `[]` | Per-extension Cache-Control rules. Each object has: `extensions` (list), `cache_control` (string). |
+| `etag` | boolean | `true` | Generate ETag headers for cache validation. |
+| `fallback_status` | integer | `200` | HTTP status code for SPA fallback responses (non-existent paths). |
 
 ### Custom Response Endpoints
 

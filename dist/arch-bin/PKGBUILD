@@ -1,6 +1,6 @@
 # Maintainer: Main Serve Contributors <https://github.com/dekoding/main-serve>
 pkgname=main-serve-bin
-pkgver=0.2.2
+pkgver=0.3.0
 pkgrel=1
 pkgdesc="A high-performance, YAML-configured web server (pre-built binary)"
 arch=('x86_64' 'aarch64')

@@ -68,7 +68,7 @@ endpoints:
       writable_fields: ["title", "done"]
     auth: "none"
 
-  - path: "/api/todos/:id"
+  - path: "/api/todos/{id}"
     methods: ["get", "put", "delete"]
     action: "crud"
     crud:
@@ -161,6 +161,8 @@ databases:
     min_connections: 1
     max_connections: 10
     auto_migrate: true           # Auto-create tables on startup
+    allow_destructive: false     # Allow dropping columns missing from YAML
+    acquire_timeout: 5           # Pool connection acquire timeout (seconds)
 ```
 
 ### Logging
@@ -210,6 +212,11 @@ endpoints:
       database: "main"
       fields: ["id", "email", "name"]
       writable_fields: ["email", "name"]
+      where_clause: "active = true"
+      insert_owner: "created_by"
+      computed_fields:
+        - name: "full_name"
+          expression: "first_name || ' ' || last_name"
       pagination:
         enabled: true
         default_page_size: 20
@@ -223,6 +230,8 @@ endpoints:
         allowed_fields: ["email"]
     auth: "none"
 ```
+
+The CRUD action also supports `update_where_clause` and `delete_where_clause` for scoped updates and deletions, and `joins` for including data from related tables. All WHERE clauses support request context interpolation (e.g., `"author_id = ${request.user.id}"`).
 
 #### Reverse Proxy
 
@@ -244,18 +253,37 @@ endpoints:
     auth: "none"
 ```
 
+#### Storage Backends
+
+Named storage targets for file serving and media. Endpoints reference these by name.
+
+```yaml
+stores:
+  local_assets:
+    backend: "native"
+    root: "./public"
+```
+
 #### Static Files
 
 ```yaml
-  - path: "/static/"
+stores:
+  local_assets:
+    backend: "native"
+    root: "./public"
+
+endpoints:
+  - path: "/static/*"
     methods: ["get"]
     action: "static_files"
     static_files:
-      root: "./public"
+      storage: "local_assets"
       index: "index.html"
-      spa_fallback: true
       directory_listing: false
       cache_max_age: 3600
+      etag: true
+      range_requests: true
+      head_support: true
       upload:
         enabled: true
         max_size: 10485760
@@ -266,12 +294,6 @@ endpoints:
           - ".gif"
           - ".pdf"
         create_subdirectory: "{user_id}/{year}/{month}"
-        required_role: "admin"
-      user_scope:
-        enabled: true
-        required_role: null
-        directory_pattern: "{user_id}"
-        expose_root: false
       image_resize:
         enabled: true
         max_dimension: 4096
@@ -280,12 +302,69 @@ endpoints:
           - "jpeg"
           - "png"
           - "webp"
-        cache_dir: null
+        default_fit: "scale_down"
       streaming:
         enabled: true
         buffer_size: 65536
         threshold: 1048576
+        include_content_length: true
     auth: "none"
+```
+
+#### Media Library
+
+Full media management with uploads, trash, sharing, and image resizing. Requires a database table for metadata and a storage backend.
+
+```yaml
+- path: "/media"
+  methods: ["get", "post", "patch", "delete"]
+  action: "media"
+  media:
+    storage: "media_storage"
+    table: "media_items"
+    database: "main"
+    columns: ["auto", "tags"]
+    trash:
+      enabled: true
+      retention_days: 14
+    sharing:
+      enabled: true
+      signing_secret: "${FILE_SHARING_SECRET}"
+    image_resize:
+      enabled: true
+      max_dimension: 2048
+```
+
+#### File Store
+
+Database-backed file catalog with ownership tracking. File serving requires a separate `static_files` endpoint.
+
+```yaml
+- path: "/api/files"
+  methods: ["get", "post", "patch", "delete"]
+  action: "file_store"
+  file_store:
+    storage: "media_storage"
+    table: "files"
+    database: "main"
+    ownership:
+      owner_column: "uploader_id"
+      admin_override: true
+```
+
+#### SPA Host
+
+Serve a single-page application with automatic fallback routing.
+
+```yaml
+- path: "/app/*"
+  methods: ["get", "head"]
+  action: "spa_host"
+  spa_host:
+    storage: "local_assets"
+    index: "index.html"
+    cache_max_age: 3600
+    fallback_status: 200
 ```
 
 #### Custom Response
@@ -330,8 +409,12 @@ Per-endpoint auth is set via the `auth` field (`"jwt"`, `"api_key"`, `"basic"`, 
 
 #### OAuth2/OIDC
 
+Full authorization code flow with PKCE and token introspection support. Requires `auth.jwt` for the code flow.
+
 ```yaml
 auth:
+  jwt:
+    secret: "${JWT_SECRET}"     # Required for code flow (mints JWTs)
   oauth2:
     provider: "generic"          # Provider name (for logging)
     authorization_url: "https://provider.com/authorize"
@@ -339,10 +422,33 @@ auth:
     userinfo_url: "https://provider.com/userinfo"
     client_id: "${OAUTH_CLIENT_ID}"
     client_secret: "${OAUTH_CLIENT_SECRET}"
-    scopes: ["openid", "profile"]
+    scopes: ["openid", "profile", "email"]
     redirect_url: "http://localhost:8080/_main-serve/oauth2/callback"
-    success_url: "/"            # Where to redirect after login
+    success_url: "/"             # Where to redirect after login
     cookie_name: "main_serve_token"  # HttpOnly cookie for JWT
+    state_ttl: 300               # Pending state lifetime (seconds)
+    max_pending_states: 1000     # Max concurrent authorization flows
+    role_mapping:
+      default_role: "user"
+      role_claim: "groups"
+      role_map:
+        "admins": "admin"
+        "editors": "editor"
+      match_mode: "exact"       # exact or contains
+```
+
+#### User Registration
+
+Enable self-service registration:
+
+```yaml
+auth:
+  register:
+    enabled: true
+    table: "users"
+    database: "main"
+    default_role: "user"
+    password_hash: "argon2id"
 ```
 
 ### CORS
@@ -365,6 +471,7 @@ rate_limit:
   window_seconds: 60
   key_strategy: "ip"            # ip, header, token
   key_header: ""                # Used when key_strategy is "header"
+  cleanup_threshold: 10000      # Clean up expired entries when threshold reached
 ```
 
 ### Environment Variables
