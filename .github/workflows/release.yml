@@ -68,7 +68,7 @@ jobs:
           sed -i 's/^pkgrel=.*/pkgrel=1/' dist/arch-bin/PKGBUILD
 
       - name: Push PKGBUILD to AUR
-        uses: KSXGitHub/github-actions-deploy-aur@v4.1.3
+        uses: KSXGitHub/github-actions-deploy-aur@v4.2.0
         with:
           pkgname: main-serve
           pkgbuild: dist/arch/PKGBUILD
