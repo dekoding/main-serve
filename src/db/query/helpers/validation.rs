@@ -46,7 +46,7 @@ pub(crate) fn is_valid_expression(s: &str) -> bool {
         }
     }
     if bracket_depth != 0 {
-        return false
+        return false;
     }
 
     // Check for balanced parentheses.
