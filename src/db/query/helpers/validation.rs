@@ -20,26 +20,62 @@ pub(crate) fn is_valid_expression(s: &str) -> bool {
     if s.is_empty() {
         return false;
     }
-    if has_forbidden_patterns(s) {
+    // Check for forbidden SQL injection patterns (comments, semicolons, block comments).
+    let forbidden = [";", "--", "/*", "*/"];
+    if forbidden.iter().any(|&p| s.contains(p)) {
         return false;
     }
-    if is_valid_json_path(s) {
+    // Check if string is valid JSONPath syntax (parsed by the jsonb crate).
+    if jsonb::jsonpath::parse_json_path(s.as_bytes()).is_ok() {
         return true;
     }
     // If the string uses bracket notation, it must be well-formed.
-    if super::sorting::is_bracket_notation(s) && !is_valid_bracket_notation(s) {
+    let mut bracket_depth = 0;
+    if super::sorting::is_bracket_notation(s) {
+        let mut in_bracket = false;
+        for c in s.chars() {
+            if c == '[' {
+                bracket_depth += 1;
+                in_bracket = true;
+            } else if c == ']' {
+                bracket_depth -= 1;
+                in_bracket = false;
+            } else if in_bracket && !c.is_alphanumeric() && c != '_' {
+                return false;
+            }
+        }
+    }
+    if bracket_depth != 0 {
+        return false
+    }
+
+    // Check for balanced parentheses.
+    let mut paren_depth = 0;
+    for c in s.chars() {
+        match c {
+            '(' => paren_depth += 1,
+            ')' => {
+                paren_depth -= 1;
+                if paren_depth < 0 {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+    }
+    if paren_depth != 0 {
         return false;
     }
-    if !has_balanced_parens(s) {
+    // Check for balanced single quotes.
+    if s.chars().filter(|&c| c == '\'').count() % 2 != 0 {
         return false;
     }
-    if !has_balanced_quotes(s) {
+    // Check for dangerous SQL keywords using regex.
+    if SQL_KEYWORDS_RE.as_ref().is_some_and(|re| re.is_match(s)) {
         return false;
     }
-    if has_dangerous_sql_keywords(s) {
-        return false;
-    }
-    if has_dangerous_function_calls(s) {
+    // Check for dangerous function calls (xp_, pg_sleep, etc.) using regex.
+    if DANGEROUS_FN_RE.as_ref().is_some_and(|re| re.is_match(s)) {
         return false;
     }
     s.chars()
@@ -57,7 +93,6 @@ pub(crate) fn is_valid_identifier(s: &str) -> bool {
 
 /// Quote an object name (table or index) for the current driver.
 #[inline]
-/// quote_identifier
 pub fn quote_identifier(name: &str, driver: DatabaseDriver) -> String {
     match driver {
         DatabaseDriver::Mysql => format!("`{name}`"),
@@ -65,75 +100,10 @@ pub fn quote_identifier(name: &str, driver: DatabaseDriver) -> String {
     }
 }
 
-/// Check for forbidden SQL injection patterns (comments, semicolons, block comments).
-fn has_forbidden_patterns(s: &str) -> bool {
-    let forbidden = [";", "--", "/*", "*/"];
-    forbidden.iter().any(|&p| s.contains(p))
-}
-
-/// Check if string is valid JSONPath syntax (parsed by the jsonb crate).
-fn is_valid_json_path(s: &str) -> bool {
-    jsonb::jsonpath::parse_json_path(s.as_bytes()).is_ok()
-}
-
-/// Check if string uses bracket notation and validate it is well-formed.
-fn is_valid_bracket_notation(s: &str) -> bool {
-    if !super::sorting::is_bracket_notation(s) {
-        return false;
-    }
-    let mut bracket_depth = 0;
-    let mut in_bracket = false;
-    for c in s.chars() {
-        if c == '[' {
-            bracket_depth += 1;
-            in_bracket = true;
-        } else if c == ']' {
-            bracket_depth -= 1;
-            in_bracket = false;
-        } else if in_bracket && !c.is_alphanumeric() && c != '_' {
-            return false;
-        }
-    }
-    bracket_depth == 0
-}
-
-/// Check for balanced parentheses.
-fn has_balanced_parens(s: &str) -> bool {
-    let mut depth = 0;
-    for c in s.chars() {
-        match c {
-            '(' => depth += 1,
-            ')' => {
-                depth -= 1;
-                if depth < 0 {
-                    return false;
-                }
-            }
-            _ => {}
-        }
-    }
-    depth == 0
-}
-
-/// Check for balanced single quotes.
-fn has_balanced_quotes(s: &str) -> bool {
-    s.chars().filter(|&c| c == '\'').count() % 2 == 0
-}
-
-/// Check for dangerous SQL keywords using regex.
-fn has_dangerous_sql_keywords(s: &str) -> bool {
-    SQL_KEYWORDS_RE.as_ref().is_some_and(|re| re.is_match(s))
-}
-
 /// Compiled regex to detect dangerous SQL Server extended procedure calls (xp_*) and
 /// sleep-based time injection (`pg_sleep`, SLEEP, etc.).
 static DANGEROUS_FN_RE: LazyLock<Option<regex::Regex>> =
     LazyLock::new(|| regex::Regex::new(r"(?i)(\bxp_\w+|\bsleep\s*\(|_sleep\b)").ok());
-
-/// Check for dangerous function calls (xp_, pg_sleep, etc.) using regex.
-fn has_dangerous_function_calls(s: &str) -> bool {
-    DANGEROUS_FN_RE.as_ref().is_some_and(|re| re.is_match(s))
-}
 
 #[cfg(test)]
 mod tests {
@@ -289,57 +259,6 @@ mod tests {
             quote_identifier("table_name", DatabaseDriver::Mysql),
             "`table_name`"
         );
-    }
-
-    // -- has_balanced_parens (private function) --
-
-    #[test]
-    fn test_has_balanced_parens_balanced() {
-        assert!(has_balanced_parens("foo(bar)"));
-        assert!(has_balanced_parens("foo(bar(baz))"));
-        assert!(has_balanced_parens(""));
-    }
-
-    #[test]
-    fn test_has_balanced_parens_unbalanced() {
-        assert!(!has_balanced_parens("(foo"));
-        assert!(!has_balanced_parens("foo)"));
-        assert!(!has_balanced_parens("((foo)"));
-    }
-
-    // -- has_balanced_quotes (private function) --
-
-    #[test]
-    fn test_has_balanced_quotes_even() {
-        assert!(has_balanced_quotes("''"));
-        assert!(has_balanced_quotes("'foo'"));
-        assert!(has_balanced_quotes("'foo''bar'"));
-    }
-
-    #[test]
-    fn test_has_balanced_quotes_odd() {
-        assert!(!has_balanced_quotes("'foo"));
-        assert!(!has_balanced_quotes("foo'"));
-        assert!(!has_balanced_quotes("foo'bar'baz'"));
-    }
-
-    // -- has_forbidden_patterns (private function) --
-
-    #[test]
-    fn test_has_forbidden_patterns_semicolon() {
-        assert!(has_forbidden_patterns("foo;bar"));
-    }
-
-    #[test]
-    fn test_has_forbidden_patterns_comments() {
-        assert!(has_forbidden_patterns("--comment"));
-        assert!(has_forbidden_patterns("/* comment */"));
-    }
-
-    #[test]
-    fn test_has_forbidden_patterns_clean() {
-        assert!(!has_forbidden_patterns("foo.bar"));
-        assert!(!has_forbidden_patterns("metadata[role]"));
     }
 
     // -- Integration: full validation pipeline --

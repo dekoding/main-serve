@@ -1,5 +1,7 @@
 /// Configuration module: YAML loading, typed structs, and validation.
 pub mod loader;
+/// schema registry
+pub mod schema_registry;
 /// types
 pub mod types;
 /// validation

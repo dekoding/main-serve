@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 use super::state::{AppState, compute_store_changes};
 use crate::config::load_config;
+use crate::config::schema_registry::SchemaRegistry;
 use crate::db::migration::{ensure_media_columns, run_migrations};
 use crate::db::pool::{close_pools, create_pools};
 use crate::storage::create_store;
@@ -214,6 +215,25 @@ pub async fn handle_reload(
         state.stores = new_stores;
         old_pools
     };
+
+    // Rebuild the schema registry for the new config. The config swap already
+    // happened above, so this reads the updated tables and global_schemas.
+    {
+        let mut registry = state.schema_registry.write().await;
+        let config = state.config.read().await;
+        *registry = SchemaRegistry::new(&config, &state.config_path).map_err(|e| {
+            tracing::error!("Schema registry rebuild failed during reload: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({
+                    "error": {
+                        "code": "reload_failed",
+                        "message": format!("Schema registry rebuild failed: {e}")
+                    }
+                })),
+            )
+        })?;
+    }
 
     // Log old store drain (no actual work needed).
 

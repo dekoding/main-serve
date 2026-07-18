@@ -11,6 +11,7 @@ use std::time::Instant;
 use tokio::sync::{Mutex, RwLock};
 
 use crate::config::AppConfig;
+use crate::config::schema_registry::SchemaRegistry;
 use crate::config::types::StoreConfig;
 use crate::config::types::{EndpointConfig, RegisterConfig};
 use crate::config::types::{JwtConfig, RoleHierarchy};
@@ -274,6 +275,10 @@ pub struct AppState {
     /// revocation is enabled. Initialized after database pools are available
     /// (for database-backed stores). Wrapped in OnceLock for deferred init.
     pub revocation_store: OnceLock<RevocationStoreImpl>,
+
+    /// Compiled JSON schemas for per-column validation on JSONB/JSON columns.
+    /// Built once at config load time; rebuilt on hot-reload.
+    pub schema_registry: Arc<RwLock<SchemaRegistry>>,
 }
 
 impl AppState {
@@ -299,6 +304,9 @@ impl AppState {
         let role_inheritance = compute_role_inheritance(&config.role_hierarchy);
         let role_inheritance = Arc::new(RwLock::new(role_inheritance));
 
+        let schema_registry = SchemaRegistry::new(&config, &config_path)?;
+        let schema_registry = Arc::new(RwLock::new(schema_registry));
+
         Ok(Self {
             config: Arc::new(RwLock::new(config)),
             config_path: Arc::new(config_path),
@@ -311,6 +319,7 @@ impl AppState {
             store_configs,
             role_inheritance,
             revocation_store: OnceLock::new(),
+            schema_registry,
         })
     }
 

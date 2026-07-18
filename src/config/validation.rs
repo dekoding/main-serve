@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use super::types::{AppConfig, EndpointAction, RoleHierarchy, StoreBackend, StoreConfig};
+use super::types::{
+    AppConfig, ColumnType, EndpointAction, RoleHierarchy, StoreBackend, StoreConfig,
+};
 
 /// Minimum valid HTTP status code.
 const HTTP_STATUS_MIN: u16 = 100;
@@ -137,6 +139,42 @@ fn validate_tables(config: &AppConfig, errors: &mut Vec<String>) {
             }
             if col.primary_key {
                 has_pk = true;
+            }
+            // Schema validation is only supported on JSONB/JSON columns
+            if (col.validation_schema.is_some()
+                || col.validation.is_some()
+                || col.validation_schema_ref.is_some())
+                && !matches!(col.column_type, ColumnType::Jsonb | ColumnType::Json)
+            {
+                errors.push(format!(
+                    "{}: column '{}' has schema validation but type '{}' is not jsonb or json",
+                    label, col.name, col.column_type
+                ));
+            }
+            // Exactly one of the three validation fields may be set
+            let validation_count = [
+                col.validation_schema.is_some(),
+                col.validation.is_some(),
+                col.validation_schema_ref.is_some(),
+            ]
+            .iter()
+            .filter(|&&b| b)
+            .count();
+            if validation_count > 1 {
+                let mut set = Vec::new();
+                if col.validation_schema.is_some() {
+                    set.push("validation_schema");
+                }
+                if col.validation.is_some() {
+                    set.push("validation");
+                }
+                if col.validation_schema_ref.is_some() {
+                    set.push("validation_schema_ref");
+                }
+                errors.push(format!(
+                    "{}: column '{}' has multiple schema validation fields set ({}); at most one is allowed",
+                    label, col.name, set.join(", ")
+                ));
             }
         }
         if !has_pk {
@@ -1409,5 +1447,237 @@ mod tests {
         assert!(msg.contains("auth.register.table"));
         assert!(msg.contains("auth.register.database"));
         assert!(msg.contains("auth.register.default_role"));
+    }
+
+    #[test]
+    fn test_validate_tables_non_jsonb_with_validation_rejected() {
+        let mut config = types::AppConfig::default();
+        config.databases.insert(
+            "main".to_string(),
+            types::DatabaseConfig {
+                driver: types::DatabaseDriver::Sqlite,
+                url: "sqlite://:memory:".to_string(),
+                min_connections: 1,
+                max_connections: 10,
+                auto_migrate: false,
+                allow_destructive: false,
+                acquire_timeout: 5,
+            },
+        );
+        config.tables.push(types::TableConfig {
+            name: "test_table".to_string(),
+            database: "main".to_string(),
+            columns: vec![
+                types::ColumnConfig {
+                    name: "id".to_string(),
+                    column_type: types::ColumnType::Serial,
+                    primary_key: true,
+                    nullable: false,
+                    default: None,
+                    unique: false,
+                    indexed: false,
+                    validation_schema: None,
+                    validation: None,
+                    validation_schema_ref: None,
+                },
+                types::ColumnConfig {
+                    name: "metadata".to_string(),
+                    column_type: types::ColumnType::Text,
+                    primary_key: false,
+                    nullable: true,
+                    default: None,
+                    unique: false,
+                    indexed: false,
+                    validation_schema: Some("./schema.json".to_string()),
+                    validation: None,
+                    validation_schema_ref: None,
+                },
+            ],
+            foreign_keys: vec![],
+        });
+        let result = validate_config(&config);
+        assert!(
+            result.is_err(),
+            "non-JSONB column with validation_schema should be rejected"
+        );
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("not jsonb or json"),
+            "Error should mention non-JSONB type, got: {msg}"
+        );
+        assert!(
+            msg.contains("metadata"),
+            "Error should mention column name, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_validate_tables_non_jsonb_with_inline_validation_rejected() {
+        let mut config = types::AppConfig::default();
+        config.databases.insert(
+            "main".to_string(),
+            types::DatabaseConfig {
+                driver: types::DatabaseDriver::Sqlite,
+                url: "sqlite://:memory:".to_string(),
+                min_connections: 1,
+                max_connections: 10,
+                auto_migrate: false,
+                allow_destructive: false,
+                acquire_timeout: 5,
+            },
+        );
+        let inline_schema =
+            serde_yaml::from_value(serde_yaml::Value::Mapping(serde_yaml::Mapping::new())).unwrap();
+        config.tables.push(types::TableConfig {
+            name: "test_table".to_string(),
+            database: "main".to_string(),
+            columns: vec![
+                types::ColumnConfig {
+                    name: "id".to_string(),
+                    column_type: types::ColumnType::Serial,
+                    primary_key: true,
+                    nullable: false,
+                    default: None,
+                    unique: false,
+                    indexed: false,
+                    validation_schema: None,
+                    validation: None,
+                    validation_schema_ref: None,
+                },
+                types::ColumnConfig {
+                    name: "data".to_string(),
+                    column_type: types::ColumnType::Integer,
+                    primary_key: false,
+                    nullable: true,
+                    default: None,
+                    unique: false,
+                    indexed: false,
+                    validation_schema: None,
+                    validation: Some(inline_schema),
+                    validation_schema_ref: None,
+                },
+            ],
+            foreign_keys: vec![],
+        });
+        let result = validate_config(&config);
+        assert!(
+            result.is_err(),
+            "non-JSONB column with inline validation should be rejected"
+        );
+    }
+
+    #[test]
+    fn test_validate_tables_multiple_validation_fields_rejected() {
+        let mut config = types::AppConfig::default();
+        config.databases.insert(
+            "main".to_string(),
+            types::DatabaseConfig {
+                driver: types::DatabaseDriver::Sqlite,
+                url: "sqlite://:memory:".to_string(),
+                min_connections: 1,
+                max_connections: 10,
+                auto_migrate: false,
+                allow_destructive: false,
+                acquire_timeout: 5,
+            },
+        );
+        let inline_schema =
+            serde_yaml::from_value(serde_yaml::Value::Mapping(serde_yaml::Mapping::new())).unwrap();
+        config.tables.push(types::TableConfig {
+            name: "test_table".to_string(),
+            database: "main".to_string(),
+            columns: vec![
+                types::ColumnConfig {
+                    name: "id".to_string(),
+                    column_type: types::ColumnType::Serial,
+                    primary_key: true,
+                    nullable: false,
+                    default: None,
+                    unique: false,
+                    indexed: false,
+                    validation_schema: None,
+                    validation: None,
+                    validation_schema_ref: None,
+                },
+                types::ColumnConfig {
+                    name: "data".to_string(),
+                    column_type: types::ColumnType::Jsonb,
+                    primary_key: false,
+                    nullable: true,
+                    default: None,
+                    unique: false,
+                    indexed: false,
+                    validation_schema: Some("./schema.json".to_string()),
+                    validation: Some(inline_schema),
+                    validation_schema_ref: None,
+                },
+            ],
+            foreign_keys: vec![],
+        });
+        let result = validate_config(&config);
+        assert!(
+            result.is_err(),
+            "column with multiple validation fields should be rejected"
+        );
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("multiple schema validation fields") || msg.contains("at most one"),
+            "Error should mention mutual exclusivity, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_validate_tables_jsonb_with_single_validation_valid() {
+        let mut config = types::AppConfig::default();
+        config.databases.insert(
+            "main".to_string(),
+            types::DatabaseConfig {
+                driver: types::DatabaseDriver::Sqlite,
+                url: "sqlite://:memory:".to_string(),
+                min_connections: 1,
+                max_connections: 10,
+                auto_migrate: false,
+                allow_destructive: false,
+                acquire_timeout: 5,
+            },
+        );
+        let inline_schema =
+            serde_yaml::from_value(serde_yaml::Value::Mapping(serde_yaml::Mapping::new())).unwrap();
+        config.tables.push(types::TableConfig {
+            name: "test_table".to_string(),
+            database: "main".to_string(),
+            columns: vec![
+                types::ColumnConfig {
+                    name: "id".to_string(),
+                    column_type: types::ColumnType::Serial,
+                    primary_key: true,
+                    nullable: false,
+                    default: None,
+                    unique: false,
+                    indexed: false,
+                    validation_schema: None,
+                    validation: None,
+                    validation_schema_ref: None,
+                },
+                types::ColumnConfig {
+                    name: "data".to_string(),
+                    column_type: types::ColumnType::Jsonb,
+                    primary_key: false,
+                    nullable: true,
+                    default: None,
+                    unique: false,
+                    indexed: false,
+                    validation_schema: None,
+                    validation: Some(inline_schema),
+                    validation_schema_ref: None,
+                },
+            ],
+            foreign_keys: vec![],
+        });
+        let result = validate_config(&config);
+        assert!(
+            result.is_ok(),
+            "single validation field on JSONB column should be valid"
+        );
     }
 }

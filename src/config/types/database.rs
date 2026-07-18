@@ -1,5 +1,5 @@
 /// Database connection and table schema configuration.
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// A named database connection configuration.
 #[derive(Debug, Clone, Deserialize)]
@@ -73,8 +73,8 @@ pub struct TableConfig {
 }
 
 /// A column definition within a table.
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Debug, Clone, Deserialize, serde::Serialize)]
+#[serde(default, rename_all = "snake_case", deny_unknown_fields)]
 /// ColumnConfig
 pub struct ColumnConfig {
     /// Column name.
@@ -92,6 +92,12 @@ pub struct ColumnConfig {
     pub unique: bool,
     /// Whether to create an index on this column.
     pub indexed: bool,
+    /// Path to an external JSON Schema file for validating this column's JSONB value.
+    pub validation_schema: Option<String>,
+    /// Inline JSON Schema for validating this column's JSONB value.
+    pub validation: Option<serde_yaml::Value>,
+    /// Reference to a named global schema.
+    pub validation_schema_ref: Option<String>,
 }
 
 impl Default for ColumnConfig {
@@ -105,12 +111,15 @@ impl Default for ColumnConfig {
             default: None,
             unique: false,
             indexed: false,
+            validation_schema: None,
+            validation: None,
+            validation_schema_ref: None,
         }
     }
 }
 
 /// Supported column data types.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 /// ColumnType
 pub enum ColumnType {
@@ -134,6 +143,33 @@ pub enum ColumnType {
     Jsonb,
     Blob,
     Bytea,
+}
+
+impl std::fmt::Display for ColumnType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ColumnType::Integer => write!(f, "integer"),
+            ColumnType::Bigint => write!(f, "bigint"),
+            ColumnType::Smallint => write!(f, "smallint"),
+            ColumnType::Serial => write!(f, "serial"),
+            ColumnType::Bigserial => write!(f, "bigserial"),
+            ColumnType::Text => write!(f, "text"),
+            ColumnType::Varchar => write!(f, "varchar"),
+            ColumnType::Char => write!(f, "char"),
+            ColumnType::Boolean => write!(f, "boolean"),
+            ColumnType::Float => write!(f, "float"),
+            ColumnType::Double => write!(f, "double"),
+            ColumnType::Decimal => write!(f, "decimal"),
+            ColumnType::Date => write!(f, "date"),
+            ColumnType::Timestamp => write!(f, "timestamp"),
+            ColumnType::Timestamptz => write!(f, "timestamptz"),
+            ColumnType::Uuid => write!(f, "uuid"),
+            ColumnType::Json => write!(f, "json"),
+            ColumnType::Jsonb => write!(f, "jsonb"),
+            ColumnType::Blob => write!(f, "blob"),
+            ColumnType::Bytea => write!(f, "bytea"),
+        }
+    }
 }
 
 /// A foreign key constraint on a table.
@@ -169,4 +205,115 @@ pub enum ForeignKeyAction {
     SetNull,
     Restrict,
     NoAction,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_column_config_serialization_with_validation_schema() {
+        let col = ColumnConfig {
+            name: "metadata".to_string(),
+            column_type: ColumnType::Jsonb,
+            primary_key: false,
+            nullable: true,
+            default: None,
+            unique: false,
+            indexed: false,
+            validation_schema: Some("./schemas/meta.json".to_string()),
+            validation: None,
+            validation_schema_ref: None,
+        };
+        let serialized = serde_yaml::to_string(&col).unwrap();
+        let deserialized: ColumnConfig = serde_yaml::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.name, "metadata");
+        assert_eq!(
+            deserialized.validation_schema.as_deref(),
+            Some("./schemas/meta.json")
+        );
+        assert!(deserialized.validation.is_none());
+        assert!(deserialized.validation_schema_ref.is_none());
+    }
+
+    #[test]
+    fn test_column_config_serialization_with_inline_validation() {
+        let inline_schema = serde_yaml::from_value(serde_yaml::Value::Mapping({
+            let mut m = serde_yaml::Mapping::new();
+            m.insert(
+                serde_yaml::Value::String("type".into()),
+                serde_yaml::Value::String("object".into()),
+            );
+            m
+        }))
+        .unwrap();
+        let col = ColumnConfig {
+            name: "data".to_string(),
+            column_type: ColumnType::Jsonb,
+            primary_key: false,
+            nullable: true,
+            default: None,
+            unique: false,
+            indexed: false,
+            validation_schema: None,
+            validation: Some(inline_schema),
+            validation_schema_ref: None,
+        };
+        let serialized = serde_yaml::to_string(&col).unwrap();
+        let deserialized: ColumnConfig = serde_yaml::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.name, "data");
+        assert!(deserialized.validation.is_some());
+        assert!(deserialized.validation_schema.is_none());
+        assert!(deserialized.validation_schema_ref.is_none());
+    }
+
+    #[test]
+    fn test_column_config_serialization_with_global_ref() {
+        let col = ColumnConfig {
+            name: "content".to_string(),
+            column_type: ColumnType::Json,
+            primary_key: false,
+            nullable: true,
+            default: None,
+            unique: false,
+            indexed: false,
+            validation_schema: None,
+            validation: None,
+            validation_schema_ref: Some("global_schemas.blog_post".to_string()),
+        };
+        let serialized = serde_yaml::to_string(&col).unwrap();
+        let deserialized: ColumnConfig = serde_yaml::from_str(&serialized).unwrap();
+        assert_eq!(deserialized.name, "content");
+        assert_eq!(deserialized.column_type, ColumnType::Json);
+        assert_eq!(
+            deserialized.validation_schema_ref.as_deref(),
+            Some("global_schemas.blog_post")
+        );
+        assert!(deserialized.validation_schema.is_none());
+        assert!(deserialized.validation.is_none());
+    }
+
+    #[test]
+    fn test_column_config_deserializes_no_validation() {
+        let yaml = r#"
+name: "email"
+type: "varchar"
+nullable: false
+"#;
+        let col: ColumnConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(col.name, "email");
+        assert_eq!(col.column_type, ColumnType::Varchar);
+        assert!(!col.nullable);
+        assert!(col.validation_schema.is_none());
+        assert!(col.validation.is_none());
+        assert!(col.validation_schema_ref.is_none());
+    }
+
+    #[test]
+    fn test_column_type_display() {
+        assert_eq!(ColumnType::Jsonb.to_string(), "jsonb");
+        assert_eq!(ColumnType::Json.to_string(), "json");
+        assert_eq!(ColumnType::Text.to_string(), "text");
+        assert_eq!(ColumnType::Varchar.to_string(), "varchar");
+    }
 }
