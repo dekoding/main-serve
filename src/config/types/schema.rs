@@ -13,7 +13,7 @@ pub struct JsonSchema {
     /// The compiled JSON schema validator.
     compiled: Validator,
     /// Source description for error messages.
-    _source: SchemaSource,
+    source: SchemaSource,
 }
 
 /// Where the schema came from.
@@ -25,6 +25,16 @@ pub enum SchemaSource {
     Inline,
     /// Referenced from `global_schemas`.
     GlobalRef(String),
+}
+
+impl std::fmt::Display for SchemaSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SchemaSource::ExternalFile(path) => write!(f, "external file: {}", path.display()),
+            SchemaSource::Inline => write!(f, "inline"),
+            SchemaSource::GlobalRef(name) => write!(f, "global schema: {name}"),
+        }
+    }
 }
 
 /// A named schema from the global schemas section.
@@ -41,13 +51,18 @@ impl JsonSchema {
     pub fn new(compiled: Validator, source: SchemaSource) -> Self {
         Self {
             compiled,
-            _source: source,
+            source,
         }
     }
 
     /// Return a reference to the compiled validator.
     pub fn compiled(&self) -> &Validator {
         &self.compiled
+    }
+
+    /// Return the schema's source (where it was loaded from).
+    pub fn source(&self) -> &SchemaSource {
+        &self.source
     }
 }
 

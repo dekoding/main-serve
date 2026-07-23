@@ -32,7 +32,10 @@ pub(crate) fn validate_jsonb_body(
             let col_errors = validate_json_with_schema(value, schema);
             if !col_errors.is_empty() {
                 for err in col_errors {
-                    errors.push(format!("{column_name}: {err}"));
+                    errors.push(format!(
+                        "{column_name} ({}): {err}",
+                        schema.source()
+                    ));
                 }
             }
         }
