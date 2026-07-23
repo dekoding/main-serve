@@ -302,7 +302,7 @@ impl SelectBuilder {
 
     /// Build the SQL condition string for a single filter operator.
     #[allow(clippy::too_many_arguments)] // needed for 14-operator dispatch
-    /// item
+    /// Dispatches filter operator logic and builds the corresponding SQL condition string.
     fn build_filter_condition(
         &self,
         operator: FilterOperator,

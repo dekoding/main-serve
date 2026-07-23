@@ -40,7 +40,7 @@ impl NativeStorage {
 }
 
 impl Default for NativeStorage {
-    /// item
+    /// Returns a new native storage backend rooted at the current working directory.
     fn default() -> Self {
         Self::new(PathBuf::from("."))
     }
@@ -255,7 +255,7 @@ impl Storage for NativeStorage {
         Ok(meta.len())
     }
 
-    /// item
+    /// Returns the root path of the storage backend.
     fn root_path(&self) -> Option<PathBuf> {
         Some(self.root.clone())
     }

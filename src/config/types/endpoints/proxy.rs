@@ -47,7 +47,7 @@ pub struct ProxyTimeouts {
 }
 
 impl Default for ProxyTimeouts {
-    /// item
+    /// Returns proxy timeout defaults with 5-second connect, 30-second read, and 60-second total.
     fn default() -> Self {
         Self {
             connect: 5,

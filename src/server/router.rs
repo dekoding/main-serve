@@ -271,7 +271,7 @@ fn register_spa_bare_routes(
     router
 }
 
-/// item
+/// Adds a CORS route layer if a CORS config is provided, otherwise adds the route directly.
 fn check_use_cors(
     mut app: Router<AppState>,
     path: &str,
@@ -288,7 +288,7 @@ fn check_use_cors(
     app
 }
 
-/// item
+/// Registers a route handler for an endpoint based on its action type and HTTP method.
 fn add_endpoint_route(
     mut app: Router<AppState>,
     path: &str,

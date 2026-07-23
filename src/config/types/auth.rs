@@ -31,7 +31,7 @@ pub struct RegisterConfig {
 }
 
 impl Default for RegisterConfig {
-    /// item
+    /// Returns a RegisterConfig with registration disabled by default.
     fn default() -> Self {
         Self {
             enabled: false,
@@ -86,7 +86,7 @@ pub struct JwtRevocationConfig {
 }
 
 impl Default for JwtRevocationConfig {
-    /// item
+    /// Returns a JwtRevocationConfig with in-memory store and 1-hour cleanup interval.
     fn default() -> Self {
         Self {
             store: RevocationStoreType::InMemory,
@@ -120,7 +120,7 @@ pub struct JwtConfig {
 }
 
 impl Default for JwtConfig {
-    /// item
+    /// Returns a JwtConfig with HS256 signing and a 1-hour token expiry.
     fn default() -> Self {
         Self {
             secret: String::new(),
@@ -163,7 +163,7 @@ pub struct ApiKeyConfig {
 }
 
 impl Default for ApiKeyConfig {
-    /// item
+    /// Returns an ApiKeyConfig with header-based lookup and `X-API-Key` as the default header.
     fn default() -> Self {
         Self {
             location: ApiKeyLocation::Header,
@@ -207,7 +207,7 @@ pub struct BasicAuthConfig {
 }
 
 impl Default for BasicAuthConfig {
-    /// item
+    /// Returns a BasicAuthConfig with "main-serve" as the default authentication realm.
     fn default() -> Self {
         Self {
             realm: "main-serve".to_string(),
@@ -259,13 +259,13 @@ pub struct RoleMappingConfig {
     pub match_mode: RoleMatchMode,
 }
 
-/// item
+/// Returns "groups" as the default IdP role claim name.
 fn default_role_claim() -> String {
     "groups".to_string()
 }
 
 impl Default for RoleMappingConfig {
-    /// item
+    /// Returns a RoleMappingConfig with exact matching and "user" as the default role.
     fn default() -> Self {
         Self {
             default_role: "user".to_string(),
@@ -314,18 +314,18 @@ pub struct OAuth2Config {
     pub role_mapping: Option<RoleMappingConfig>,
 }
 
-/// item
+/// Returns 300 seconds (5 minutes) as the default OAuth2 authorization state TTL.
 fn default_state_ttl() -> u64 {
     300 // 5 minutes
 }
 
-/// item
+/// Returns 1000 as the default maximum number of concurrent pending OAuth2 authorization states.
 fn default_max_pending_states() -> usize {
     1000
 }
 
 impl Default for OAuth2Config {
-    /// item
+    /// Returns an OAuth2Config with a 5-minute state TTL and no role mapping.
     fn default() -> Self {
         Self {
             provider: "generic".to_string(),
@@ -346,7 +346,7 @@ impl Default for OAuth2Config {
 }
 
 impl fmt::Debug for JwtConfig {
-    /// item
+    /// Formats the struct with the secret field redacted.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("JwtConfig")
             .field("secret", &"[REDACTED]")
@@ -361,7 +361,7 @@ impl fmt::Debug for JwtConfig {
 }
 
 impl fmt::Debug for ApiKeyEntry {
-    /// item
+    /// Formats the struct with the key field redacted.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ApiKeyEntry")
             .field("key", &"[REDACTED]")
@@ -371,7 +371,7 @@ impl fmt::Debug for ApiKeyEntry {
 }
 
 impl fmt::Debug for BasicAuthUser {
-    /// item
+    /// Formats the struct with the password_hash field redacted.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("BasicAuthUser")
             .field("username", &self.username)
@@ -382,7 +382,7 @@ impl fmt::Debug for BasicAuthUser {
 }
 
 impl fmt::Debug for OAuth2Config {
-    /// item
+    /// Formats the struct with the client_secret field redacted.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("OAuth2Config")
             .field("provider", &self.provider)

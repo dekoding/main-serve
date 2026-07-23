@@ -177,7 +177,7 @@ pub enum RevocationStoreImpl {
 }
 
 impl Clone for RevocationStoreImpl {
-    /// item
+    /// Clones the revocation store, delegating to the inner store's clone implementation.
     fn clone(&self) -> Self {
         match self {
             Self::InMemory(inner) => Self::InMemory(inner.clone()),

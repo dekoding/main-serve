@@ -180,7 +180,7 @@ pub async fn run_migrations(
 
 /// A column as it currently exists in the database.
 #[derive(Debug)]
-/// item
+/// Represents a column currently existing in the database, tracked by name only.
 struct ExistingColumn {
     name: String,
 }
@@ -367,7 +367,7 @@ async fn alter_existing_table(
 
 /// Generate an ALTER TABLE ... ADD COLUMN statement for a single column.
 #[must_use]
-/// item
+/// Generates an ALTER TABLE ... ADD COLUMN SQL statement for the given column.
 fn generate_add_column(table_name: &str, col: &ColumnConfig, driver: DatabaseDriver) -> String {
     let mut col_def = format!(
         "{} {}",
@@ -396,7 +396,7 @@ fn generate_add_column(table_name: &str, col: &ColumnConfig, driver: DatabaseDri
 
 /// Generate an ALTER TABLE ... DROP COLUMN statement.
 #[must_use]
-/// item
+/// Generates an ALTER TABLE ... DROP COLUMN SQL statement.
 fn generate_drop_column(table_name: &str, column_name: &str, driver: DatabaseDriver) -> String {
     let col = quote_identifier(column_name, driver);
     format!(
@@ -407,7 +407,7 @@ fn generate_drop_column(table_name: &str, column_name: &str, driver: DatabaseDri
 
 /// Generate a CREATE TABLE IF NOT EXISTS statement.
 #[must_use]
-/// item
+/// Generates a CREATE TABLE IF NOT EXISTS SQL statement from a TableConfig.
 fn generate_create_table(table: &TableConfig, driver: DatabaseDriver) -> String {
     let mut parts: Vec<String> = Vec::new();
 
@@ -500,7 +500,7 @@ fn add_pk_constraint(parts: &mut Vec<String>, columns: &[ColumnConfig], driver: 
 
 /// Generate an index creation statement.
 #[must_use]
-/// item
+/// Generates a CREATE INDEX (or CREATE INDEX IF NOT EXISTS) SQL statement.
 fn generate_create_index(table_name: &str, column_name: &str, driver: DatabaseDriver) -> String {
     let idx_name = format!("idx_{table_name}_{}", column_name);
     match driver {

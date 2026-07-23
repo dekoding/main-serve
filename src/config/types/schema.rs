@@ -13,7 +13,7 @@ pub struct JsonSchema {
     /// The compiled JSON schema validator.
     compiled: Validator,
     /// Source description for error messages.
-    source: SchemaSource,
+    _source: SchemaSource,
 }
 
 /// Where the schema came from.
@@ -39,20 +39,9 @@ pub struct GlobalSchema {
 impl JsonSchema {
     /// Create a new `JsonSchema` from a compiled schema and source.
     pub fn new(compiled: Validator, source: SchemaSource) -> Self {
-        Self { compiled, source }
-    }
-
-    /// Return the source of this schema.
-    pub fn source(&self) -> &SchemaSource {
-        &self.source
-    }
-
-    /// Return a description of the schema source for error messages.
-    pub fn source_description(&self) -> String {
-        match &self.source {
-            SchemaSource::ExternalFile(path) => format!("external file: {}", path.display()),
-            SchemaSource::Inline => "inline schema".to_string(),
-            SchemaSource::GlobalRef(name) => format!("global schema reference: '{name}'"),
+        Self {
+            compiled,
+            _source: source,
         }
     }
 
@@ -66,11 +55,6 @@ impl GlobalSchema {
     /// Create a new `GlobalSchema` with the given name and compiled schema.
     pub fn new(name: String, schema: JsonSchema) -> Self {
         Self { name, schema }
-    }
-
-    /// Return the name of this global schema.
-    pub fn name(&self) -> &str {
-        &self.name
     }
 
     /// Return a reference to the compiled schema.

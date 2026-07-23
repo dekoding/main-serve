@@ -106,7 +106,7 @@ pub struct RequestContext {
 }
 
 impl Default for RequestContext {
-    /// item
+    /// Returns a request context with all fields set to their default empty values.
     fn default() -> Self {
         Self::new()
     }

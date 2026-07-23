@@ -23,7 +23,7 @@ use crate::error::AppError;
 
 /// Entry tracking request counts within a time window.
 #[derive(Debug)]
-/// item
+/// Tracks a client's request count and the start of the current rate-limit window.
 struct RateLimitEntry {
     count: u64,
     window_start: Instant,
@@ -37,7 +37,7 @@ pub struct RateLimiter {
 }
 
 impl Default for RateLimiter {
-    /// item
+    /// Creates a new empty rate limiter ready to track requests.
     fn default() -> Self {
         Self::new()
     }

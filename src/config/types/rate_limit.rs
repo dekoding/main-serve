@@ -20,13 +20,13 @@ pub struct RateLimitConfig {
     pub cleanup_threshold: usize,
 }
 
-/// item
+/// Returns the default entry cleanup threshold (10,000) for rate-limit tracking.
 fn default_cleanup_threshold() -> usize {
     10_000
 }
 
 impl Default for RateLimitConfig {
-    /// item
+    /// Returns a RateLimitConfig with rate limiting disabled by default.
     fn default() -> Self {
         Self {
             enabled: false,

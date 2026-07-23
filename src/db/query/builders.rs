@@ -10,7 +10,7 @@ use crate::handlers::common::utils::DatabaseContext;
 use crate::middleware::auth::extractor::RequestContext;
 
 impl From<&CrudConfig> for MutationContext {
-    /// item
+    /// Constructs a mutation context from the CRUD configuration's writable fields and where clauses.
     fn from(crud: &CrudConfig) -> Self {
         MutationContext {
             writable_fields: crud.writable_fields.clone(),
@@ -22,7 +22,7 @@ impl From<&CrudConfig> for MutationContext {
 }
 
 impl From<&CrudConfig> for SelectContext {
-    /// item
+    /// Constructs a select context from the CRUD configuration's field and filter settings.
     fn from(crud: &CrudConfig) -> Self {
         SelectContext {
             fields: crud.fields.clone(),

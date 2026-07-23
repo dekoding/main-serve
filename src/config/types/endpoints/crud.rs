@@ -44,7 +44,7 @@ pub struct CrudConfig {
 }
 
 impl Default for CrudConfig {
-    /// item
+    /// Returns a CRUD configuration with default pagination, filtering, and sorting settings.
     fn default() -> Self {
         Self {
             table: String::new(),

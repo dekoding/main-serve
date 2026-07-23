@@ -189,7 +189,7 @@ pub fn format_modified(time: std::time::SystemTime) -> String {
 #[must_use]
 /// format_size
 pub fn format_size(bytes: u64) -> String {
-    /// item
+    /// Defines the ordered list of size units for human-readable byte formatting.
     const UNITS: &[&str] = &["B", "KiB", "MiB", "GiB", "TiB"];
     let mut size = bytes as f64;
     for unit in UNITS {

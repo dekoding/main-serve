@@ -68,20 +68,20 @@ pub enum AppError {
 }
 
 #[derive(Serialize)]
-/// item
+/// JSON response body containing the error code and message.
 struct ErrorBody {
     error: ErrorDetail,
 }
 
 #[derive(Serialize)]
-/// item
+/// Error detail with a machine-readable code and human-readable message.
 struct ErrorDetail {
     code: String,
     message: String,
 }
 
 impl IntoResponse for AppError {
-    /// item
+    /// Converts the error into an HTTP response with appropriate status code and JSON body.
     fn into_response(self) -> Response {
         let (status, code) = match &self {
             AppError::Config(_) => (StatusCode::INTERNAL_SERVER_ERROR, "config_error"),

@@ -172,7 +172,7 @@ pub enum RolesConfig {
 }
 
 impl Default for RolesConfig {
-    /// item
+    /// Returns a flat roles configuration with no roles assigned by default.
     fn default() -> Self {
         Self::Flat(Vec::new())
     }

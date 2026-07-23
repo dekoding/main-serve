@@ -10,6 +10,7 @@ use tokio::sync::oneshot;
 use tracing_subscriber::EnvFilter;
 
 use main_serve::config::load_config;
+use main_serve::config::schema_registry::SchemaRegistry;
 use main_serve::config::types::{LogFormat, RevocationStoreType};
 use main_serve::db::migration::{ensure_media_columns, run_migrations};
 use main_serve::db::pool::{close_pools, create_pools};
@@ -21,7 +22,6 @@ use main_serve::server::{AppState, build_router, build_tls_acceptor};
 /// Main Serve - a high-performance, YAML-configured web server.
 #[derive(Parser)]
 #[command(name = "main-serve", version, about)]
-/// item
 struct Cli {
     /// Path to YAML config file.
     ///
@@ -44,7 +44,7 @@ struct Cli {
 }
 
 impl fmt::Debug for Cli {
-    /// item
+    /// Formats the struct with the admin_token field redacted.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Cli")
             .field("config", &self.config)
@@ -55,7 +55,7 @@ impl fmt::Debug for Cli {
     }
 }
 
-/// item
+/// Entry point - parses CLI arguments, loads config, and starts the server.
 fn main() {
     let cli = Cli::parse();
 
@@ -139,8 +139,13 @@ fn resolve_config_path(cli_path: Option<&PathBuf>) -> PathBuf {
 }
 
 async fn async_main(cli: Cli, config: main_serve::config::AppConfig, config_path: PathBuf) {
-    // --validate: just validate and exit.
+    // --validate: build the schema registry (catching schema compilation errors)
+    // then confirm the configuration is valid and exit.
     if cli.validate {
+        if let Err(e) = SchemaRegistry::new(&config, &config_path) {
+            tracing::error!("Configuration validation failed: {e}");
+            process::exit(1);
+        }
         tracing::info!("Configuration is valid.");
         process::exit(0);
     }

@@ -14,7 +14,7 @@ pub struct PaginationConfig {
 }
 
 impl Default for PaginationConfig {
-    /// item
+    /// Returns a pagination configuration with pagination enabled and default page size of 20.
     fn default() -> Self {
         Self {
             enabled: true,
@@ -36,7 +36,7 @@ pub struct FilteringConfig {
 }
 
 impl Default for FilteringConfig {
-    /// item
+    /// Returns a filtering configuration with filtering enabled and all fields allowed.
     fn default() -> Self {
         Self {
             enabled: true,
@@ -61,7 +61,7 @@ pub struct SortingConfig {
 }
 
 impl Default for SortingConfig {
-    /// item
+    /// Returns a sorting configuration with sorting enabled, ascending order, and all fields allowed.
     fn default() -> Self {
         Self {
             enabled: true,

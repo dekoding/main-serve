@@ -25,13 +25,13 @@ pub struct DatabaseConfig {
     pub acquire_timeout: u64,
 }
 
-/// item
+/// Returns the default pool acquire timeout in seconds.
 fn default_acquire_timeout() -> u64 {
     5
 }
 
 impl Default for DatabaseConfig {
-    /// item
+    /// Returns a DatabaseConfig with production-safe default values.
     fn default() -> Self {
         Self {
             driver: DatabaseDriver::Sqlite,
@@ -101,7 +101,7 @@ pub struct ColumnConfig {
 }
 
 impl Default for ColumnConfig {
-    /// item
+    /// Returns a ColumnConfig with permissive defaults (nullable, no validation).
     fn default() -> Self {
         Self {
             name: String::new(),
@@ -191,7 +191,7 @@ pub struct ForeignKeyConfig {
     pub on_update: ForeignKeyAction,
 }
 
-/// item
+/// Returns ForeignKeyAction::Restrict as the default referential action.
 fn default_fk_action() -> ForeignKeyAction {
     ForeignKeyAction::Restrict
 }

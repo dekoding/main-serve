@@ -42,7 +42,6 @@ pub struct FilterExpression {
 /// (first access of the LazyLock), which is the correct behavior for
 /// a programming error in a static pattern.
 #[allow(clippy::expect_used)]
-/// item
 static FILTER_KEY_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"^(.*)\[([a-z_]+)\]$").expect("valid filter key regex"));
 

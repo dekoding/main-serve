@@ -12,7 +12,7 @@ use sha2::{Digest, Sha256};
 use crate::config::types::StoreConfig;
 use crate::storage::{DirEntry, FileMetadata, Result, Storage, StorageError};
 
-/// item
+/// Azure Blob Storage API version used for REST API requests.
 const AZURE_BLOB_API_VERSION: &str = "2023-11-03";
 
 /// Maximum number of retry attempts for copy status polling.
@@ -333,7 +333,7 @@ type ListResult = (Vec<(String, u64)>, Vec<String>);
 /// Azure list containers response XML structure.
 #[derive(Debug, Clone, Default, serde::Deserialize)]
 #[serde(rename = "EnumerationResults", default)]
-/// item
+/// XML response from the Azure Blob Storage list containers API.
 struct ListResponse {
     #[serde(rename = "Blobs", default)]
     blob_group: Option<BlobGroup>,
@@ -344,7 +344,7 @@ struct ListResponse {
 /// Group of blobs in the list response.
 #[derive(Debug, Clone, Default, serde::Deserialize)]
 #[serde(rename = "Blobs", default)]
-/// item
+/// A group of blobs returned in the Azure list containers response.
 struct BlobGroup {
     #[serde(rename = "Blob", default)]
     blobs: Vec<AzureBlob>,
@@ -352,7 +352,7 @@ struct BlobGroup {
 
 /// A single blob entry in the list response.
 #[derive(Debug, Clone, serde::Deserialize)]
-/// item
+/// A single blob returned in the Azure list containers response.
 struct AzureBlob {
     #[serde(rename = "Name")]
     name: String,
@@ -362,7 +362,7 @@ struct AzureBlob {
 
 /// Properties of a blob from the list response.
 #[derive(Debug, Clone, Default, serde::Deserialize)]
-/// item
+/// Blob properties as reported by the Azure list containers API.
 struct BlobProperties {
     #[serde(rename = "Content-Length", default)]
     size: Option<String>,
@@ -370,7 +370,7 @@ struct BlobProperties {
 
 /// A virtual directory prefix from the list response.
 #[derive(Debug, Clone, serde::Deserialize)]
-/// item
+/// A common prefix (virtual directory) returned by the Azure list containers API.
 struct BlobPrefix {
     #[serde(rename = "Name")]
     name: String,
@@ -869,12 +869,12 @@ impl Storage for AzureStorage {
 }
 
 #[cfg(all(test, feature = "azure"))]
-/// item
+/// Integration tests for the Azure Blob Storage backend.
 mod tests {
     use super::*;
 
     #[test]
-    /// item
+    /// Tests path-to-blob-name conversion for various input paths.
     fn test_path_to_blob_name() {
         let storage = AzureStorage {
             account_name: "test".to_string(),
@@ -896,7 +896,7 @@ mod tests {
     }
 
     #[test]
-    /// item
+    /// Tests canonicalized resource string generation.
     fn test_build_canonicalized_resource() {
         let storage = AzureStorage {
             account_name: "myaccount".to_string(),
@@ -913,7 +913,7 @@ mod tests {
     }
 
     #[test]
-    /// item
+    /// Tests that the shared key signature starts with the expected "SharedKey" prefix.
     fn test_sign_request_format() {
         let storage = AzureStorage {
             account_name: "myaccount".to_string(),

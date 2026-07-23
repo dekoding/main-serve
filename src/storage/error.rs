@@ -48,7 +48,7 @@ pub enum StorageError {
 }
 
 impl From<StorageError> for crate::error::AppError {
-    /// item
+    /// Converts a storage-layer error into a generic application error for response handling.
     fn from(err: StorageError) -> Self {
         match err {
             StorageError::NotFound(path) => {

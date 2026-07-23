@@ -300,7 +300,7 @@ async fn handle_streaming(
 
 /// Build response for range not satisfiable (416).
 #[must_use]
-/// item
+/// Builds a 416 Range Not Satisfiable response with appropriate Content-Range header.
 fn build_range_not_satisfiable_response(
     file_size: u64,
     cache_max_age: u64,
