@@ -28,6 +28,15 @@ async fn post_posts(app: &axum::Router, body: serde_json::Value) -> axum::http::
     app.clone().oneshot(req).await.unwrap()
 }
 
+/// Extract the id of a just-created record from the POST response.
+/// Handles both the `{"data": {"id": ...}}` shape (RETURNING) and
+/// a bare `{"id": ...}` shape so the tests are backend-agnostic.
+fn extract_created_id(body: &serde_json::Value) -> Option<i64> {
+    body.get("id")
+        .or_else(|| body.get("data").and_then(|d| d.get("id")))
+        .and_then(|v| v.as_i64())
+}
+
 /// PUT a JSON body to `/api/posts/{id}` and return the response.
 async fn put_posts(
     app: &axum::Router,
@@ -175,7 +184,8 @@ async fn test_update_with_valid_jsonb_data() {
             "create should succeed, backend: {backend}"
         );
         let created = json_body(create_resp).await;
-        let id = created["data"]["id"].as_i64().unwrap();
+        let id = extract_created_id(&created)
+            .expect("create response should contain the id of the new record");
 
         // Update with valid data
         let update_resp = put_posts(
@@ -223,7 +233,8 @@ async fn test_update_with_invalid_jsonb_data() {
             "create should succeed, backend: {backend}"
         );
         let created = json_body(create_resp).await;
-        let id = created["data"]["id"].as_i64().unwrap();
+        let id = extract_created_id(&created)
+            .expect("create response should contain the id of the new record");
 
         // Update with invalid data (additional properties)
         let update_resp = put_posts(
@@ -281,7 +292,8 @@ async fn test_update_partial_partial_valid_fields_other_valid() {
             "create should succeed, backend: {backend}"
         );
         let created = json_body(create_resp).await;
-        let id = created["data"]["id"].as_i64().unwrap();
+        let id = extract_created_id(&created)
+            .expect("create response should contain the id of the new record");
 
         // Update only the title (no metadata in body) - should succeed
         // because only fields present in the body are validated

@@ -213,11 +213,21 @@ pub fn build_update(
             value.clone()
         };
 
-        set_parts.push(format!(
-            "{} = {}",
-            key,
+        // Postgres requires an explicit cast to JSONB when binding a text
+        // parameter to a JSONB column.
+        let set_value = if db_ctx.pool.driver() == DatabaseDriver::Postgres
+            && db_ctx
+                .table_config
+                .columns
+                .iter()
+                .any(|c| c.name == *key && matches!(c.column_type, ColumnType::Jsonb))
+        {
+            format!("{}::jsonb", placeholder(db_ctx.pool.driver(), param_idx))
+        } else {
             placeholder(db_ctx.pool.driver(), param_idx)
-        ));
+        };
+
+        set_parts.push(format!("{} = {}", key, set_value));
         params.push(final_value);
         param_idx += 1;
     }
