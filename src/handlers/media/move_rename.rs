@@ -9,6 +9,7 @@ use crate::db::query::select_one::build_select_file_path;
 use crate::db::query::update::build_set_file_path;
 use crate::error::AppError;
 use crate::handlers::common::helpers::extract_file_path;
+use crate::handlers::common::path::validate_path_within;
 use crate::storage::Storage;
 
 /// Handle media move (POST /:id/move).
@@ -48,6 +49,8 @@ pub async fn handle_media_move(
     } else {
         root.join(destination_path)
     };
+
+    validate_path_within(&new_path, root)?;
 
     if move_config.auto_create_destination
         && let Some(parent) = new_path.parent()
@@ -131,6 +134,8 @@ pub async fn handle_media_rename(
         .ok_or_else(|| AppError::BadRequest("Cannot determine parent directory".to_string()))?;
 
     let new_path = parent.join(new_name);
+
+    validate_path_within(&new_path, root)?;
 
     storage
         .rename(&current_path, &new_path)

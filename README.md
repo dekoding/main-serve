@@ -17,6 +17,7 @@ Never write boilerplate CRUD endpoints again! **Main Serve** is an extremely hig
 - **Hot reload** - Update config without restarting the server or dropping connections.
 - **TLS** - Built-in HTTPS support via rustls (no OpenSSL dependency).
 - **Request tracing** - Unique request IDs, structured logging, gzip compression.
+- **JSON schema validation** - Enforce structure on JSONB columns with JSON Schema. Supports inline, external file, and global named schemas.
 - **Graceful shutdown** - Drain all in-flight requests on SIGTERM/SIGINT.
 
 ## Quickstart
@@ -56,6 +57,12 @@ tables:
       - name: "done"
         type: "boolean"
         default: "false"
+      - name: "metadata"
+        type: "jsonb"
+        validation:
+          type: "object"
+          properties:
+            role: { type: "string" }
 
 endpoints:
   - path: "/api/todos"
@@ -232,6 +239,40 @@ endpoints:
 ```
 
 The CRUD action also supports `update_where_clause` and `delete_where_clause` for scoped updates and deletions, and `joins` for including data from related tables. All WHERE clauses support request context interpolation (e.g., `"author_id = ${request.user.id}"`).
+
+#### JSONB Schema Validation
+
+Enforce structure on JSONB columns with JSON Schema (draft 2020-12):
+
+```yaml
+global_schemas:
+  blog_post:
+    type: "object"
+    required: ["title", "body"]
+    properties:
+      title: { type: "string" }
+      body: { type: "string" }
+
+tables:
+  - name: "posts"
+    database: "main"
+    columns:
+      - name: "id"
+        type: "serial"
+        primary_key: true
+      - name: "content"
+        type: "jsonb"
+        validation_schema_ref: "global_schemas.blog_post"
+```
+
+Three mechanisms are supported (mutually exclusive per column):
+- **Inline** - `validation` field with an inline JSON Schema document
+- **External file** - `validation_schema` field with a path to a JSON Schema file
+- **Global reference** - `validation_schema_ref` field referencing a named schema from `global_schemas`
+
+Validation runs on POST (create) and PUT/PATCH (update) requests. Only fields present in the request body are validated. Non-JSONB columns are skipped. Validation failures return HTTP 400 with details.
+
+See [Configuration Reference](docs/CONFIGURATION.md#jsonb-schema-validation) for full details.
 
 #### Reverse Proxy
 

@@ -10,8 +10,8 @@ use std::sync::Arc;
 use jsonschema::Validator;
 use serde_json::Value;
 
-use crate::config::types::schema::{GlobalSchema, JsonSchema, SchemaSource};
 use crate::config::types::ColumnConfig;
+use crate::config::types::schema::{GlobalSchema, JsonSchema, SchemaSource};
 use crate::error::AppError;
 
 /// Registry of compiled JSON schemas for column-level validation.
@@ -75,9 +75,7 @@ impl SchemaRegistry {
             }
         }
 
-        Ok(Self {
-            column_validators,
-        })
+        Ok(Self { column_validators })
     }
 
     /// Resolve the schema for a column by examining its three validation fields.

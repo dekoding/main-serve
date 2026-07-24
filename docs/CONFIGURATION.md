@@ -18,6 +18,7 @@ This document provides detailed documentation for every configuration field in M
 - [Databases](#databases)
 - [Table Schemas](#table-schemas)
   - [Columns](#columns)
+  - [JSONB Schema Validation](#jsonb-schema-validation)
   - [Foreign Keys](#foreign-keys)
 - [Authentication](#authentication)
   - [JWT](#jwt)
@@ -43,7 +44,7 @@ This document provides detailed documentation for every configuration field in M
 
 ### JSON Schema Support
 
-The Main Serve JSON schema for the YAML configuration file is located in this repository and you can access it [here](https://raw.githubusercontent.com/dekoding/main-serve/refs/heads/main/main-serve.json). You can use it for completions and hints in environments that support the [YAML Language Server](https://github.com/redhat-developer/yaml-language-server) by adding it to the top of a configuration file:
+The Main Serve JSON schema for the YAML configuration file (`config/main-serve.schema.json`) is used by editors and language servers to provide completions, validation, and inline documentation for your YAML config. It is not related to JSONB column validation, which is documented in [JSONB Schema Validation](#jsonb-schema-validation).
 
 ```yaml
 # yaml-language-server: $schema=https://raw.githubusercontent.com/dekoding/schemas/refs/heads/main/main-serve.json
@@ -472,6 +473,111 @@ tables:
 | `set_null` | Set the foreign key column to NULL (column must be nullable). |
 | `restrict` | Prevent the delete/update if referencing rows exist. |
 | `no_action` | Similar to `restrict`, but checked at the end of the transaction (database-dependent). |
+
+---
+
+### JSONB Schema Validation
+
+Enforce structure on JSONB/JSON columns using JSON Schema (draft 2020-12). Three mutually exclusive mechanisms are available per column:
+
+#### JSONB Schema Validation (Inline)
+
+Use the `validation` field to embed a JSON Schema directly in the column definition. Zero I/O at runtime, fully self-contained.
+
+```yaml
+tables:
+  - name: "posts"
+    database: "main"
+    columns:
+      - name: "content"
+        type: "jsonb"
+        validation:
+          $schema: "https://json-schema.org/draft/2020-12/schema"
+          type: "object"
+          required: ["title", "body"]
+          properties:
+            title: { type: "string" }
+            body: { type: "string" }
+```
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `validation` | object | *(none)* | Inline JSON Schema document. The value must be a valid JSON Schema (supports draft 2020-12 features: `type`, `required`, `properties`, `allOf`, `oneOf`, `if/then/else`, etc.). Applied when the request body contains the column with a non-null value. |
+
+#### JSONB Schema Validation (External File)
+
+Use the `validation_schema` field to reference an external JSON Schema file. Files are resolved relative to the config file's parent directory (same as `$include`). Loaded and compiled once at config load time.
+
+```yaml
+tables:
+  - name: "posts"
+    database: "main"
+    columns:
+      - name: "content"
+        type: "jsonb"
+        validation_schema: "./schemas/post_content.json"
+```
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `validation_schema` | string | *(none)* | Path to a JSON Schema file, resolved relative to the config file's parent directory. The file is loaded and validated at config load time. See [File Includes](#file-includes) for path resolution behavior. |
+
+#### JSONB Schema Validation (Global Reference)
+
+Use the `validation_schema_ref` field to reference a named schema defined in the `global_schemas` section. This lets you share a single compiled schema across multiple columns or tables.
+
+```yaml
+global_schemas:
+  blog_post:
+    type: "object"
+    required: ["title", "body"]
+    properties:
+      title: { type: "string" }
+      body: { type: "string" }
+
+tables:
+  - name: "posts"
+    database: "main"
+    columns:
+      - name: "content"
+        type: "jsonb"
+        validation_schema_ref: "global_schemas.blog_post"
+```
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `validation_schema_ref` | string | *(none)* | Reference to a named global schema, e.g., `"global_schemas.my_schema"`. The referenced schema is shared across columns/tables. |
+
+#### Global Schemas
+
+The `global_schemas` section defines reusable JSON Schema documents. Each key is a unique name referenced via `validation_schema_ref` from column configs. Schemas are compiled once at config load time and shared across all columns that reference them.
+
+```yaml
+global_schemas:
+  user_profile:
+    type: "object"
+    required: ["name", "email"]
+    properties:
+      name: { type: "string" }
+      email: { type: "string", format: "email" }
+  product_catalog:
+    type: "object"
+    required: ["sku", "price"]
+    properties:
+      sku: { type: "string" }
+      price: { type: "number", minimum: 0 }
+```
+
+#### How Validation Works
+
+- Only applies to columns with type `jsonb` or `json`. Attempting to set validation on a non-JSONB/JSON column fails config loading with an error identifying the column and its actual type.
+- On POST (create): all JSONB fields present in the request body are validated against their schema.
+- On PUT/PATCH (update): only the JSONB fields present in the request body are validated. Fields not present in the body are skipped.
+- On GET/DELETE: validation does not run.
+- Only values explicitly provided in the request body are validated. Values defaulted by SQL (e.g., `DEFAULT now()`) are not validated.
+- On validation failure, the endpoint returns HTTP 400 Bad Request with a JSON body listing each column and its schema violation details.
+- Non-JSONB body keys (keys in the body that are not JSONB columns) are silently skipped by the validator.
+- The `validation`, `validation_schema`, and `validation_schema_ref` fields are mutually exclusive on a single column. If more than one is set, config loading fails with an error listing which fields are in conflict.
 
 ---
 
