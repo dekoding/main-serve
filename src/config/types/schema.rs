@@ -49,10 +49,7 @@ pub struct GlobalSchema {
 impl JsonSchema {
     /// Create a new `JsonSchema` from a compiled schema and source.
     pub fn new(compiled: Validator, source: SchemaSource) -> Self {
-        Self {
-            compiled,
-            source,
-        }
+        Self { compiled, source }
     }
 
     /// Return a reference to the compiled validator.

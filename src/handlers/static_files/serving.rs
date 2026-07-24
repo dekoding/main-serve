@@ -10,7 +10,7 @@ use tokio_util::io::ReaderStream;
 
 use crate::config::types::{CacheRuleConfig, ImageResizeConfig, StaticFilesConfig, mime_from_path};
 use crate::error::AppError;
-use crate::handlers::common::helpers::is_image_path;
+use crate::handlers::common::helpers::is_image_extension;
 use crate::handlers::common::resize::{
     ResizeParams, build_resize_response, parse_resize_params, resize_image,
 };
@@ -98,7 +98,7 @@ pub async fn serve_file(
     // Check if image resize is requested.
     if let Some(image_config) = &config.image_resize
         && image_config.enabled
-        && is_image_path(path)
+        && is_image_extension(path.extension().and_then(|e| e.to_str()).unwrap_or(""))
         && let Some(resized) =
             handle_image_resize(storage, path, query_params.as_ref(), image_config).await?
     {

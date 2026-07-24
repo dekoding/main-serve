@@ -191,7 +191,7 @@ async fn async_main(cli: Cli, config: main_serve::config::AppConfig, config_path
         }
     };
 
-    // Prepare revocation cleanup handle (declared early so it's in scope for serve_plain/serve_tls).
+    // Prepare revocation cleanup handle (declared early so it's in scope for the serve loop).
     let mut rev_cleanup_handle: Option<(oneshot::Sender<()>, tokio::task::JoinSet<()>)> = None;
 
     // Create database pools, run migrations, and set up revocation store.
@@ -342,9 +342,9 @@ async fn async_main(cli: Cli, config: main_serve::config::AppConfig, config_path
 
         tracing::info!("Main Serve listening on https://{local_addr}");
 
-        serve_tls(
+        serve(
             listener,
-            acceptor,
+            Some(Arc::new(acceptor)),
             app,
             shutdown_timeout,
             keep_alive,
@@ -355,8 +355,9 @@ async fn async_main(cli: Cli, config: main_serve::config::AppConfig, config_path
         // Plain HTTP mode.
         tracing::info!("Main Serve listening on http://{local_addr}");
 
-        serve_plain(
+        serve(
             listener,
+            None,
             app,
             shutdown_timeout,
             keep_alive,
@@ -525,43 +526,6 @@ async fn serve(
     if let Some((tx, _)) = rev_cleanup {
         let _ = tx.send(());
     }
-}
-
-async fn serve_plain(
-    listener: TcpListener,
-    app: axum::Router,
-    shutdown_timeout: u64,
-    keep_alive: u64,
-    rev_cleanup: Option<(oneshot::Sender<()>, tokio::task::JoinSet<()>)>,
-) {
-    serve(
-        listener,
-        None,
-        app,
-        shutdown_timeout,
-        keep_alive,
-        rev_cleanup,
-    )
-    .await
-}
-
-async fn serve_tls(
-    listener: TcpListener,
-    acceptor: tokio_rustls::TlsAcceptor,
-    app: axum::Router,
-    shutdown_timeout: u64,
-    keep_alive: u64,
-    rev_cleanup: Option<(oneshot::Sender<()>, tokio::task::JoinSet<()>)>,
-) {
-    serve(
-        listener,
-        Some(Arc::new(acceptor)),
-        app,
-        shutdown_timeout,
-        keep_alive,
-        rev_cleanup,
-    )
-    .await
 }
 
 /// Handle a single accepted connection by wrapping it in hyper IO and serving

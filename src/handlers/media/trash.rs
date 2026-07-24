@@ -99,7 +99,7 @@ pub async fn handle_media_trash_restore(
         .fetch_optional_json(&built.sql, &[id.into()])
         .await?;
 
-    let file_path = extract_file_path(row, id).await?;
+    let file_path = extract_file_path(row, id)?;
     let auth_info = handler_ctx.extract_auth_info().await?;
     let user_path = auth_info.subject;
 
@@ -189,7 +189,7 @@ pub async fn handle_media_trash_permanent_delete(
         .fetch_optional_json(&built.sql, &[id.into()])
         .await?;
 
-    let file_path = extract_file_path(row, id).await?;
+    let file_path = extract_file_path(row, id)?;
 
     if !file_path.is_empty() {
         let auth_info = handler_ctx.extract_auth_info().await?;
@@ -247,7 +247,7 @@ pub async fn handle_media_trash_delete(
         .fetch_optional_json(&built.sql, &[id.into()])
         .await?;
 
-    let file_path = extract_file_path(row, id).await?;
+    let file_path = extract_file_path(row, id)?;
 
     let user_path = user_id.clone();
 

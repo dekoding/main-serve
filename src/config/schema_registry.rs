@@ -11,7 +11,7 @@ use jsonschema::Validator;
 use serde_json::Value;
 
 use crate::config::types::schema::{GlobalSchema, JsonSchema, SchemaSource};
-use crate::config::types::{ColumnConfig, ColumnType};
+use crate::config::types::ColumnConfig;
 use crate::error::AppError;
 
 /// Registry of compiled JSON schemas for column-level validation.
@@ -19,8 +19,6 @@ use crate::error::AppError;
 /// Built once at config load time and is shareable across requests (via `Arc`).
 #[derive(Debug)]
 pub struct SchemaRegistry {
-    /// Compiled global schemas, keyed by name.
-    global_schemas: HashMap<String, GlobalSchema>,
     /// Per-column validators, keyed by (table_name, column_name).
     /// Only populated for JSONB/columns that have a schema configured.
     column_validators: HashMap<(String, String), Arc<JsonSchema>>,
@@ -64,7 +62,7 @@ impl SchemaRegistry {
         for table in &config.tables {
             for col in &table.columns {
                 // Only JSONB/JSON columns support schema validation
-                if !matches!(col.column_type, ColumnType::Jsonb | ColumnType::Json) {
+                if !col.column_type.is_json_type() {
                     continue;
                 }
 
@@ -78,7 +76,6 @@ impl SchemaRegistry {
         }
 
         Ok(Self {
-            global_schemas,
             column_validators,
         })
     }
@@ -170,25 +167,6 @@ impl SchemaRegistry {
             .map_err(|e| AppError::Config(format!("Failed to convert schema value to JSON: {e}")))
     }
 
-    /// Return the config for a specific column, if it has a validator.
-    ///
-    /// Only returns `Some` if the column is JSONB/JSON and has schema validation
-    /// configured. Returns `None` for non-JSONB columns even if a validator
-    /// somehow exists.
-    pub fn get_column_validator(
-        &self,
-        table_name: &str,
-        column_name: &str,
-        column_type: &ColumnType,
-    ) -> Option<Arc<JsonSchema>> {
-        if !matches!(column_type, ColumnType::Jsonb | ColumnType::Json) {
-            return None;
-        }
-        self.column_validators
-            .get(&(table_name.to_string(), column_name.to_string()))
-            .cloned()
-    }
-
     /// Return the validators for all schema-validated columns in the given
     /// table, keyed by column name. Returns `None` if the table has no
     /// registered column validators.
@@ -209,11 +187,6 @@ impl SchemaRegistry {
         } else {
             Some(result)
         }
-    }
-
-    /// Return an iterator over the names of all global schemas.
-    pub fn global_schema_names(&self) -> impl Iterator<Item = &str> {
-        self.global_schemas.keys().map(String::as_str)
     }
 }
 
@@ -242,7 +215,7 @@ pub fn validate_json_with_schema(value: &Value, schema: &JsonSchema) -> Vec<Stri
 mod tests {
     use super::*;
     use crate::config::AppConfig;
-    use crate::config::types::TableConfig;
+    use crate::config::types::{ColumnConfig, ColumnType, TableConfig};
 
     #[allow(clippy::type_complexity)] // test helper with 5-tuple column definition
     fn make_config_with_table_and_schema(
@@ -338,8 +311,6 @@ properties:
         let temp = tempfile::NamedTempFile::new().unwrap();
         let result = SchemaRegistry::new(&config, temp.path());
         assert!(result.is_ok(), "valid global schema should compile");
-        let registry = result.unwrap();
-        assert!(registry.global_schema_names().any(|n| n == "test_schema"));
     }
 
     #[test]
@@ -386,72 +357,6 @@ properties:
             result.is_ok(),
             "external file should load: {:?}",
             result.err()
-        );
-    }
-
-    #[test]
-    fn test_get_column_validator_finds_schema() {
-        let inline_schema: serde_yaml::Value = serde_yaml::from_str("type: object").unwrap();
-
-        let config = make_config_with_table_and_schema(
-            &[],
-            &[("data", ColumnType::Jsonb, None, Some(&inline_schema), None)],
-        );
-        let temp = tempfile::NamedTempFile::new().unwrap();
-        let registry = SchemaRegistry::new(&config, temp.path()).unwrap();
-
-        let validator = registry.get_column_validator("test_table", "data", &ColumnType::Jsonb);
-        assert!(
-            validator.is_some(),
-            "should find validator for column with inline schema"
-        );
-    }
-
-    #[test]
-    fn test_get_column_validator_returns_none_without_schema() {
-        let config =
-            make_config_with_table_and_schema(&[], &[("name", ColumnType::Text, None, None, None)]);
-        let temp = tempfile::NamedTempFile::new().unwrap();
-        let registry = SchemaRegistry::new(&config, temp.path()).unwrap();
-
-        let validator = registry.get_column_validator("test_table", "name", &ColumnType::Text);
-        assert!(
-            validator.is_none(),
-            "non-JSONB column should have no validator"
-        );
-    }
-
-    #[test]
-    fn test_create_registry_with_global_ref() {
-        let inline_schema: serde_yaml::Value = serde_yaml::from_str(
-            r#"
-type: object
-required:
-  - name
-properties:
-  name:
-    type: string
-"#,
-        )
-        .unwrap();
-
-        let config = make_config_with_table_and_schema(
-            &[("global_ref_schema", &inline_schema)],
-            &[(
-                "data",
-                ColumnType::Jsonb,
-                None,
-                None,
-                Some("global_ref_schema"),
-            )],
-        );
-        let temp = tempfile::NamedTempFile::new().unwrap();
-        let registry = SchemaRegistry::new(&config, temp.path()).unwrap();
-
-        let validator = registry.get_column_validator("test_table", "data", &ColumnType::Jsonb);
-        assert!(
-            validator.is_some(),
-            "global ref should resolve to a validator"
         );
     }
 

@@ -218,18 +218,6 @@ impl RevocationStoreImpl {
             Self::InMemory(_) => Ok(()),
         }
     }
-
-    /// Get the cleanup interval in seconds for the database store variant.
-    ///
-    /// Returns `None` for the in-memory variant.
-    #[must_use]
-    /// cleanup_interval_secs
-    pub fn cleanup_interval_secs(&self) -> Option<u64> {
-        match self {
-            Self::Database(_) => None, // Caller passes interval from config
-            Self::InMemory(_) => None,
-        }
-    }
 }
 
 /// Shared application state available to all handlers.

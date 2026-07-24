@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::fmt::Write;
 
 use crate::config::types::listing::SortOrder;
-use crate::config::types::{ColumnType, DatabaseDriver, TableConfig};
+use crate::config::types::{DatabaseDriver, TableConfig};
 use crate::db::query::helpers::{
     FilterExpression, FilterOperator, VALUE_INTERPOLATION_RE, build_filter_param,
     extract_base_column, extract_jsonb_path, is_bracket_notation, is_jsonb_column, is_jsonb_path,
@@ -244,8 +244,7 @@ impl SelectBuilder {
     ) -> Result<(), AppError> {
         let path_str = expr.path.join(".");
         let base_column = expr.path.first().cloned().unwrap_or_default();
-        let is_jsonb_field = expr.path.len() > 1
-            || column_type.is_some_and(|ct| matches!(ct, ColumnType::Jsonb | ColumnType::Json));
+        let is_jsonb_field = expr.path.len() > 1 || column_type.is_some_and(|ct| ct.is_json_type());
 
         if expr.operator == FilterOperator::Exists {
             // Build condition in a block so fb is dropped before mutating self.

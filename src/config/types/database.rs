@@ -1,6 +1,10 @@
 /// Database connection and table schema configuration.
 use serde::{Deserialize, Serialize};
 
+pub const DEFAULT_ACQUIRE_TIMEOUT: u64 = 5;
+pub const DEFAULT_MAX_CONNECTIONS: u32 = 10;
+pub const DEFAULT_MIN_CONNECTIONS: u32 = 1;
+
 /// A named database connection configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -21,13 +25,7 @@ pub struct DatabaseConfig {
     /// removed columns are only logged as warnings and left untouched.
     pub allow_destructive: bool,
     /// Pool acquire timeout in seconds.
-    #[serde(default = "default_acquire_timeout")]
     pub acquire_timeout: u64,
-}
-
-/// Returns the default pool acquire timeout in seconds.
-fn default_acquire_timeout() -> u64 {
-    5
 }
 
 impl Default for DatabaseConfig {
@@ -36,11 +34,11 @@ impl Default for DatabaseConfig {
         Self {
             driver: DatabaseDriver::Sqlite,
             url: String::new(),
-            min_connections: 1,
-            max_connections: 10,
+            min_connections: DEFAULT_MIN_CONNECTIONS,
+            max_connections: DEFAULT_MAX_CONNECTIONS,
             auto_migrate: true,
             allow_destructive: false,
-            acquire_timeout: default_acquire_timeout(),
+            acquire_timeout: DEFAULT_ACQUIRE_TIMEOUT,
         }
     }
 }
@@ -169,6 +167,16 @@ impl std::fmt::Display for ColumnType {
             ColumnType::Blob => write!(f, "blob"),
             ColumnType::Bytea => write!(f, "bytea"),
         }
+    }
+}
+
+impl ColumnType {
+    /// Returns `true` if this column type is `json` or `jsonb`.
+    ///
+    /// JSON/JSONB columns are the only types that support JSON Schema validation.
+    #[must_use]
+    pub const fn is_json_type(&self) -> bool {
+        matches!(self, ColumnType::Json | ColumnType::Jsonb)
     }
 }
 

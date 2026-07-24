@@ -1,31 +1,13 @@
 use std::collections::HashMap;
 
-use super::types::{
-    AppConfig, ColumnType, EndpointAction, RoleHierarchy, StoreBackend, StoreConfig,
-};
+use super::types::{AppConfig, EndpointAction, RoleHierarchy, StoreBackend, StoreConfig};
 
 /// Minimum valid HTTP status code.
 const HTTP_STATUS_MIN: u16 = 100;
 /// Maximum valid HTTP status code.
 const HTTP_STATUS_MAX: u16 = 599;
+use crate::db::query::helpers::is_safe_sql_fragment;
 use crate::error::AppError;
-
-/// Characters allowed in SQL expressions from config (join ON clauses,
-/// computed field expressions, where clauses). This rejects semicolons,
-/// comments, backticks, command substitution, newlines, and other dangerous
-/// SQL metacharacters while still allowing typical expressions like
-/// `table.col = other.col` or `COUNT(*)`, and interpolation syntax like
-/// `${request.user.id}`.
-fn is_safe_sql_fragment(s: &str) -> bool {
-    !s.is_empty()
-        && !s.contains(';')
-        && !s.contains("--")
-        && !s.contains("/*")
-        && !s.contains('`')
-        && !s.contains("$(")
-        && !s.contains('\n')
-        && !s.contains('\r')
-}
 
 /// Validate a fully parsed `AppConfig` for semantic correctness.
 ///
@@ -144,7 +126,7 @@ fn validate_tables(config: &AppConfig, errors: &mut Vec<String>) {
             if (col.validation_schema.is_some()
                 || col.validation.is_some()
                 || col.validation_schema_ref.is_some())
-                && !matches!(col.column_type, ColumnType::Jsonb | ColumnType::Json)
+                && !col.column_type.is_json_type()
             {
                 errors.push(format!(
                     "{}: column '{}' has schema validation but type '{}' is not jsonb or json",

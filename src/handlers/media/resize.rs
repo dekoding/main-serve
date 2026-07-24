@@ -34,7 +34,7 @@ pub async fn handle_media_resize(
     let built = build_select_file_path(&config.table, pool.driver());
     let row = pool.fetch_optional_json(&built.sql, &[id.into()]).await?;
 
-    let file_path = extract_file_path(row, id).await?;
+    let file_path = extract_file_path(row, id)?;
 
     let resolved_path = root.join(&file_path);
 

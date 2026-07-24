@@ -1058,7 +1058,7 @@ async fn handle_file_store_trash_restore(
         .fetch_optional_json(&built.sql, &[id.into()])
         .await?;
 
-    let file_path = extract_file_path(row, id).await.unwrap_or_default();
+    let file_path = extract_file_path(row, id).unwrap_or_default();
 
     let trash_path = root.join(&trash_config.prefix).join(file_path.clone());
     let restore_path = root.join(file_path);
@@ -1184,7 +1184,7 @@ async fn handle_file_store_trash_permanent_delete(
         .fetch_optional_json(&built.sql, &[id.into()])
         .await?;
 
-    let file_path = extract_file_path(row, id).await.unwrap_or_default();
+    let file_path = extract_file_path(row, id).unwrap_or_default();
 
     if !file_path.is_empty() {
         let trash_path = root.join(&trash_config.prefix).join(&file_path);
