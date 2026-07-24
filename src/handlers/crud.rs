@@ -19,7 +19,8 @@ use crate::db::query::builders::{
     build_delete, build_insert, build_select_list, build_select_one, build_update,
 };
 use crate::db::query::helpers::{
-    build_select_list_count, extract_query_params, validate_jsonb_body,
+    build_select_list_count, extract_query_params, find_pk_column, placeholder, quote_identifier,
+    validate_jsonb_body,
 };
 use crate::db::query::types::{MutationContext, SelectContext};
 use crate::error::AppError;
@@ -227,13 +228,51 @@ async fn handle_create(
         )
             .into_response())
     } else {
-        let rows_affected = db_ctx
+        let _rows_affected = db_ctx
             .pool
             .execute_with_params(&built.sql, &built.params)
             .await?;
+
+        // Backends without RETURNING support (MySQL) need a follow-up
+        // query to retrieve the last inserted row so the response shape
+        // stays consistent across all drivers.
+        let pk_col = find_pk_column(&db_ctx.table_config)?;
+        let last_id_sql = match db_ctx.pool.driver() {
+            crate::config::types::DatabaseDriver::Sqlite => {
+                "SELECT last_insert_rowid()".to_string()
+            }
+            crate::config::types::DatabaseDriver::Mysql => "SELECT LAST_INSERT_ID()".to_string(),
+            crate::config::types::DatabaseDriver::Postgres => String::new(),
+        };
+        let row = if last_id_sql.is_empty() {
+            None
+        } else {
+            let last_id_row = db_ctx.pool.fetch_optional_json(&last_id_sql, &[]).await?;
+            if let Some(last_id) = last_id_row
+                && let Some(id_val) = last_id
+                    .get("last_insert_rowid()")
+                    .or_else(|| last_id.get("LAST_INSERT_ID()"))
+            {
+                let id_str = id_val.to_string();
+                db_ctx
+                    .pool
+                    .fetch_optional_json(
+                        &format!(
+                            "SELECT * FROM {} WHERE {} = {}",
+                            quote_identifier(&db_ctx.table_config.name, db_ctx.pool.driver()),
+                            quote_identifier(&pk_col, db_ctx.pool.driver()),
+                            placeholder(db_ctx.pool.driver(), 1)
+                        ),
+                        &[serde_json::Value::String(id_str)],
+                    )
+                    .await?
+            } else {
+                None
+            }
+        };
         Ok((
             StatusCode::CREATED,
-            Json(serde_json::json!({ "rows_affected": rows_affected })),
+            Json(serde_json::json!({ "data": row })),
         )
             .into_response())
     }
