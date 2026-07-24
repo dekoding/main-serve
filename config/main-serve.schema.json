@@ -45,6 +45,10 @@
                     "items": {
                         "$ref": "#/definitions/Endpoint"
                     }
+                },
+                "global_schemas": {
+                    "$ref": "#/definitions/GlobalSchemas",
+                    "description": "Named JSON Schema documents for reuse across table columns.\nEach key is a unique name referenced via `validation_schema_ref` from column configs.\nSchemas are compiled once at config load time."
                 }
             },
             "required": [
@@ -2175,11 +2179,73 @@
                     "type": "boolean",
                     "description": "Whether to create an index on this column.",
                     "default": false
+                },
+                "validation_schema": {
+                    "type": [ "string", "null" ],
+                    "description": "Path to an external JSON Schema file for validating this column's JSONB value. The file is loaded and compiled as a JSON Schema at config load time.\nResolved relative to the config file's parent directory (same as `$include`).\nMutually exclusive with `validation` and `validation_schema_ref`.",
+                    "default": null
+                },
+                "validation": {
+                    "anyOf": [
+                        { "$ref": "#/definitions/ValidationSchema" },
+                        { "type": "null" }
+                    ],
+                    "description": "Inline JSON Schema for validating this column's JSONB value.\nThe value must be a valid JSON Schema document (supports draft 2020-12).\nSet to null or omit entirely for no schema validation.\nMutually exclusive with `validation_schema` and `validation_schema_ref`."
+                },
+                "validation_schema_ref": {
+                    "type": [ "string", "null" ],
+                    "description": "Reference to a named global schema (e.g., \"global_schemas.my_schema\").\nUsed to share a single compiled schema across multiple columns/tables.\nMutually exclusive with `validation_schema` and `validation`.",
+                    "default": null
                 }
             },
             "required": [
                 "name",
                 "type"
+            ],
+            "oneOf": [
+                {
+                    "description": "No schema validation configured on this column.",
+                    "not": {
+                        "anyOf": [
+                            { "required": [ "validation_schema" ] },
+                            { "required": [ "validation" ] },
+                            { "required": [ "validation_schema_ref" ] }
+                        ]
+                    }
+                },
+                {
+                    "description": "External file JSON Schema for validation. Exactly one of the three validation fields must be set.",
+                    "required": [ "validation_schema" ],
+                    "properties": {
+                        "validation_schema": { "type": "string" }
+                    },
+                    "not": { 
+                        "anyOf": [
+                            { "required": [ "validation" ] },
+                            { "required": [ "validation_schema_ref" ] }
+                        ]
+                    }
+                },
+                {
+                    "description": "Inline JSON Schema for validation. Exactly one of the three validation fields must be set.",
+                    "required": [ "validation" ],
+                    "not": {
+                        "anyOf": [
+                            { "required": [ "validation_schema" ] },
+                            { "required": [ "validation_schema_ref" ] }
+                        ]
+                    }
+                },
+                {
+                    "description": "Global schema reference for validation. Exactly one of the three validation fields must be set.",
+                    "required": [ "validation_schema_ref" ],
+                    "not": {
+                        "anyOf": [
+                            { "required": [ "validation_schema" ] },
+                            { "required": [ "validation" ] }
+                        ]
+                    }
+                }
             ],
             "title": "Column"
         },
@@ -2606,6 +2672,17 @@
             },
             "required": [ "storage" ],
             "title": "SpaHost"
+        },
+        "ValidationSchema": {
+            "$ref": "https://json-schema.org/draft/2020-12/schema",
+            "description": "A JSON Schema document (supports draft 2020-12 features: type, required, properties, allOf, oneOf, if/then/else, etc.)."
+        },
+        "GlobalSchemas": {
+            "type": "object",
+            "description": "Named JSON Schema definitions for reuse across table columns. Each key is a unique schema name referenced via `validation_schema_ref`.",
+            "additionalProperties": {
+                "$ref": "#/definitions/ValidationSchema"
+            }
         }
     }
 }

@@ -317,9 +317,31 @@ tables:
         unique: false
 
         # Whether to create an index on this column.
-        # Type: boolean
+         # Type: boolean
         # Default: false
         indexed: false
+
+        # Path to an external JSON Schema file for validating this column's JSONB value.
+        # The file is loaded and compiled as a JSON Schema at config load time.
+        # Resolved relative to the config file's parent directory (same as `$include`).
+        # Mutually exclusive with `validation` and `validation_schema_ref`.
+        # Type: string (file path)
+        # Default: null (no schema validation)
+        # validation_schema: null
+
+        # Inline JSON Schema for validating this column's JSONB value.
+        # The value must be a valid JSON Schema document (supports draft 2020-12).
+        # Mutually exclusive with `validation_schema` and `validation_schema_ref`.
+        # Type: object (any valid JSON Schema document)
+        # Default: null (no schema validation)
+        validation: null
+
+        # Reference to a named global schema (e.g., "global_schemas.my_schema").
+        # Used to share a single compiled schema across multiple columns/tables.
+        # Mutually exclusive with `validation_schema` and `validation`.
+        # Type: string (dotted reference)
+        # Default: null (no schema validation)
+        # validation_schema_ref: null
 
       - name: "email"
         type: "varchar"
@@ -355,6 +377,53 @@ tables:
     #    references_column: "id"
     #    on_delete: "cascade"    # cascade, set_null, restrict, no_action
     #    on_update: "cascade"
+
+# -----------------------------------------------------------------------------
+# GLOBAL SCHEMAS
+# Named JSON Schema documents for reuse across table columns.
+# Each key is a unique name referenced via `validation_schema_ref` from
+# column configs. Schemas are compiled once at config load time.
+# -----------------------------------------------------------------------------
+global_schemas:
+  # Each key is a unique schema name.
+  # Example:
+  blog_post:
+    type: "object"
+    required: ["title", "body"]
+    properties:
+      title: { type: "string" }
+      body: { type: "string" }
+      tags:
+        type: "array"
+        items: { type: "string" }
+    additionalProperties: false
+
+# -----------------------------------------------------------------------------
+# JSONB SCHEMA VALIDATION
+# Enforce structure on JSONB/JSON columns using JSON Schema (draft 2020-12).
+# Three mechanisms are supported on any column: external file reference,
+# inline schema, and global named schema reference. These three fields are
+# mutually exclusive on a single column -- at most one may be set. If more
+# than one is set, config loading fails with an error listing which fields
+# are in conflict.
+#
+# Validation only applies to columns with type `jsonb` or `json`. Attempting
+# to set validation on a non-JSONB/JSON column fails config loading with an
+# error identifying the column and its actual type.
+#
+# Runtime behavior:
+#   - On POST (create): all JSONB fields present in the request body are
+#     validated against their configured schema.
+#   - On PUT/PATCH (update): only the JSONB fields present in the request
+#     body are validated. Fields not present in the body are skipped.
+#   - On GET/DELETE: validation does not run.
+#   - Only values explicitly provided in the request body are validated.
+#     Values defaulted by SQL (e.g., `DEFAULT now()`) are not validated.
+#   - On validation failure, the endpoint returns HTTP 400 Bad Request with
+#     a JSON body listing each column and its schema violation details.
+#   - Non-JSONB body keys (keys in the body that are not JSONB columns) are
+#     silently skipped by the validator.
+# -----------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------
 # AUTHENTICATION (Global auth provider definitions)
