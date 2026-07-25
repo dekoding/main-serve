@@ -228,54 +228,29 @@ async fn handle_create(
         )
             .into_response())
     } else {
-        let _rows_affected = db_ctx
+        // Backends without RETURNING support need to retrieve
+        // the inserted row so the response shape stays consistent.
+        // Use execute_with_params_and_last_id to get the auto-generated
+        // ID from the INSERT result directly, avoiding connection-pool
+        // races with a separate LAST_INSERT_ID() query.
+        let last_id = db_ctx
             .pool
-            .execute_with_params(&built.sql, &built.params)
+            .execute_with_params_and_last_id(&built.sql, &built.params)
             .await?;
 
-        // Backends without RETURNING support (MySQL) need to retrieve
-        // the inserted row so the response shape stays consistent.
         let pk_col = find_pk_column(&db_ctx.table_config)?;
-        let last_id_sql = match db_ctx.pool.driver() {
-            crate::config::types::DatabaseDriver::Sqlite => {
-                "SELECT last_insert_rowid()".to_string()
-            }
-            crate::config::types::DatabaseDriver::Mysql => "SELECT LAST_INSERT_ID()".to_string(),
-            crate::config::types::DatabaseDriver::Postgres => String::new(),
-        };
-        let row = if !last_id_sql.is_empty() {
-            let last_id_row = db_ctx.pool.fetch_optional_json(&last_id_sql, &[]).await?;
-            // Retrieve the actual row using the last insert id.
-            if let Some(last_id_row) = last_id_row {
-                if let Some(last_id_val) = last_id_row.as_object().and_then(|map| {
-                    map.keys().find_map(|key| {
-                        map.get(key)
-                            .and_then(|v| v.as_i64())
-                            .map(|id| (key.clone(), id))
-                    })
-                }) {
-                    let (_, id) = last_id_val;
-                    db_ctx
-                        .pool
-                        .fetch_optional_json(
-                            &format!(
-                                "SELECT * FROM {} WHERE {} = {}",
-                                quote_identifier(&db_ctx.table_config.name, db_ctx.pool.driver()),
-                                quote_identifier(&pk_col, db_ctx.pool.driver()),
-                                placeholder(db_ctx.pool.driver(), 1)
-                            ),
-                            &[serde_json::Value::Number(id.into())],
-                        )
-                        .await?
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        let row = db_ctx
+            .pool
+            .fetch_optional_json(
+                &format!(
+                    "SELECT * FROM {} WHERE {} = {}",
+                    quote_identifier(&db_ctx.table_config.name, db_ctx.pool.driver()),
+                    quote_identifier(&pk_col, db_ctx.pool.driver()),
+                    placeholder(db_ctx.pool.driver(), 1)
+                ),
+                &[serde_json::Value::Number(last_id.into())],
+            )
+            .await?;
         Ok((
             StatusCode::CREATED,
             Json(serde_json::json!({ "data": row })),
