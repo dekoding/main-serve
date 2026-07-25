@@ -420,14 +420,8 @@ mod tests {
     fn test_build_filter_param_with_type() {
         let table = sample_jsonb_table();
         let meta_col = table.columns.iter().find(|c| c.name == "metadata").unwrap();
-        let val = build_filter_param("true", Some(&meta_col.column_type), DatabaseDriver::Sqlite);
+        let val = build_filter_param("true", &meta_col.column_type, DatabaseDriver::Sqlite);
         assert_eq!(val, serde_json::json!(true));
-    }
-
-    #[test]
-    fn test_build_filter_param_without_type() {
-        let val = build_filter_param("hello", None, DatabaseDriver::Sqlite);
-        assert_eq!(val, serde_json::json!("hello"));
     }
 
     // -- Integration: full filter key to SQL pipeline --

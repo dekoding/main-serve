@@ -1,7 +1,8 @@
 use crate::config::types::{ColumnType, CrudConfig, DatabaseDriver};
 use crate::db::query::helpers::{
     coerce_filter_value_by_type, coerce_pk_value, find_pk_column, interpolate_value,
-    is_valid_identifier, placeholder, quote_identifier, resolve_writable_fields,
+    interpolate_where_clause, is_valid_identifier, placeholder, quote_identifier,
+    resolve_writable_fields,
 };
 use crate::db::query::select::SelectBuilder;
 use crate::db::query::types::{BuiltQuery, MutationContext, SelectContext};
@@ -265,12 +266,9 @@ pub fn build_update(
     }
 
     if let Some(wc) = where_clause {
-        let interpolated = interpolate_value(wc, context)?;
-        let wc_str = match interpolated {
-            serde_json::Value::String(s) => s,
-            other => other.to_string(),
-        };
-        sql = format!("{sql} AND {wc_str}");
+        let mut wc_sql_parts: Vec<String> = Vec::new();
+        interpolate_where_clause(wc, context, db_ctx.pool.driver(), &mut params, &mut wc_sql_parts)?;
+        sql = format!("{sql} AND {}", wc_sql_parts.join(""));
     }
 
     Ok(BuiltQuery { sql, params })
@@ -295,15 +293,14 @@ pub fn build_delete(
         .is_some_and(|n| n.as_i64() == Some(i64::MIN));
 
     if is_coercion_sentinel {
+        let mut delete_params: Vec<serde_json::Value> = Vec::new();
         let sql = if let Some(wc) = where_clause {
-            let interpolated = interpolate_value(wc, context)?;
-            let wc_str = match interpolated {
-                serde_json::Value::String(s) => s,
-                other => other.to_string(),
-            };
+            let mut wc_sql_parts: Vec<String> = Vec::new();
+            interpolate_where_clause(wc, context, db_ctx.pool.driver(), &mut delete_params, &mut wc_sql_parts)?;
             format!(
-                "DELETE FROM {} WHERE 1 = 0 AND {wc_str}",
-                quote_identifier(table_name, db_ctx.pool.driver())
+                "DELETE FROM {} WHERE 1 = 0 AND {}",
+                quote_identifier(table_name, db_ctx.pool.driver()),
+                wc_sql_parts.join("")
             )
         } else {
             format!(
@@ -313,11 +310,11 @@ pub fn build_delete(
         };
         return Ok(BuiltQuery {
             sql,
-            params: Vec::new(),
+            params: delete_params,
         });
     }
 
-    let params: Vec<serde_json::Value> = vec![pk_val];
+    let mut params: Vec<serde_json::Value> = vec![pk_val];
     let mut base_sql = format!(
         "DELETE FROM {} WHERE {} = {}",
         table_name,
@@ -326,12 +323,9 @@ pub fn build_delete(
     );
 
     if let Some(wc) = where_clause {
-        let interpolated = interpolate_value(wc, context)?;
-        let wc_str = match interpolated {
-            serde_json::Value::String(s) => s,
-            other => other.to_string(),
-        };
-        base_sql = format!("{base_sql} AND {wc_str}");
+        let mut wc_sql_parts: Vec<String> = Vec::new();
+        interpolate_where_clause(wc, context, db_ctx.pool.driver(), &mut params, &mut wc_sql_parts)?;
+        base_sql = format!("{base_sql} AND {}", wc_sql_parts.join(""));
     }
 
     Ok(BuiltQuery {
@@ -781,16 +775,24 @@ mod tests {
 
     #[test]
     fn test_build_delete_with_where_clause() {
+        use crate::middleware::auth::extractor::UserInfo;
+
         let table = test_table();
-        let context = RequestContext::new();
+        let context = RequestContext::new_with_user(UserInfo {
+            id: "user-42".to_string(),
+            role: None,
+        });
         let where_clause = Some("author = ${request.user.id}".to_string());
         let db_ctx = test_db_ctx(table, DatabaseDriver::Sqlite);
         let q = build_delete("42", &db_ctx, &context, &where_clause).unwrap();
         assert_eq!(
             q.sql,
-            "DELETE FROM posts WHERE id = ? AND author = ${request.user.id}"
+            "DELETE FROM posts WHERE id = ? AND author = ?"
         );
-        assert_eq!(q.params, vec![serde_json::json!(42)]);
+        assert_eq!(
+            q.params,
+            vec![serde_json::json!(42), serde_json::json!("user-42")]
+        );
     }
 
     #[test]
@@ -807,28 +809,40 @@ mod tests {
         let q = build_delete("42", &db_ctx, &context, &where_clause).unwrap();
         assert_eq!(
             q.sql,
-            "DELETE FROM posts WHERE id = ? AND author = user-123"
+            "DELETE FROM posts WHERE id = ? AND author = ?"
         );
-        assert_eq!(q.params, vec![serde_json::json!(42)]);
+        assert_eq!(
+            q.params,
+            vec![serde_json::json!(42), serde_json::json!("user-123")]
+        );
     }
 
     #[test]
     fn test_build_update_with_where_clause() {
+        use crate::middleware::auth::extractor::UserInfo;
+
         let table = test_table();
         let crud = test_crud();
         let ctx = MutationContext::from(&crud);
         let body = serde_json::json!({"title": "Updated"});
-        let context = RequestContext::new();
+        let context = RequestContext::new_with_user(UserInfo {
+            id: "user-42".to_string(),
+            role: None,
+        });
         let db_ctx = test_db_ctx(table, DatabaseDriver::Sqlite);
         let where_clause = Some("author = ${request.user.id}".to_string());
         let q = build_update(&db_ctx, ctx, "42", &body, &context, &where_clause).unwrap();
         assert_eq!(
             q.sql,
-            "UPDATE posts SET title = ? WHERE id = ? AND author = ${request.user.id}"
+            "UPDATE posts SET title = ? WHERE id = ? AND author = ?"
         );
         assert_eq!(
             q.params,
-            vec![serde_json::json!("Updated"), serde_json::json!(42)]
+            vec![
+                serde_json::json!("Updated"),
+                serde_json::json!(42),
+                serde_json::json!("user-42")
+            ]
         );
     }
 
