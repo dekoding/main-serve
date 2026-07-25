@@ -699,11 +699,7 @@ mod tests {
         let table = float_table();
         let price_col = table.columns.iter().find(|c| c.name == "price").unwrap();
         // With type info, float value coerces to number
-        let val = build_filter_param(
-            "19.99",
-            &price_col.column_type,
-            DatabaseDriver::Sqlite,
-        );
+        let val = build_filter_param("19.99", &price_col.column_type, DatabaseDriver::Sqlite);
         assert_eq!(val.as_f64(), Some(19.99));
     }
 
@@ -711,11 +707,7 @@ mod tests {
     fn test_coerce_pipeline_boolean_column() {
         let table = float_table();
         let active_col = table.columns.iter().find(|c| c.name == "active").unwrap();
-        let val = build_filter_param(
-            "true",
-            &active_col.column_type,
-            DatabaseDriver::Sqlite,
-        );
+        let val = build_filter_param("true", &active_col.column_type, DatabaseDriver::Sqlite);
         assert_eq!(val, serde_json::json!(true));
     }
 

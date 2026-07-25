@@ -9,8 +9,8 @@ use std::fmt::Write;
 use crate::config::types::listing::SortOrder;
 use crate::config::types::{DatabaseDriver, TableConfig};
 use crate::db::query::helpers::{
-    FilterExpression, FilterOperator, interpolate_where_clause, build_filter_param,
-    extract_base_column, extract_jsonb_path, is_bracket_notation, is_jsonb_column, is_jsonb_path,
+    FilterExpression, FilterOperator, build_filter_param, extract_base_column, extract_jsonb_path,
+    interpolate_where_clause, is_bracket_notation, is_jsonb_column, is_jsonb_path,
     is_valid_expression, is_valid_filter_column, is_valid_sort_field, parse_filter_key,
     parse_sort_field, placeholder,
 };

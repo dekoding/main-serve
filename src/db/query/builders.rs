@@ -267,7 +267,13 @@ pub fn build_update(
 
     if let Some(wc) = where_clause {
         let mut wc_sql_parts: Vec<String> = Vec::new();
-        interpolate_where_clause(wc, context, db_ctx.pool.driver(), &mut params, &mut wc_sql_parts)?;
+        interpolate_where_clause(
+            wc,
+            context,
+            db_ctx.pool.driver(),
+            &mut params,
+            &mut wc_sql_parts,
+        )?;
         sql = format!("{sql} AND {}", wc_sql_parts.join(""));
     }
 
@@ -296,7 +302,13 @@ pub fn build_delete(
         let mut delete_params: Vec<serde_json::Value> = Vec::new();
         let sql = if let Some(wc) = where_clause {
             let mut wc_sql_parts: Vec<String> = Vec::new();
-            interpolate_where_clause(wc, context, db_ctx.pool.driver(), &mut delete_params, &mut wc_sql_parts)?;
+            interpolate_where_clause(
+                wc,
+                context,
+                db_ctx.pool.driver(),
+                &mut delete_params,
+                &mut wc_sql_parts,
+            )?;
             format!(
                 "DELETE FROM {} WHERE 1 = 0 AND {}",
                 quote_identifier(table_name, db_ctx.pool.driver()),
@@ -324,7 +336,13 @@ pub fn build_delete(
 
     if let Some(wc) = where_clause {
         let mut wc_sql_parts: Vec<String> = Vec::new();
-        interpolate_where_clause(wc, context, db_ctx.pool.driver(), &mut params, &mut wc_sql_parts)?;
+        interpolate_where_clause(
+            wc,
+            context,
+            db_ctx.pool.driver(),
+            &mut params,
+            &mut wc_sql_parts,
+        )?;
         base_sql = format!("{base_sql} AND {}", wc_sql_parts.join(""));
     }
 
@@ -785,10 +803,7 @@ mod tests {
         let where_clause = Some("author = ${request.user.id}".to_string());
         let db_ctx = test_db_ctx(table, DatabaseDriver::Sqlite);
         let q = build_delete("42", &db_ctx, &context, &where_clause).unwrap();
-        assert_eq!(
-            q.sql,
-            "DELETE FROM posts WHERE id = ? AND author = ?"
-        );
+        assert_eq!(q.sql, "DELETE FROM posts WHERE id = ? AND author = ?");
         assert_eq!(
             q.params,
             vec![serde_json::json!(42), serde_json::json!("user-42")]
@@ -807,10 +822,7 @@ mod tests {
         let where_clause = Some("author = ${request.user.id}".to_string());
         let db_ctx = test_db_ctx(table, DatabaseDriver::Sqlite);
         let q = build_delete("42", &db_ctx, &context, &where_clause).unwrap();
-        assert_eq!(
-            q.sql,
-            "DELETE FROM posts WHERE id = ? AND author = ?"
-        );
+        assert_eq!(q.sql, "DELETE FROM posts WHERE id = ? AND author = ?");
         assert_eq!(
             q.params,
             vec![serde_json::json!(42), serde_json::json!("user-123")]
