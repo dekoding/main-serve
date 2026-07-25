@@ -9,10 +9,10 @@ use std::fmt::Write;
 use crate::config::types::listing::SortOrder;
 use crate::config::types::{DatabaseDriver, TableConfig};
 use crate::db::query::helpers::{
-    FilterExpression, FilterOperator, VALUE_INTERPOLATION_RE, build_filter_param,
-    extract_base_column, extract_jsonb_path, is_bracket_notation, is_jsonb_column, is_jsonb_path,
+    FilterExpression, FilterOperator, build_filter_param, extract_base_column, extract_jsonb_path,
+    interpolate_where_clause, is_bracket_notation, is_jsonb_column, is_jsonb_path,
     is_valid_expression, is_valid_filter_column, is_valid_sort_field, parse_filter_key,
-    parse_sort_field, placeholder, resolve_single_key,
+    parse_sort_field, placeholder,
 };
 use crate::db::query::traits::{FilterBehavior, MysqlFilter, PostgresFilter, SqliteFilter};
 use crate::db::query::types::{BuiltQuery, JoinType, QueryParams, SelectContext};
@@ -119,62 +119,20 @@ impl SelectBuilder {
         context: &RequestContext,
     ) -> Result<(), AppError> {
         if let Some(ref wc) = ctx.where_clause {
-            let interpolated = self.interpolate_where_clause(wc, context)?;
+            // let interpolated = self.interpolate_where_clause(wc, context)?;
+            let mut wc_sql_parts: Vec<String> = Vec::new();
+            let consumed = interpolate_where_clause(
+                wc,
+                context,
+                self.driver,
+                &mut self.params,
+                &mut wc_sql_parts,
+            )?;
+            self.param_idx += consumed;
+            let interpolated = wc_sql_parts.join("");
             self.conditions.push(format!("({interpolated})"));
         }
         Ok(())
-    }
-
-    /// Interpolate ${key} patterns in a string using the provided `RequestContext`.
-    fn interpolate_where_clause(
-        &mut self,
-        wc: &str,
-        context: &RequestContext,
-    ) -> Result<String, AppError> {
-        let re = &*VALUE_INTERPOLATION_RE;
-        let mut last_match_end = 0;
-        let mut new_string = String::new();
-
-        for cap in re.captures_iter(wc) {
-            let full_match = cap
-                .get(0)
-                .ok_or_else(|| AppError::Internal("Regex match failed".to_string()))?;
-            let key = cap
-                .get(1)
-                .ok_or_else(|| AppError::Internal("Regex capture failed".to_string()))?
-                .as_str();
-
-            new_string.push_str(&wc[last_match_end..full_match.start()]);
-
-            let mut resolved_value = resolve_single_key(key, context);
-
-            // Handle default values: ${key:-default}
-            if resolved_value.is_none()
-                && key.contains(":-")
-                && let Some(idx) = key.find(":-")
-            {
-                let base_key = &key[..idx];
-                let default_val = &key[idx + 2..];
-                resolved_value =
-                    resolve_single_key(base_key, context).or(Some(default_val.to_string()));
-            }
-
-            if let Some(val) = resolved_value {
-                let ph = placeholder(self.driver, self.param_idx);
-                self.params.push(serde_json::Value::String(val));
-                self.param_idx += 1;
-                new_string.push_str(&ph);
-            } else {
-                return Err(AppError::BadRequest(format!(
-                    "Could not resolve interpolation key: {key}"
-                )));
-            }
-
-            last_match_end = full_match.end();
-        }
-
-        new_string.push_str(&wc[last_match_end..]);
-        Ok(new_string)
     }
 
     /// Append user-supplied filter conditions as parameterized WHERE terms.
@@ -210,7 +168,8 @@ impl SelectBuilder {
             }
 
             // Get the column type for proper value coercion
-            let column_type = Self::get_column_type_for_filter(key, &table_config.columns);
+            let column_type = Self::get_column_type_for_filter(key, &table_config.columns)
+                .ok_or_else(|| AppError::Internal("column validated but type missing".into()))?;
             self.apply_filter_expression(&expr, value, column_type)?;
         }
         Ok(())
@@ -240,11 +199,11 @@ impl SelectBuilder {
         &mut self,
         expr: &FilterExpression,
         value: &str,
-        column_type: Option<&crate::config::types::ColumnType>,
+        column_type: &crate::config::types::ColumnType,
     ) -> Result<(), AppError> {
         let path_str = expr.path.join(".");
         let base_column = expr.path.first().cloned().unwrap_or_default();
-        let is_jsonb_field = expr.path.len() > 1 || column_type.is_some_and(|ct| ct.is_json_type());
+        let is_jsonb_field = expr.path.len() > 1 || column_type.is_json_type();
 
         if expr.operator == FilterOperator::Exists {
             // Build condition in a block so fb is dropped before mutating self.
