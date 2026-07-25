@@ -132,6 +132,28 @@ impl DatabasePool {
         dispatch!(self, execute_sqlite, execute_pg, execute_mysql, sql, params)
     }
 
+    /// Execute an INSERT statement and return the auto-generated last insert ID.
+    ///
+    /// For MySQL, retrieves the `last_insert_id` directly from the `QueryResult`
+    /// to avoid connection-pool races with `SELECT LAST_INSERT_ID()`.
+    /// For SQLite, runs `SELECT last_insert_rowid()` on the same connection.
+    /// For Postgres, returns `0` (Postgres uses `RETURNING` instead).
+    ///
+    /// # Errors
+    ///
+    /// Returns `AppError::Database` if the statement fails.
+    pub async fn execute_with_params_and_last_id(
+        &self,
+        sql: &str,
+        params: &[serde_json::Value],
+    ) -> Result<u64, AppError> {
+        match self {
+            DatabasePool::Sqlite(p) => execute_with_last_id_sqlite(p, sql, params).await,
+            DatabasePool::Mysql(p) => execute_mysql_with_last_id(p, sql, params).await,
+            DatabasePool::Postgres(_) => Ok(0),
+        }
+    }
+
     /// Fetch a single row as JSON, or None if not found.
     ///
     /// # Errors
@@ -281,18 +303,14 @@ macro_rules! impl_db_helpers {
                 // Use Option<T> variants so that SQL NULL is correctly
                 // distinguished from empty/zero values on all backends
                 // (SQLite in particular returns "" for NULL via try_get::<String>).
+                // Try numeric types before String so that integer columns are
+                // correctly represented as JSON numbers, even on backends where
+                // try_get::<String> coerces numeric values (MySQL, Postgres).
                 let value: serde_json::Value = row
-                    .try_get::<Option<String>, _>(col.ordinal())
+                    .try_get::<Option<i64>, _>(col.ordinal())
                     .map(|opt| match opt {
-                        Some(s) => serde_json::Value::String(s),
+                        Some(v) => serde_json::json!(v),
                         None => serde_json::Value::Null,
-                    })
-                    .or_else(|_| {
-                        row.try_get::<Option<i64>, _>(col.ordinal())
-                            .map(|opt| match opt {
-                                Some(v) => serde_json::json!(v),
-                                None => serde_json::Value::Null,
-                            })
                     })
                     .or_else(|_| {
                         row.try_get::<Option<i32>, _>(col.ordinal())
@@ -312,6 +330,13 @@ macro_rules! impl_db_helpers {
                         row.try_get::<Option<bool>, _>(col.ordinal())
                             .map(|opt| match opt {
                                 Some(v) => serde_json::json!(v),
+                                None => serde_json::Value::Null,
+                            })
+                    })
+                    .or_else(|_| {
+                        row.try_get::<Option<String>, _>(col.ordinal())
+                            .map(|opt| match opt {
+                                Some(s) => serde_json::Value::String(s),
                                 None => serde_json::Value::Null,
                             })
                     })
@@ -365,3 +390,36 @@ impl_db_helpers!(
     bind_mysql_param,
     mysql_row_to_json
 );
+
+/// Execute an INSERT and return the last insert ID directly from the
+/// `QueryResult`. For MySQL, this avoids the connection-pool race where
+/// `SELECT LAST_INSERT_ID()` could run on a different connection than the
+/// INSERT itself.
+async fn execute_mysql_with_last_id(
+    pool: &sqlx::MySqlPool,
+    sql: &str,
+    params: &[serde_json::Value],
+) -> Result<u64, AppError> {
+    let mut query = sqlx::query(sql);
+    for param in params {
+        query = bind_mysql_param(query, param);
+    }
+    let result = query.execute(pool).await?;
+    Ok(result.last_insert_id())
+}
+
+/// Execute an INSERT and return the last insert row ID.
+/// For SQLite, this retrieves the `last_insert_rowid` directly from the
+/// `QueryResult` on the same connection that performed the INSERT.
+async fn execute_with_last_id_sqlite(
+    pool: &sqlx::SqlitePool,
+    sql: &str,
+    params: &[serde_json::Value],
+) -> Result<u64, AppError> {
+    let mut query = sqlx::query(sql);
+    for param in params {
+        query = bind_sqlite_param(query, param);
+    }
+    let result = query.execute(pool).await?;
+    Ok(result.last_insert_rowid() as u64)
+}
