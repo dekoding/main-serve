@@ -1467,3 +1467,46 @@ tables:
         "Error should mention columns: {err}"
     );
 }
+
+#[test]
+fn test_validate_catches_schema_compilation_errors() {
+    use main_serve::config::schema_registry::SchemaRegistry;
+
+    // Config with an invalid global schema (bad JSON Schema) and a column
+    // referencing it via validation_schema_ref. The config-level validation
+    // passes (schema refs are structurally present), but SchemaRegistry::new
+    // must catch the compile-time error.
+    let yaml = r#"
+databases:
+  main:
+    driver: "sqlite"
+    url: "sqlite://test.db"
+
+global_schemas:
+  bad_schema:
+    type: "this_is_not_a_valid_schema_type_xyz"
+
+tables:
+  - name: "posts"
+    database: "main"
+    columns:
+      - name: "id"
+        type: "serial"
+        primary_key: true
+        nullable: false
+      - name: "metadata"
+        type: "jsonb"
+        validation_schema_ref: "bad_schema"
+"#;
+    let config = load_yaml(yaml).unwrap();
+    let result = SchemaRegistry::new(&config, std::path::Path::new("test_validate_schema.yaml"));
+    assert!(
+        result.is_err(),
+        "SchemaRegistry::new must reject invalid global schema during validate"
+    );
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("Invalid global schema") || err.contains("bad_schema"),
+        "Error should mention the invalid schema, got: {err}"
+    );
+}

@@ -13,14 +13,9 @@ pub fn build_select_list_count(
     table_name: &str,
     driver: DatabaseDriver,
     query_params: &QueryParams,
-    ctx: &SelectContext,
-    context: &RequestContext,
+    _ctx: &SelectContext,
+    _context: &RequestContext,
 ) -> Result<crate::db::query::types::BuiltQuery, AppError> {
-    use crate::db::query::select::SelectBuilder;
-
-    let mut sb = SelectBuilder::new(table_name, vec!["COUNT(*) as count".to_string()], driver);
-    sb.apply_where_clause(ctx, context)?;
-
     // Apply query param filters without table validation.
     for (key, value) in &query_params.filters {
         if ["page", "page_size", "per_page", "sort", "order"].contains(&key.as_str()) {

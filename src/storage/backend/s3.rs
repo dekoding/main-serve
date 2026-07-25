@@ -548,11 +548,11 @@ impl Storage for S3Storage {
 }
 
 #[cfg(all(test, feature = "s3"))]
-/// item
+/// Integration tests for the S3 storage backend.
 mod tests {
     use super::*;
 
-    /// item
+    /// Creates an S3 storage instance using the AWS default credentials.
     fn make_storage() -> S3Storage {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_time()
@@ -567,7 +567,7 @@ mod tests {
     }
 
     #[test]
-    /// item
+    /// Tests path-to-key conversion for various input paths.
     fn test_path_to_key() {
         let storage = make_storage();
         assert_eq!(
@@ -583,7 +583,7 @@ mod tests {
     }
 
     #[test]
-    /// item
+    /// Tests that 404-style errors map to StorageError::NotFound.
     fn test_map_error_not_found() {
         assert!(matches!(
             S3Storage::map_error("NoSuchKey notfound 404", "test.txt"),
@@ -600,7 +600,7 @@ mod tests {
     }
 
     #[test]
-    /// item
+    /// Tests that 403/access-denied errors map to StorageError::Authentication.
     fn test_map_error_forbidden() {
         assert!(matches!(
             S3Storage::map_error("accessdenied", "test.txt"),
@@ -617,7 +617,7 @@ mod tests {
     }
 
     #[test]
-    /// item
+    /// Tests that 503 errors map to StorageError::ServiceUnavailable.
     fn test_map_error_service_unavailable() {
         assert!(matches!(
             S3Storage::map_error("503 service unavailable", "test.txt"),
@@ -630,7 +630,7 @@ mod tests {
     }
 
     #[test]
-    /// item
+    /// Tests that directory keys are constructed with a trailing slash.
     fn test_create_dir_key_format() {
         let storage = make_storage();
         let key = storage.path_to_key(Path::new("mydir"));

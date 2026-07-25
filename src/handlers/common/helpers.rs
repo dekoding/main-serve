@@ -15,17 +15,6 @@ pub fn extract_id(path: &str) -> Option<String> {
     segments.last().map(|s| s.to_string())
 }
 
-/// Extract the extension from a file path and check if it suggests an image file.
-#[must_use]
-/// is_image_path
-pub fn is_image_path(path: &Path) -> bool {
-    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-        is_image_extension(ext)
-    } else {
-        false
-    }
-}
-
 /// Check if a file extension suggests an image file.
 ///
 /// Supports common image formats: jpg, jpeg, png, gif, webp, bmp, svg, ico.
@@ -159,10 +148,7 @@ pub async fn parse_multipart_file(
     Ok((file_content, original_filename))
 }
 
-pub async fn extract_file_path(
-    row: Option<serde_json::Value>,
-    id: &str,
-) -> Result<String, AppError> {
+pub fn extract_file_path(row: Option<serde_json::Value>, id: &str) -> Result<String, AppError> {
     row.and_then(|r| {
         r.get("file_path")
             .and_then(|v| v.as_str().map(String::from))

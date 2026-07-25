@@ -9,7 +9,7 @@ use crate::error::AppError;
 use crate::server::state::AppState;
 use crate::storage::Storage;
 
-/// Resolve a named storage store to an Arc<dyn Storage> and root PathBuf.
+/// Resolve a named storage store to an [`Arc<dyn Storage>`] and root [`PathBuf`].
 ///
 /// For native stores, resolves the actual filesystem path.
 /// For cloud stores, returns the store and a conceptual root path.

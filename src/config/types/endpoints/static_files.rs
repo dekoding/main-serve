@@ -59,7 +59,7 @@ pub struct StaticFilesConfig {
 }
 
 impl Default for StaticFilesConfig {
-    /// item
+    /// Returns a static files configuration with default index page, cache, and range request settings.
     fn default() -> Self {
         Self {
             storage: String::new(),
@@ -109,7 +109,7 @@ pub struct UploadConfig {
 }
 
 impl Default for UploadConfig {
-    /// item
+    /// Returns an upload configuration with uploads disabled and magic MIME detection.
     fn default() -> Self {
         Self {
             enabled: false,
@@ -153,7 +153,7 @@ pub struct ImageResizeConfig {
 }
 
 impl Default for ImageResizeConfig {
-    /// item
+    /// Returns an image resize configuration with resizing disabled and default format support.
     fn default() -> Self {
         Self {
             enabled: false,
@@ -187,7 +187,7 @@ pub struct StreamingConfig {
 }
 
 impl Default for StreamingConfig {
-    /// item
+    /// Returns a streaming configuration with streaming disabled and 64 KiB buffer size.
     fn default() -> Self {
         Self {
             enabled: false,

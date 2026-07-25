@@ -111,6 +111,18 @@ pub fn build_storage_path(
     Ok(final_path)
 }
 
+/// Prevents path traversal
+pub fn validate_path_within(path: &Path, root: &Path) -> Result<(), AppError> {
+    if path
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+        || path.strip_prefix(root).is_err()
+    {
+        return Err(AppError::Forbidden("Path traversal denied".to_string()));
+    }
+    Ok(())
+}
+
 /// Extract the relative file path from a request URI and endpoint path.
 ///
 /// Strips the endpoint's base path prefix (handling `/*` and `{*rest}`

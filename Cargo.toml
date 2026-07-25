@@ -114,6 +114,7 @@ bytes = "1"
 percent-encoding = "2.3.2"
 nix = { version = "0.31", features = ["user"] }
 jsonb = "0.5.6"
+jsonschema = "0"
 multer = "3.1.0"
 image = { version = "0.25.10", features = ["jpeg", "png", "gif", "webp"] }
 tokio-util = { version = "0.7.18", features = ["io"] }

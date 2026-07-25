@@ -10,7 +10,7 @@ use crate::handlers::common::utils::DatabaseContext;
 use crate::middleware::auth::extractor::RequestContext;
 
 impl From<&CrudConfig> for MutationContext {
-    /// item
+    /// Constructs a mutation context from the CRUD configuration's writable fields and where clauses.
     fn from(crud: &CrudConfig) -> Self {
         MutationContext {
             writable_fields: crud.writable_fields.clone(),
@@ -22,7 +22,7 @@ impl From<&CrudConfig> for MutationContext {
 }
 
 impl From<&CrudConfig> for SelectContext {
-    /// item
+    /// Constructs a select context from the CRUD configuration's field and filter settings.
     fn from(crud: &CrudConfig) -> Self {
         SelectContext {
             fields: crud.fields.clone(),
@@ -213,11 +213,21 @@ pub fn build_update(
             value.clone()
         };
 
-        set_parts.push(format!(
-            "{} = {}",
-            key,
+        // Postgres requires an explicit cast to JSONB when binding a text
+        // parameter to a JSONB column.
+        let set_value = if db_ctx.pool.driver() == DatabaseDriver::Postgres
+            && db_ctx
+                .table_config
+                .columns
+                .iter()
+                .any(|c| c.name == *key && matches!(c.column_type, ColumnType::Jsonb))
+        {
+            format!("{}::jsonb", placeholder(db_ctx.pool.driver(), param_idx))
+        } else {
             placeholder(db_ctx.pool.driver(), param_idx)
-        ));
+        };
+
+        set_parts.push(format!("{} = {}", key, set_value));
         params.push(final_value);
         param_idx += 1;
     }

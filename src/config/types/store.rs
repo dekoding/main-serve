@@ -65,7 +65,7 @@ pub struct S3StoreConfig {
 }
 
 impl std::fmt::Debug for S3StoreConfig {
-    /// item
+    /// Formats the S3 config for debug output, redacting the secret key value.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("S3StoreConfig")
             .field("region", &self.region)

@@ -13,11 +13,15 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
+use crate::config::schema_registry::SchemaRegistry;
 use crate::config::types::EndpointConfig;
 use crate::db::query::builders::{
     build_delete, build_insert, build_select_list, build_select_one, build_update,
 };
-use crate::db::query::helpers::{build_select_list_count, extract_query_params};
+use crate::db::query::helpers::{
+    build_select_list_count, extract_query_params, find_pk_column, placeholder, quote_identifier,
+    validate_jsonb_body,
+};
 use crate::db::query::types::{MutationContext, SelectContext};
 use crate::error::AppError;
 use crate::handlers::common::utils::DatabaseContext;
@@ -55,9 +59,16 @@ pub async fn handle_crud(
     match (method.as_str(), pk_value.as_deref()) {
         ("GET", None) => handle_list(&db_ctx, &select_ctx, crud, &query_string, &context).await,
         ("GET", Some(_)) => handle_get_one(&db_ctx, &select_ctx, crud, &pk_value, &context).await,
-        ("POST", _) => handle_create(&db_ctx, &mutate_ctx, &body, &context).await,
+        ("POST", _) => {
+            let registry = state.schema_registry.read().await;
+            handle_create(&db_ctx, &mutate_ctx, &body, &context, &registry).await
+        }
         ("PUT" | "PATCH", Some(_)) => {
-            handle_update(&db_ctx, mutate_ctx, crud, &pk_value, &body, &context).await
+            let registry = state.schema_registry.read().await;
+            handle_update(
+                &db_ctx, mutate_ctx, crud, &pk_value, &body, &context, &registry,
+            )
+            .await
         }
         ("DELETE", Some(_)) => handle_delete(&db_ctx, crud, &pk_value, &context).await,
         _ => Err(AppError::MethodNotAllowed(
@@ -186,17 +197,21 @@ async fn handle_get_one(
 ///
 /// # Errors
 ///
-/// Returns `AppError::BadRequest` if request body is missing or query building fails.
-/// Returns `AppError::Internal` for database failures.
+/// Returns `AppError::BadRequest` if request body is missing or JSON Schema
+/// validation fails. Returns `AppError::Internal` for database failures.
 async fn handle_create(
     db_ctx: &DatabaseContext,
     mutate_ctx: &MutationContext,
     body: &Option<Json<serde_json::Value>>,
     context: &RequestContext,
+    schema_registry: &SchemaRegistry,
 ) -> Result<Response, AppError> {
     let body = body
         .as_deref()
         .ok_or_else(|| AppError::BadRequest("Request body required".to_string()))?;
+
+    validate_jsonb_body(body, &db_ctx.table_config.name, schema_registry)?;
+
     let built = match build_insert(db_ctx, mutate_ctx, body, context) {
         Ok(q) => q,
         Err(e) => return Err(e),
@@ -213,13 +228,32 @@ async fn handle_create(
         )
             .into_response())
     } else {
-        let rows_affected = db_ctx
+        // Backends without RETURNING support need to retrieve
+        // the inserted row so the response shape stays consistent.
+        // Use execute_with_params_and_last_id to get the auto-generated
+        // ID from the INSERT result directly, avoiding connection-pool
+        // races with a separate LAST_INSERT_ID() query.
+        let last_id = db_ctx
             .pool
-            .execute_with_params(&built.sql, &built.params)
+            .execute_with_params_and_last_id(&built.sql, &built.params)
+            .await?;
+
+        let pk_col = find_pk_column(&db_ctx.table_config)?;
+        let row = db_ctx
+            .pool
+            .fetch_optional_json(
+                &format!(
+                    "SELECT * FROM {} WHERE {} = {}",
+                    quote_identifier(&db_ctx.table_config.name, db_ctx.pool.driver()),
+                    quote_identifier(&pk_col, db_ctx.pool.driver()),
+                    placeholder(db_ctx.pool.driver(), 1)
+                ),
+                &[serde_json::Value::Number(last_id.into())],
+            )
             .await?;
         Ok((
             StatusCode::CREATED,
-            Json(serde_json::json!({ "rows_affected": rows_affected })),
+            Json(serde_json::json!({ "data": row })),
         )
             .into_response())
     }
@@ -229,8 +263,8 @@ async fn handle_create(
 ///
 /// # Errors
 ///
-/// Returns `AppError::BadRequest` if request body is missing.
-/// Returns `AppError::NotFound` if no matching record found.
+/// Returns `AppError::BadRequest` if request body is missing or JSON Schema
+/// validation fails. Returns `AppError::NotFound` if no matching record found.
 async fn handle_update(
     db_ctx: &DatabaseContext,
     mutate_ctx: MutationContext,
@@ -238,6 +272,7 @@ async fn handle_update(
     pk_value: &Option<String>,
     body: &Option<Json<serde_json::Value>>,
     context: &RequestContext,
+    schema_registry: &SchemaRegistry,
 ) -> Result<Response, AppError> {
     let pk = pk_value
         .as_deref()
@@ -245,6 +280,9 @@ async fn handle_update(
     let body = body
         .as_deref()
         .ok_or_else(|| AppError::BadRequest("Request body required".to_string()))?;
+
+    validate_jsonb_body(body, &db_ctx.table_config.name, schema_registry)?;
+
     let built = build_update(
         db_ctx,
         mutate_ctx,

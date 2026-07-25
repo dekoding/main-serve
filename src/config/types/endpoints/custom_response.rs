@@ -20,7 +20,7 @@ pub struct CustomResponseConfig {
 }
 
 impl Default for CustomResponseConfig {
-    /// item
+    /// Returns a custom response configuration with default status 200 and JSON content type.
     fn default() -> Self {
         Self {
             status: 200,

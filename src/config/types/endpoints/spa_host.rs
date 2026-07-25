@@ -34,7 +34,7 @@ pub struct SpaHostConfig {
 }
 
 impl Default for SpaHostConfig {
-    /// item
+    /// Returns an SPA host configuration with default index page, cache, and fallback status 200.
     fn default() -> Self {
         Self {
             storage: String::new(),

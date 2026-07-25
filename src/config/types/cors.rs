@@ -18,7 +18,7 @@ pub struct CorsConfig {
 }
 
 impl Default for CorsConfig {
-    /// item
+    /// Returns a CORS configuration with default allowed methods and no allowed origins.
     fn default() -> Self {
         Self {
             allowed_origins: vec![],

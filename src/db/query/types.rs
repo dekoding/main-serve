@@ -12,7 +12,7 @@ pub enum JoinType {
     Right,
 }
 
-/// item
+/// Returns JoinType::Inner as the default SQL join type.
 fn default_join_type() -> JoinType {
     JoinType::Inner
 }

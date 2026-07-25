@@ -18,13 +18,13 @@ pub struct LoggingConfig {
     pub max_body_log_size: usize,
 }
 
-/// item
+/// Returns the default maximum body size (16 KiB) that will be logged.
 fn default_max_body_log_size() -> usize {
     16 * 1024 // 16 KiB
 }
 
 impl Default for LoggingConfig {
-    /// item
+    /// Returns a LoggingConfig with safe default values for production use.
     fn default() -> Self {
         Self {
             level: LogLevel::Info,

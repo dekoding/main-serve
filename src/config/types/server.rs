@@ -26,7 +26,7 @@ pub struct ServerConfig {
 }
 
 impl Default for ServerConfig {
-    /// item
+    /// Returns a server configuration with standard defaults (localhost:8080).
     fn default() -> Self {
         Self {
             host: "127.0.0.1".to_string(),
@@ -52,7 +52,7 @@ pub struct TlsConfig {
 }
 
 impl fmt::Debug for TlsConfig {
-    /// item
+    /// Formats the TLS config for debug output, redacting the private key value.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TlsConfig")
             .field("cert", &self.cert)

@@ -12,20 +12,22 @@
 /// - `auth` - Authentication providers (JWT, API key, Basic, `OAuth2`)
 /// - `endpoints` - Endpoint definitions and action configs (CRUD, proxy, static, custom)
 /// - `store` - Storage backend configurations (S3, Azure, GCS, native)
+/// - `schema` - JSON Schema types for column-level validation
 mod auth;
-/// item
 mod cors;
-/// item
+/// Database connection and table schema configuration.
 mod database;
-/// item
+/// Endpoint action configurations (CRUD, proxy, static, custom).
 mod endpoints;
-/// item
+/// Logging level and output format configuration.
 mod logging;
-/// item
+/// Rate limiting configuration.
 mod rate_limit;
-/// item
+/// JSON Schema types for column-level validation.
+pub(crate) mod schema;
+/// Server bind address, port, TLS, and runtime settings.
 mod server;
-/// item
+/// Storage backend configurations (S3, Azure, GCS, native).
 mod store;
 
 use std::collections::HashMap;
@@ -39,6 +41,7 @@ pub use database::*;
 pub use endpoints::*;
 pub use logging::*;
 pub use rate_limit::*;
+pub use schema::{GlobalSchema, JsonSchema, SchemaSource};
 pub use server::*;
 pub use store::*;
 
@@ -105,4 +108,8 @@ pub struct AppConfig {
     /// listed parent roles transitively.
     #[serde(default)]
     pub role_hierarchy: Option<RoleHierarchy>,
+    /// Named JSON Schema documents for reuse across table columns.
+    /// Each key is a unique name referenced via `validation_schema_ref`.
+    #[serde(default)]
+    pub global_schemas: Option<HashMap<String, serde_yaml::Value>>,
 }

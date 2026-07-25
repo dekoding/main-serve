@@ -28,7 +28,7 @@ impl MemoryStorage {
 }
 
 impl Default for MemoryStorage {
-    /// item
+    /// Returns a new in-memory storage backend with empty data and directory sets.
     fn default() -> Self {
         Self::new()
     }
