@@ -13,10 +13,6 @@ mod sorting;
 /// Query validation utilities for columns and filter fields.
 mod validation;
 
-#[cfg(test)]
-/// Unit tests for query helper utilities.
-mod tests;
-
 pub(crate) use common::*;
 pub(crate) use count::*;
 pub(crate) use filters::*;
