@@ -2,6 +2,8 @@
 pub mod builders;
 /// helpers
 pub mod helpers;
+/// COUNT query builder for list pagination.
+pub mod count;
 /// revocation
 pub mod revocation;
 /// select
