@@ -33,7 +33,7 @@
 # Main Serve is installed by your distribution's package manager and you run it
 # without a `--config` flag.
 #
-# See https://github.com/dekoding/main-serve/blob/develop/config/spec.yaml for
+# See config/templates/example.yaml for a full configuration example
 # the full reference of all options.
 # =============================================================================
 

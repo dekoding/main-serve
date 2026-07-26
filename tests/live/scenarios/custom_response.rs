@@ -7,7 +7,7 @@
 //! - Custom response headers
 //! - Body content verification
 //!
-//! Config: based on the custom_response action from spec.yaml.
+//! Config: based on the custom_response action from config/templates/example.yaml.
 
 use crate::support::BinaryHandle;
 use reqwest::StatusCode;

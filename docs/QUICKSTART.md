@@ -295,6 +295,6 @@ Or preview what endpoints would be created:
 ## Next Steps
 
 - Read the full [Configuration Reference](CONFIGURATION.md) for every field and option
-- See the [spec.yaml](../config/spec.yaml) for the annotated configuration specification
+- See the [behavioral spec](../docs/spec.md) for full documentation, and [config/templates/example.yaml](../config/templates/example.yaml) for a configuration example
 - Check out the [demo config](../config/templates/default.yaml) for a working example
 - Read the [Manifesto](MANIFESTO.md) to understand the project's philosophy

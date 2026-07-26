@@ -10,7 +10,7 @@
 //! - Pagination, sorting, and filtering of media items
 //! - Faceted search
 //!
-//! Config: based on the media action from spec.yaml with SQLite and native storage.
+//! Config: based on the media action from config/templates/example.yaml with SQLite and native storage.
 
 use crate::support::{BinaryHandle, LiveClient};
 use reqwest::StatusCode;
