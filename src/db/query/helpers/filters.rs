@@ -1,6 +1,6 @@
 use crate::config::types::ColumnConfig;
 use crate::db::query::helpers::{
-    column_exists, is_bracket_notation, is_jsonb_column, is_dotted_path, parse_sort_field,
+    column_exists, is_bracket_notation, is_dotted_path, is_jsonb_column, parse_sort_field,
 };
 use crate::error::AppError;
 use std::sync::LazyLock;

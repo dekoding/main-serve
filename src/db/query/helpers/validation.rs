@@ -16,7 +16,7 @@ pub fn is_safe_sql_fragment(s: &str) -> bool {
         && !s.contains('\r')
 }
 
-use crate::{config::types::DatabaseDriver, db::query::helpers::is_bracket_notation};
+use crate::db::query::helpers::is_bracket_notation;
 use std::sync::LazyLock;
 
 /// Compiled regex to detect common SQL keywords and injection patterns.
