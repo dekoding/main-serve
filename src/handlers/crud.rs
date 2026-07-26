@@ -18,9 +18,9 @@ use crate::config::types::EndpointConfig;
 use crate::db::query::builders::{
     build_delete, build_insert, build_select_list, build_select_one, build_update,
 };
+use crate::db::query::count::build_select_list_count;
 use crate::db::query::helpers::{
-    build_select_list_count, extract_query_params, find_pk_column, placeholder, quote_identifier,
-    validate_jsonb_body,
+    extract_query_params, find_pk_column, placeholder, quote_identifier, validate_jsonb_body,
 };
 use crate::db::query::types::{MutationContext, SelectContext};
 use crate::error::AppError;
@@ -124,9 +124,10 @@ async fn handle_list(
     let count_q = build_select_list_count(
         &db_ctx.table_config.name,
         db_ctx.pool.driver(),
-        &qp,
         select_ctx,
+        &qp,
         context,
+        &db_ctx.table_config,
     );
     let total = match count_q {
         Ok(count_build) => match db_ctx

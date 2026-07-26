@@ -6,7 +6,7 @@ use axum::response::{IntoResponse, Response};
 
 use crate::config::types::MediaConfig;
 use crate::db::query::builders::{build_select_list, build_select_one};
-use crate::db::query::helpers::build_select_list_count;
+use crate::db::query::count::build_select_list_count;
 use crate::db::query::types::{QueryParams, SelectContext};
 use crate::error::AppError;
 use crate::handlers::common::utils::DatabaseContext;
@@ -68,9 +68,10 @@ pub async fn handle_media_list(
     let count_built = build_select_list_count(
         &config.table,
         db_ctx.pool.driver(),
-        &qp,
         &SelectContext::permissive(),
+        &qp,
         &RequestContext::default(),
+        &db_ctx.table_config,
     )?;
     let count_row = db_ctx
         .pool

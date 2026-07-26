@@ -1,6 +1,6 @@
 use serde::Deserialize;
 
-use crate::config::types::{ComputedFieldConfig, listing::SortOrder};
+use crate::config::types::{ComputedFieldConfig, CrudConfig, listing::SortOrder};
 
 /// SQL join type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -90,6 +90,39 @@ impl SelectContext {
             pagination_default_page_size: 20,
             pagination_max_page_size: 100,
             ..Self::default()
+        }
+    }
+}
+
+impl From<&CrudConfig> for MutationContext {
+    /// Constructs a mutation context from the CRUD configuration's writable fields and where clauses.
+    fn from(crud: &CrudConfig) -> Self {
+        MutationContext {
+            writable_fields: crud.writable_fields.clone(),
+            insert_owner: crud.insert_owner.clone(),
+            update_where_clause: crud.update_where_clause.clone(),
+            delete_where_clause: crud.delete_where_clause.clone(),
+        }
+    }
+}
+
+impl From<&CrudConfig> for SelectContext {
+    /// Constructs a select context from the CRUD configuration's field and filter settings.
+    fn from(crud: &CrudConfig) -> Self {
+        SelectContext {
+            fields: crud.fields.clone(),
+            joins: crud.joins.clone(),
+            computed_fields: crud.computed_fields.clone(),
+            where_clause: crud.where_clause.clone(),
+            filtering_enabled: crud.filtering.enabled,
+            filtering_allowed_fields: crud.filtering.allowed_fields.clone(),
+            sorting_enabled: crud.sorting.enabled,
+            sorting_default_field: crud.sorting.default_field.clone(),
+            sorting_default_order: crud.sorting.default_order,
+            sorting_allowed_fields: crud.sorting.allowed_fields.clone(),
+            pagination_enabled: crud.pagination.enabled,
+            pagination_default_page_size: crud.pagination.default_page_size,
+            pagination_max_page_size: crud.pagination.max_page_size,
         }
     }
 }

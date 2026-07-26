@@ -1,4 +1,4 @@
-use crate::config::types::{ColumnType, CrudConfig, DatabaseDriver};
+use crate::config::types::{ColumnType, DatabaseDriver};
 use crate::db::query::helpers::{
     coerce_filter_value_by_type, coerce_pk_value, find_pk_column, interpolate_value,
     interpolate_where_clause, is_valid_identifier, placeholder, quote_identifier,
@@ -9,39 +9,6 @@ use crate::db::query::types::{BuiltQuery, MutationContext, SelectContext};
 use crate::error::AppError;
 use crate::handlers::common::utils::DatabaseContext;
 use crate::middleware::auth::extractor::RequestContext;
-
-impl From<&CrudConfig> for MutationContext {
-    /// Constructs a mutation context from the CRUD configuration's writable fields and where clauses.
-    fn from(crud: &CrudConfig) -> Self {
-        MutationContext {
-            writable_fields: crud.writable_fields.clone(),
-            insert_owner: crud.insert_owner.clone(),
-            update_where_clause: crud.update_where_clause.clone(),
-            delete_where_clause: crud.delete_where_clause.clone(),
-        }
-    }
-}
-
-impl From<&CrudConfig> for SelectContext {
-    /// Constructs a select context from the CRUD configuration's field and filter settings.
-    fn from(crud: &CrudConfig) -> Self {
-        SelectContext {
-            fields: crud.fields.clone(),
-            joins: crud.joins.clone(),
-            computed_fields: crud.computed_fields.clone(),
-            where_clause: crud.where_clause.clone(),
-            filtering_enabled: crud.filtering.enabled,
-            filtering_allowed_fields: crud.filtering.allowed_fields.clone(),
-            sorting_enabled: crud.sorting.enabled,
-            sorting_default_field: crud.sorting.default_field.clone(),
-            sorting_default_order: crud.sorting.default_order,
-            sorting_allowed_fields: crud.sorting.allowed_fields.clone(),
-            pagination_enabled: crud.pagination.enabled,
-            pagination_default_page_size: crud.pagination.default_page_size,
-            pagination_max_page_size: crud.pagination.max_page_size,
-        }
-    }
-}
 
 // =============================================================================
 // CRUD Query Builders

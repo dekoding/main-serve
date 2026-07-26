@@ -16,7 +16,7 @@ pub fn is_safe_sql_fragment(s: &str) -> bool {
         && !s.contains('\r')
 }
 
-use crate::config::types::DatabaseDriver;
+use crate::db::query::helpers::is_bracket_notation;
 use std::sync::LazyLock;
 
 /// Compiled regex to detect common SQL keywords and injection patterns.
@@ -49,7 +49,7 @@ pub(crate) fn is_valid_expression(s: &str) -> bool {
     }
     // If the string uses bracket notation, it must be well-formed.
     let mut bracket_depth = 0;
-    if super::sorting::is_bracket_notation(s) {
+    if is_bracket_notation(s) {
         let mut in_bracket = false;
         for c in s.chars() {
             if c == '[' {
@@ -107,15 +107,6 @@ pub(crate) fn is_valid_identifier(s: &str) -> bool {
     !s.is_empty()
         && s.chars()
             .all(|c| c.is_alphanumeric() || c == '_' || c == '.' || c == '-')
-}
-
-/// Quote an object name (table or index) for the current driver.
-#[inline]
-pub fn quote_identifier(name: &str, driver: DatabaseDriver) -> String {
-    match driver {
-        DatabaseDriver::Mysql => format!("`{name}`"),
-        DatabaseDriver::Sqlite | DatabaseDriver::Postgres => format!("\"{name}\""),
-    }
 }
 
 /// Compiled regex to detect dangerous SQL Server extended procedure calls (xp_*) and
@@ -242,41 +233,6 @@ mod tests {
         assert!(!is_valid_expression("pg_sleep(10)"));
         assert!(!is_valid_expression("xp_cmdshell('dir')"));
         assert!(!is_valid_expression("SLEEP(5)"));
-    }
-
-    // -- quote_identifier --
-
-    #[test]
-    fn test_quote_identifier_sqlite() {
-        assert_eq!(
-            quote_identifier("users", DatabaseDriver::Sqlite),
-            r#""users""#
-        );
-        assert_eq!(
-            quote_identifier("table_name", DatabaseDriver::Sqlite),
-            r#""table_name""#
-        );
-    }
-
-    #[test]
-    fn test_quote_identifier_postgres() {
-        assert_eq!(
-            quote_identifier("users", DatabaseDriver::Postgres),
-            r#""users""#
-        );
-        assert_eq!(
-            quote_identifier("table.name", DatabaseDriver::Postgres),
-            r#""table.name""#
-        );
-    }
-
-    #[test]
-    fn test_quote_identifier_mysql() {
-        assert_eq!(quote_identifier("users", DatabaseDriver::Mysql), "`users`");
-        assert_eq!(
-            quote_identifier("table_name", DatabaseDriver::Mysql),
-            "`table_name`"
-        );
     }
 
     // -- Integration: full validation pipeline --

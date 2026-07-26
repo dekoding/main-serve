@@ -1,83 +1,12 @@
 use crate::{
     config::types::listing::SortOrder,
     db::query::{
-        helpers::{column_exists, is_jsonb_column},
+        helpers::{
+            column_exists, is_bracket_notation, is_dotted_path, is_jsonb_column, parse_sort_field,
+        },
         types::QueryParams,
     },
 };
-
-/// Parse a sorting field that may use LHS bracket notation.
-///
-/// Handles two syntaxes:
-/// - Dot notation: `metadata.role` -> base="metadata", path=["role"]
-/// - LHS brackets: `metadata[role]` -> base="metadata", path=["role"]
-/// - Nested: `metadata.user[profile].email` -> base="metadata", path=["user","profile","email"]
-///
-/// Returns (`base_column`, `path_segments`) where `path_segments` are the nested field names.
-#[must_use]
-pub(crate) fn parse_sort_field(field: &str) -> (String, Vec<String>) {
-    let mut parts = Vec::new();
-    let mut current = String::new();
-    let mut i = 0;
-    let chars: Vec<char> = field.chars().collect();
-
-    while i < chars.len() {
-        // SAFETY: i < chars.len() is guaranteed by the while loop condition.
-        let c = chars[i];
-
-        if c == '[' {
-            // End of current segment, start of bracket notation
-            if !current.is_empty() {
-                parts.push(current.clone());
-                current.clear();
-            }
-            i += 1;
-            let mut bracket_content = String::new();
-            while i < chars.len() && chars[i] != ']' {
-                // SAFETY: i < chars.len() is checked in the while loop condition.
-                bracket_content.push(chars[i]);
-                i += 1;
-            }
-            if i < chars.len() {
-                // Skip the closing bracket
-                i += 1;
-            }
-            if !bracket_content.is_empty() {
-                parts.push(bracket_content);
-            }
-        } else if c == '.' {
-            // End of current segment
-            if !current.is_empty() {
-                parts.push(current.clone());
-                current.clear();
-            }
-            i += 1;
-        } else {
-            current.push(c);
-            i += 1;
-        }
-    }
-
-    // Add any remaining content
-    if !current.is_empty() {
-        parts.push(current);
-    }
-
-    // First segment is the base column name
-    if parts.is_empty() {
-        return (field.to_string(), Vec::new());
-    }
-
-    let base = parts[0].clone();
-    let path = parts[1..].to_vec();
-    (base, path)
-}
-
-/// Check if a sort field uses bracket notation (e.g., `field[key]`).
-#[must_use]
-pub(crate) fn is_bracket_notation(field: &str) -> bool {
-    field.contains('[')
-}
 
 /// Validate that a sort field exists in the table schema.
 /// Returns true if the field is valid (either a regular column or a JSONB nested path).
@@ -90,7 +19,7 @@ pub(crate) fn is_valid_sort_field(
     // Allow bracket notation (e.g., metadata[role])
     if is_bracket_notation(field) {
         is_jsonb_column(&base, columns) || column_exists(&base, columns)
-    } else if super::filters::is_jsonb_path(field) {
+    } else if is_dotted_path(field) {
         // For JSONB paths, check if base column is a JSON/JSONB column
         is_jsonb_column(&base, columns)
     } else {
@@ -185,59 +114,6 @@ mod tests {
             },
         ]
     }
-
-    // -- parse_sort_field --
-
-    #[test]
-    fn test_parse_sort_field_simple() {
-        let (base, path) = parse_sort_field("title");
-        assert_eq!(base, "title");
-        assert!(path.is_empty());
-    }
-
-    #[test]
-    fn test_parse_sort_field_dot_notation() {
-        let (base, path) = parse_sort_field("metadata.role");
-        assert_eq!(base, "metadata");
-        assert_eq!(path, vec!["role"]);
-    }
-
-    #[test]
-    fn test_parse_sort_field_bracket_notation() {
-        let (base, path) = parse_sort_field("metadata[role]");
-        assert_eq!(base, "metadata");
-        assert_eq!(path, vec!["role"]);
-    }
-
-    #[test]
-    fn test_parse_sort_field_nested_mixed() {
-        let (base, path) = parse_sort_field("metadata.user[profile].email");
-        assert_eq!(base, "metadata");
-        assert_eq!(path, vec!["user", "profile", "email"]);
-    }
-
-    #[test]
-    fn test_parse_sort_field_deep_nested() {
-        let (base, path) = parse_sort_field("a.b.c.d");
-        assert_eq!(base, "a");
-        assert_eq!(path, vec!["b", "c", "d"]);
-    }
-
-    // -- is_bracket_notation --
-
-    #[test]
-    fn test_is_bracket_notation_true() {
-        assert!(is_bracket_notation("metadata[role]"));
-        assert!(is_bracket_notation("a[b][c]"));
-    }
-
-    #[test]
-    fn test_is_bracket_notation_false() {
-        assert!(!is_bracket_notation("metadata.role"));
-        assert!(!is_bracket_notation("title"));
-    }
-
-    // -- is_valid_sort_field --
 
     #[test]
     fn test_is_valid_sort_field_regular_column() {
