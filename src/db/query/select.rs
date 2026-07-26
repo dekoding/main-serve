@@ -12,7 +12,7 @@ use crate::db::query::helpers::{
     FilterExpression, FilterOperator, build_filter_param, extract_base_column, extract_jsonb_path,
     interpolate_where_clause, is_bracket_notation, is_jsonb_column, is_jsonb_path,
     is_valid_expression, is_valid_filter_column, is_valid_sort_field, parse_filter_key,
-    parse_sort_field, placeholder,
+    parse_sort_field, placeholder, quote_identifier,
 };
 use crate::db::query::traits::{FilterBehavior, MysqlFilter, PostgresFilter, SqliteFilter};
 use crate::db::query::types::{BuiltQuery, JoinType, QueryParams, SelectContext};
@@ -90,8 +90,12 @@ impl SelectBuilder {
                 JoinType::Left => "LEFT JOIN",
                 JoinType::Right => "RIGHT JOIN",
             };
-            self.joins
-                .push(format!("{} {} ON {}", keyword, join.table, join.on));
+            self.joins.push(format!(
+                "{} {} ON {}",
+                keyword,
+                quote_identifier(&join.table, self.driver),
+                join.on
+            ));
             for f in &join.fields {
                 // Preserve fully qualified field names (e.g., "authors.name")
                 // or qualify with the main table name for bare column names
