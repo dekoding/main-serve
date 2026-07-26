@@ -1,5 +1,7 @@
 use crate::config::types::ColumnConfig;
-use crate::db::query::helpers::{column_exists, is_jsonb_column};
+use crate::db::query::helpers::{
+    column_exists, is_bracket_notation, is_jsonb_column, is_dotted_path, parse_sort_field,
+};
 use crate::error::AppError;
 use std::sync::LazyLock;
 
@@ -97,12 +99,6 @@ pub(crate) fn parse_filter_key(key: &str) -> Result<FilterExpression, AppError> 
     Ok(FilterExpression { path, operator })
 }
 
-/// Check if a field path is a JSONB nested path (contains dots).
-#[must_use]
-pub(crate) fn is_jsonb_path(field: &str) -> bool {
-    field.contains('.')
-}
-
 /// Extract the base column name from a field string that may contain `JSONPath` or operators.
 /// Handles cases like:
 /// - `$.metadata.role` -> `metadata`
@@ -133,13 +129,13 @@ pub(crate) fn extract_base_column(field: &str) -> String {
         } else {
             field.to_string()
         }
-    } else if super::sorting::is_bracket_notation(field) {
+    } else if is_bracket_notation(field) {
         // Extract base from bracket notation
-        let (base, _) = super::sorting::parse_sort_field(field);
+        let (base, _) = parse_sort_field(field);
         base
-    } else if is_jsonb_path(field) {
+    } else if is_dotted_path(field) {
         // Extract base from dot notation
-        let (base, _) = super::sorting::parse_sort_field(field);
+        let (base, _) = parse_sort_field(field);
         base
     } else {
         // Regular field name
@@ -152,7 +148,7 @@ pub(crate) fn extract_base_column(field: &str) -> String {
 /// Converts `metadata.user.profile` to `$.user.profile` and `metadata[user][profile]` to `$.user.profile`.
 #[must_use]
 pub(crate) fn extract_jsonb_path(field: &str) -> String {
-    let (_, path) = super::sorting::parse_sort_field(field);
+    let (_, path) = parse_sort_field(field);
     if path.is_empty() {
         return "$".to_string();
     }
@@ -291,20 +287,6 @@ mod tests {
     fn test_parse_filter_key_invalid_operator() {
         let err = parse_filter_key("field[foo]").unwrap_err();
         assert!(err.to_string().contains("Unsupported operator"));
-    }
-
-    // -- is_jsonb_path --
-
-    #[test]
-    fn test_is_jsonb_path_true() {
-        assert!(is_jsonb_path("metadata.role"));
-        assert!(is_jsonb_path("a.b.c"));
-    }
-
-    #[test]
-    fn test_is_jsonb_path_false() {
-        assert!(!is_jsonb_path("title"));
-        assert!(!is_jsonb_path("id"));
     }
 
     // -- extract_base_column --

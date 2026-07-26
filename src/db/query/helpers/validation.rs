@@ -16,7 +16,7 @@ pub fn is_safe_sql_fragment(s: &str) -> bool {
         && !s.contains('\r')
 }
 
-use crate::config::types::DatabaseDriver;
+use crate::{config::types::DatabaseDriver, db::query::helpers::is_bracket_notation};
 use std::sync::LazyLock;
 
 /// Compiled regex to detect common SQL keywords and injection patterns.
@@ -49,7 +49,7 @@ pub(crate) fn is_valid_expression(s: &str) -> bool {
     }
     // If the string uses bracket notation, it must be well-formed.
     let mut bracket_depth = 0;
-    if super::sorting::is_bracket_notation(s) {
+    if is_bracket_notation(s) {
         let mut in_bracket = false;
         for c in s.chars() {
             if c == '[' {

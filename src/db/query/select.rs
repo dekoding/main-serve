@@ -10,7 +10,7 @@ use crate::config::types::listing::SortOrder;
 use crate::config::types::{DatabaseDriver, TableConfig};
 use crate::db::query::helpers::{
     FilterExpression, FilterOperator, build_filter_param, extract_base_column, extract_jsonb_path,
-    interpolate_where_clause, is_bracket_notation, is_jsonb_column, is_jsonb_path,
+    interpolate_where_clause, is_bracket_notation, is_jsonb_column, is_dotted_path,
     is_valid_expression, is_valid_filter_column, is_valid_sort_field, parse_filter_key,
     parse_sort_field, placeholder, quote_identifier,
 };
@@ -640,7 +640,7 @@ impl SelectBuilder {
 
         let (base_col, _path) = parse_sort_field(sort_field);
 
-        let order_clause = if is_jsonb_path(sort_field) || is_bracket_notation(sort_field) {
+        let order_clause = if is_dotted_path(sort_field) || is_bracket_notation(sort_field) {
             if is_jsonb_column(&base_col, &table_config.columns) {
                 let path_str = extract_jsonb_path(sort_field);
                 let jsonb_expr = match self.driver {
