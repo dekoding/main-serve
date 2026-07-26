@@ -117,6 +117,15 @@ pub(crate) fn is_dotted_path(field: &str) -> bool {
     field.contains('.')
 }
 
+/// Quote an object name (table or index) for the current driver.
+#[inline]
+pub fn quote_identifier(name: &str, driver: DatabaseDriver) -> String {
+    match driver {
+        DatabaseDriver::Mysql => format!("`{name}`"),
+        DatabaseDriver::Sqlite | DatabaseDriver::Postgres => format!("\"{name}\""),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -184,5 +193,40 @@ mod tests {
     fn test_is_dotted_path_false() {
         assert!(!is_dotted_path("title"));
         assert!(!is_dotted_path("id"));
+    }
+
+    // -- quote_identifier --
+
+    #[test]
+    fn test_quote_identifier_sqlite() {
+        assert_eq!(
+            quote_identifier("users", DatabaseDriver::Sqlite),
+            r#""users""#
+        );
+        assert_eq!(
+            quote_identifier("table_name", DatabaseDriver::Sqlite),
+            r#""table_name""#
+        );
+    }
+
+    #[test]
+    fn test_quote_identifier_postgres() {
+        assert_eq!(
+            quote_identifier("users", DatabaseDriver::Postgres),
+            r#""users""#
+        );
+        assert_eq!(
+            quote_identifier("table.name", DatabaseDriver::Postgres),
+            r#""table.name""#
+        );
+    }
+
+    #[test]
+    fn test_quote_identifier_mysql() {
+        assert_eq!(quote_identifier("users", DatabaseDriver::Mysql), "`users`");
+        assert_eq!(
+            quote_identifier("table_name", DatabaseDriver::Mysql),
+            "`table_name`"
+        );
     }
 }
