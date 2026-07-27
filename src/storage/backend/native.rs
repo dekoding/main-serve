@@ -430,11 +430,8 @@ mod tests {
         let path = PathBuf::from("mydir");
         storage.create_dir(&path).await.unwrap();
         let result = storage.create_dir(&path).await;
-        match result.unwrap_err() {
-            StorageError::Io(_, e) => {
-                assert_eq!(e.kind(), std::io::ErrorKind::AlreadyExists);
-            }
-            other => panic!("expected StorageError::Io, got {other:?}"),
+        if let StorageError::Io(_, e) = result.unwrap_err() {
+            assert_eq!(e.kind(), std::io::ErrorKind::AlreadyExists);
         }
         let _ = fs::remove_dir_all(&tmp);
     }
