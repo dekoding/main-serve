@@ -141,7 +141,7 @@ Options:
 
 See the full [Configuration Reference](docs/CONFIGURATION.md) for detailed documentation of every field, type, default, and option.
 
-For the full configuration specification, see [docs/spec.md](docs/spec.md). The example configuration is at [config/templates/example.yaml](config/templates/example.yaml).
+For the full configuration specification, see [docs/SPEC.md](docs/SPEC.md). The example configuration is at [config/templates/example.yaml](config/templates/example.yaml).
 
 ### Server
 
@@ -575,7 +575,7 @@ MIT
 
 - [Quickstart Guide](docs/QUICKSTART.md) - Get running in minutes
 - [Configuration Reference](docs/CONFIGURATION.md) - Every field explained
-- [YAML Spec](docs/spec.md) - Behavioral specification and configuration guide
+- [YAML Spec](docs/SPEC.md) - Behavioral specification and configuration guide
 - [Example Config](config/templates/example.yaml) - Annotated configuration with all features demonstrated
 - [JSON Schema](config/main-serve.schema.json) - Structural validation schema
 - [Manifesto](docs/MANIFESTO.md) - Why Main Serve exists
