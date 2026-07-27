@@ -14,7 +14,7 @@ pub type FileStoreMetadataColumn = MediaMetadataColumn;
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct FileStoreFieldPermissions {
-    /// Roles allowed to read this field. Use ["*"] for all roles.
+    /// Roles allowed to read this field. Use `` `["*"]` `` for all roles.
     pub read: Vec<String>,
     /// Roles allowed to write this field.
     pub write: Vec<String>,

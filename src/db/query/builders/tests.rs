@@ -176,9 +176,7 @@ fn test_build_select_list_with_filter() {
     let crud = test_crud();
     let ctx = SelectContext::from(&crud);
     let params = QueryParams {
-        filters: [("author".to_string(), "alice".to_string())]
-            .into_iter()
-            .collect(),
+        filters: std::iter::once(("author".to_string(), "alice".to_string())).collect(),
         ..Default::default()
     };
     let q = build_select_list(&db_ctx, &ctx, &params, &RequestContext::new()).unwrap();
@@ -196,9 +194,7 @@ fn test_build_select_list_postgres_placeholders() {
     let crud = test_crud();
     let ctx = SelectContext::from(&crud);
     let params = QueryParams {
-        filters: [("author".to_string(), "bob".to_string())]
-            .into_iter()
-            .collect(),
+        filters: std::iter::once(("author".to_string(), "bob".to_string())).collect(),
         ..Default::default()
     };
     let q = build_select_list(&db_ctx, &ctx, &params, &RequestContext::new()).unwrap();
@@ -276,7 +272,7 @@ fn test_build_update() {
     let ctx = MutationContext::from(&crud);
     let body = serde_json::json!({"title": "Updated"});
     let context = RequestContext::new();
-    let q = build_update(&db_ctx, ctx, "42", &body, &context, &None).unwrap();
+    let q = build_update(&db_ctx, &ctx, "42", &body, &context, &None).unwrap();
     assert_eq!(q.sql, "UPDATE posts SET title = ? WHERE id = ?");
     assert_eq!(
         q.params,
@@ -346,7 +342,7 @@ fn test_build_update_with_where_clause() {
     });
     let db_ctx = test_db_ctx(table, DatabaseDriver::Sqlite);
     let where_clause = Some("author = ${request.user.id}".to_string());
-    let q = build_update(&db_ctx, ctx, "42", &body, &context, &where_clause).unwrap();
+    let q = build_update(&db_ctx, &ctx, "42", &body, &context, &where_clause).unwrap();
     assert_eq!(
         q.sql,
         "UPDATE posts SET title = ? WHERE id = ? AND author = ?"
@@ -400,11 +396,10 @@ fn test_filter_dot_notation_nested() {
     let ctx = SelectContext::from(&crud);
     let params = QueryParams {
         // Testing nested dot-notation: metadata.user.profile.email
-        filters: [(
+        filters: std::iter::once((
             "metadata.user.profile.email".to_string(),
             "test@example.com".to_string(),
-        )]
-        .into_iter()
+        ))
         .collect(),
         ..Default::default()
     };
@@ -429,9 +424,7 @@ fn test_filter_lhs_bracket_eq() {
     let ctx = SelectContext::from(&crud);
     let params = QueryParams {
         // Testing LHS bracket equality: metadata.role[eq]
-        filters: [("metadata.role[eq]".to_string(), "admin".to_string())]
-            .into_iter()
-            .collect(),
+        filters: std::iter::once(("metadata.role[eq]".to_string(), "admin".to_string())).collect(),
         ..Default::default()
     };
     let q = build_select_list(&db_ctx, &ctx, &params, &RequestContext::new()).unwrap();
@@ -452,9 +445,7 @@ fn test_filter_lhs_bracket_gt() {
     let ctx = SelectContext::from(&crud);
     let params = QueryParams {
         // Testing LHS bracket greater-than: metadata.user.age[gt]
-        filters: [("metadata.user.age[gt]".to_string(), "18".to_string())]
-            .into_iter()
-            .collect(),
+        filters: std::iter::once(("metadata.user.age[gt]".to_string(), "18".to_string())).collect(),
         ..Default::default()
     };
     let q = build_select_list(&db_ctx, &ctx, &params, &RequestContext::new()).unwrap();
@@ -475,8 +466,7 @@ fn test_filter_lhs_bracket_lt() {
     let ctx = SelectContext::from(&crud);
     let params = QueryParams {
         // Testing LHS bracket less-than: metadata.user.age[lte]
-        filters: [("metadata.user.age[lte]".to_string(), "65".to_string())]
-            .into_iter()
+        filters: std::iter::once(("metadata.user.age[lte]".to_string(), "65".to_string()))
             .collect(),
         ..Default::default()
     };
@@ -712,9 +702,7 @@ fn test_filter_nonexistent_column_rejected() {
     let crud = test_crud_with_jsonb_filtering();
     let ctx = SelectContext::from(&crud);
     let params = QueryParams {
-        filters: [("nonexistent.field".to_string(), "value".to_string())]
-            .into_iter()
-            .collect(),
+        filters: std::iter::once(("nonexistent.field".to_string(), "value".to_string())).collect(),
         ..Default::default()
     };
     let result = build_select_list(&db_ctx, &ctx, &params, &RequestContext::new());
@@ -753,8 +741,7 @@ fn test_filter_jsonb_contains_postgres() {
     let crud = test_crud_with_jsonb_filtering();
     let ctx = SelectContext::from(&crud);
     let params = QueryParams {
-        filters: [("metadata.role[contains]".to_string(), "admin".to_string())]
-            .into_iter()
+        filters: std::iter::once(("metadata.role[contains]".to_string(), "admin".to_string()))
             .collect(),
         ..Default::default()
     };
@@ -775,8 +762,7 @@ fn test_filter_jsonb_contains_sqlite() {
     let crud = test_crud_with_jsonb_filtering();
     let ctx = SelectContext::from(&crud);
     let params = QueryParams {
-        filters: [("metadata.tags[contains]".to_string(), "rust".to_string())]
-            .into_iter()
+        filters: std::iter::once(("metadata.tags[contains]".to_string(), "rust".to_string()))
             .collect(),
         ..Default::default()
     };
@@ -797,8 +783,7 @@ fn test_filter_jsonb_contains_mysql() {
     let crud = test_crud_with_jsonb_filtering();
     let ctx = SelectContext::from(&crud);
     let params = QueryParams {
-        filters: [("metadata.tags[contains]".to_string(), "python".to_string())]
-            .into_iter()
+        filters: std::iter::once(("metadata.tags[contains]".to_string(), "python".to_string()))
             .collect(),
         ..Default::default()
     };
@@ -818,9 +803,7 @@ fn test_filter_non_jsonb_contains() {
     let crud = test_crud();
     let ctx = SelectContext::from(&crud);
     let params = QueryParams {
-        filters: [("author[contains]".to_string(), "al".to_string())]
-            .into_iter()
-            .collect(),
+        filters: std::iter::once(("author[contains]".to_string(), "al".to_string())).collect(),
         ..Default::default()
     };
     let q = build_select_list(&db_ctx, &ctx, &params, &RequestContext::new()).unwrap();
@@ -841,9 +824,7 @@ fn test_filter_non_jsonb_contains_postgres() {
     let crud = test_crud();
     let ctx = SelectContext::from(&crud);
     let params = QueryParams {
-        filters: [("title[contains]".to_string(), "Hello".to_string())]
-            .into_iter()
-            .collect(),
+        filters: std::iter::once(("title[contains]".to_string(), "Hello".to_string())).collect(),
         ..Default::default()
     };
     let q = build_select_list(&db_ctx, &ctx, &params, &RequestContext::new()).unwrap();
@@ -862,9 +843,7 @@ fn test_filter_jsonb_exists_postgres() {
     let crud = test_crud_with_jsonb_filtering();
     let ctx = SelectContext::from(&crud);
     let params = QueryParams {
-        filters: [("metadata.role[exists]".to_string(), String::new())]
-            .into_iter()
-            .collect(),
+        filters: std::iter::once(("metadata.role[exists]".to_string(), String::new())).collect(),
         ..Default::default()
     };
     let q = build_select_list(&db_ctx, &ctx, &params, &RequestContext::new()).unwrap();
@@ -881,9 +860,7 @@ fn test_filter_jsonb_exists_sqlite() {
     let crud = test_crud_with_jsonb_filtering();
     let ctx = SelectContext::from(&crud);
     let params = QueryParams {
-        filters: [("metadata.status[exists]".to_string(), String::new())]
-            .into_iter()
-            .collect(),
+        filters: std::iter::once(("metadata.status[exists]".to_string(), String::new())).collect(),
         ..Default::default()
     };
     let q = build_select_list(
@@ -904,9 +881,7 @@ fn test_filter_non_jsonb_exists_sqlite() {
     let crud = test_crud();
     let ctx = SelectContext::from(&crud);
     let params = QueryParams {
-        filters: [("author[exists]".to_string(), String::new())]
-            .into_iter()
-            .collect(),
+        filters: std::iter::once(("author[exists]".to_string(), String::new())).collect(),
         ..Default::default()
     };
     let q = build_select_list(
@@ -931,9 +906,7 @@ fn test_filter_non_jsonb_exists_postgres() {
     let crud = test_crud();
     let ctx = SelectContext::from(&crud);
     let params = QueryParams {
-        filters: [("title[exists]".to_string(), String::new())]
-            .into_iter()
-            .collect(),
+        filters: std::iter::once(("title[exists]".to_string(), String::new())).collect(),
         ..Default::default()
     };
     let q = build_select_list(
@@ -953,9 +926,7 @@ fn test_filter_non_jsonb_exists_mysql() {
     let crud = test_crud();
     let ctx = SelectContext::from(&crud);
     let params = QueryParams {
-        filters: [("author[exists]".to_string(), String::new())]
-            .into_iter()
-            .collect(),
+        filters: std::iter::once(("author[exists]".to_string(), String::new())).collect(),
         ..Default::default()
     };
     let q = build_select_list(
@@ -975,8 +946,7 @@ fn test_filter_nonexistent_jsonb_column_rejected() {
     let crud = test_crud_with_jsonb_filtering();
     let ctx = SelectContext::from(&crud);
     let params = QueryParams {
-        filters: [("other_column.nested".to_string(), "value".to_string())]
-            .into_iter()
+        filters: std::iter::once(("other_column.nested".to_string(), "value".to_string()))
             .collect(),
         ..Default::default()
     };

@@ -3,7 +3,7 @@ use serde::Deserialize;
 /// CORS policy configuration (global or per-endpoint override).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// CorsConfig
+/// `CorsConfig`
 pub struct CorsConfig {
     /// Allowed origins (`"*"` for all).
     pub allowed_origins: Vec<String>,

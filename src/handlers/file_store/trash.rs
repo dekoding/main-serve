@@ -17,6 +17,10 @@ use crate::middleware::auth::extractor::RequestContext;
 use crate::storage::Storage;
 
 /// Handle file store trash management routes.
+///
+/// # Errors
+///
+/// Returns an `AppError::MethodNotAllowed` if trash is not enabled.
 pub async fn handle_file_store_trash(
     method: axum::http::Method,
     path: &str,
@@ -74,7 +78,7 @@ pub async fn handle_file_store_trash(
 async fn handle_file_store_trash_list(db_ctx: &DatabaseContext) -> Result<Response, AppError> {
     let built = build_select_trashed(&db_ctx.table_config.name, db_ctx.pool.driver());
     let rows = db_ctx.pool.fetch_all_json(&built.sql, &[]).await?;
-    let total: i64 = rows.len() as i64;
+    let total: usize = rows.len();
 
     let response = serde_json::json!({
         "data": rows,
@@ -163,8 +167,7 @@ async fn handle_file_store_trash_empty(
         {
             let id_str = id_val
                 .as_i64()
-                .map(|i| i.to_string())
-                .unwrap_or_else(|| id_val.to_string());
+                .map_or_else(|| id_val.to_string(), |i| i.to_string());
             obj.insert("id".to_string(), serde_json::Value::String(id_str));
         }
     }

@@ -10,18 +10,19 @@ use super::common::{
 /// Per-extension Cache-Control rule.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-/// CacheRuleConfig
+/// `CacheRuleConfig`
 pub struct CacheRuleConfig {
-    /// File extensions to match (e.g. [".html", ".js"]).
+    /// File extensions to match (e.g. `` `[".html", ".js"]` ``).
     pub extensions: Vec<String>,
     /// Cache-Control header value (e.g. "public, max-age=31536000, immutable").
     pub cache_control: String,
 }
 
 /// Static file serving configuration for an endpoint.
+#[allow(clippy::struct_excessive_bools)] // each bool field is an independent YAML config option
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// StaticFilesConfig
+/// `StaticFilesConfig`
 pub struct StaticFilesConfig {
     /// Named store to use (must match a key in `stores`).
     pub storage: String,
@@ -80,9 +81,11 @@ impl Default for StaticFilesConfig {
 /// MIME type detection method for uploads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "lowercase")]
-/// UploadMimeDetection
+/// `UploadMimeDetection`
 pub enum UploadMimeDetection {
+    /// Detect MIME type from file extension.
     Extension,
+    /// Detect MIME type by inspecting magic bytes.
     #[default]
     Magic,
 }
@@ -90,7 +93,7 @@ pub enum UploadMimeDetection {
 /// File upload configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// UploadConfig
+/// `UploadConfig`
 pub struct UploadConfig {
     /// Whether uploads are enabled.
     pub enabled: bool,
@@ -124,18 +127,21 @@ impl Default for UploadConfig {
 /// Image resize fit mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
 #[serde(rename_all = "snake_case")]
-/// ImageResizeFit
+/// `ImageResizeFit`
 pub enum ImageResizeFit {
+    /// Scale down to fit within bounds, preserving aspect ratio.
     #[default]
     ScaleDown,
+    /// Fill the bounds, cropping if necessary.
     Cover,
+    /// Fit entirely within the bounds, preserving aspect ratio.
     Contain,
 }
 
 /// Image resize configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// ImageResizeConfig
+/// `ImageResizeConfig`
 pub struct ImageResizeConfig {
     /// Whether on-demand resizing is enabled.
     pub enabled: bool,
@@ -173,7 +179,7 @@ impl Default for ImageResizeConfig {
 /// Streaming configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// StreamingConfig
+/// `StreamingConfig`
 pub struct StreamingConfig {
     /// Enable chunked streaming for large files.
     pub enabled: bool,

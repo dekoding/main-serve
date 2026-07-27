@@ -2,7 +2,7 @@
 ///
 /// These functions handle storage path construction, filename sanitization,
 /// and subdirectory pattern expansion used by uploads across media and
-/// static_files handlers.
+/// `static_files` handlers.
 use std::path::Path;
 use std::sync::Arc;
 
@@ -18,6 +18,11 @@ use crate::storage::Storage;
 /// If the original filename is provided and has a valid extension,
 /// generates a UUID-based filename to prevent collisions and overwrites.
 /// Falls back to the relative path if no original filename is available.
+///
+/// # Errors
+///
+/// Returns an `AppError::BadRequest` if the filename is empty or the extension
+/// is not in the allowed list.
 pub fn generate_upload_filename(
     original_filename: &str,
     allowed_extensions: &[String],
@@ -53,6 +58,11 @@ pub fn generate_upload_filename(
 /// When `is_upload` is true (file upload), generates a UUID-based filename
 /// to prevent overwrites and collisions. When false (GET requests), returns
 /// the sanitized name for path resolution.
+///
+/// # Errors
+///
+/// Returns an `AppError::BadRequest` if the filename is empty, contains path
+/// traversal sequences, or is otherwise invalid.
 pub fn sanitize_filename(name: &str, is_upload: bool) -> Result<String, AppError> {
     if name.contains('/') || name.contains('\\') || name.contains("..") {
         return Err(AppError::BadRequest("Invalid filename".to_string()));
@@ -76,6 +86,13 @@ pub fn sanitize_filename(name: &str, is_upload: bool) -> Result<String, AppError
 }
 
 /// Build storage path with subdirectory pattern.
+///
+/// # Errors
+///
+/// Returns an `AppError::Forbidden` if the resulting path is outside the root.
+#[allow(clippy::literal_string_with_formatting_args)]
+/// Template substitution patterns like `{user_id}` use `.replace()`, not
+/// `format!()`, so the clippy lint about format-like strings does not apply.
 pub fn build_storage_path(
     root: &Path,
     filename: &str,
@@ -112,6 +129,10 @@ pub fn build_storage_path(
 }
 
 /// Prevents path traversal
+///
+/// # Errors
+///
+/// Returns an `AppError::Forbidden` if the path is not within the root.
 pub fn validate_path_within(path: &Path, root: &Path) -> Result<(), AppError> {
     if path
         .components()
@@ -127,6 +148,11 @@ pub fn validate_path_within(path: &Path, root: &Path) -> Result<(), AppError> {
 ///
 /// Strips the endpoint's base path prefix (handling `/*` and `{*rest}`
 /// wildcards) from the request path and returns the remaining segment.
+///
+/// # Errors
+///
+/// Returns an `AppError::BadRequest` if the path contains invalid UTF-8 after
+/// percent-decoding.
 pub fn extract_relative_path(request_path: &str, endpoint_path: &str) -> Result<String, AppError> {
     let ep_path = endpoint_path
         .trim_end_matches("/*")
@@ -150,6 +176,10 @@ pub fn extract_relative_path(request_path: &str, endpoint_path: &str) -> Result<
 /// Build the HTTP response for a successful file upload.
 ///
 /// Returns a 201 CREATED response with JSON body containing file metadata.
+///
+/// # Errors
+///
+/// Returns an error if file metadata cannot be read from storage.
 pub async fn build_upload_response(
     storage_path: &Path,
     root: &Path,
@@ -167,10 +197,10 @@ pub async fn build_upload_response(
         |t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339(),
     );
 
-    let modified = metadata
-        .modified
-        .map(|t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339())
-        .unwrap_or(created.clone());
+    let modified = metadata.modified.map_or_else(
+        || created.clone(),
+        |t| chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339(),
+    );
 
     let mime_type = crate::config::types::mime_from_path(storage_path);
 

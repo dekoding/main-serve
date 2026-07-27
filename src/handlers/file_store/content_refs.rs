@@ -8,6 +8,10 @@ use crate::db::query::builders::{
 use crate::error::AppError;
 
 /// Handle content reference attach for file store.
+///
+/// # Errors
+///
+/// Returns an `AppError::MethodNotAllowed` if content references are not enabled.
 pub async fn handle_file_store_attach(
     id: &str,
     config: &FileStoreConfig,
@@ -30,7 +34,7 @@ pub async fn handle_file_store_attach(
         .ok_or_else(|| AppError::BadRequest("entity_id is required".to_string()))?;
     let entity_id = entity_id
         .as_str()
-        .map(|s| s.to_string())
+        .map(std::string::ToString::to_string)
         .or_else(|| entity_id.as_i64().map(|i| i.to_string()))
         .or_else(|| entity_id.as_u64().map(|i| i.to_string()))
         .ok_or_else(|| AppError::BadRequest("entity_id is required".to_string()))?;
@@ -50,7 +54,7 @@ pub async fn handle_file_store_attach(
     let max_row = pool.fetch_optional_json(&built.sql, &[]).await?;
     let max_order: i64 = max_row
         .as_ref()
-        .and_then(|r| r.get("max_order").and_then(|v| v.as_i64()))
+        .and_then(|r| r.get("max_order").and_then(serde_json::Value::as_i64))
         .unwrap_or(0);
 
     let next_order = max_order + 1;
@@ -99,6 +103,10 @@ pub async fn handle_file_store_attach(
 }
 
 /// Handle content reference detach for file store.
+///
+/// # Errors
+///
+/// Returns an `AppError::MethodNotAllowed` if content references are not enabled.
 pub async fn handle_file_store_detach(
     id: &str,
     entity_id: &str,
@@ -137,8 +145,7 @@ pub async fn handle_file_store_detach(
 
     if rows_affected == 0 {
         return Err(AppError::NotFound(format!(
-            "No content reference found for file id '{}', entity '{}'",
-            id, entity_id
+            "No content reference found for file id '{id}', entity '{entity_id}'"
         )));
     }
 

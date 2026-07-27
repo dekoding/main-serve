@@ -84,7 +84,7 @@ fn load_yaml_with_includes(path: &Path, visited: &mut HashSet<PathBuf>) -> Resul
         AppError::Config(format!("Failed to parse YAML in {}: {e}", path.display()))
     })?;
 
-    let base_dir = path.parent().unwrap_or(Path::new("."));
+    let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
     // SAFETY: path is a canonicalized absolute path from std::fs::canonicalize,
     // which always returns a path with a parent (at minimum "/").
     resolve_includes(value, base_dir, visited)
@@ -295,20 +295,18 @@ fn interpolate_env_vars(input: &str) -> Result<String, AppError> {
     let mut errors: Vec<String> = Vec::new();
     let result = re.replace_all(input, |caps: &regex::Captures| {
         let var_name = &caps[1];
-        match std::env::var(var_name) {
-            Ok(val) => val,
-            Err(_) => {
-                // Check for default value
-                if let Some(default_match) = caps.get(2) {
-                    default_match.as_str().to_string()
-                } else {
+        std::env::var(var_name).unwrap_or_else(|_| {
+            // Check for default value
+            caps.get(2).map_or_else(
+                || {
                     errors.push(format!(
                         "Environment variable '{var_name}' is not set and has no default"
                     ));
                     format!("${{UNSET_{var_name}}}")
-                }
-            }
-        }
+                },
+                |m| m.as_str().to_string(),
+            )
+        })
     });
 
     if !errors.is_empty() {

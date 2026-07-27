@@ -80,6 +80,11 @@ pub(crate) async fn handle_static_get(ctx: StaticGetContext<'_>) -> Result<Respo
 }
 
 /// Serve a single file with optional image resize or streaming.
+///
+/// # Errors
+///
+/// Returns an `AppError::NotFound` if the file is not found in storage.
+#[allow(clippy::implicit_hasher)]
 pub async fn serve_file(
     storage: &dyn Storage,
     path: &Path,
@@ -171,7 +176,7 @@ pub async fn serve_file(
         .await
         .map_err(|_| AppError::NotFound(format!("File not found: {}", path.display())))?;
 
-    let mut response = (StatusCode::OK, content.to_vec()).into_response();
+    let mut response = (StatusCode::OK, content.clone()).into_response();
     apply_content_type(&mut response, content_type);
     apply_cache_control(
         &mut response,
@@ -219,7 +224,7 @@ async fn handle_range_streaming(
     };
 
     let end = end
-        .unwrap_or(file_size.saturating_sub(1))
+        .unwrap_or_else(|| file_size.saturating_sub(1))
         .min(file_size.saturating_sub(1));
 
     // Validate range
@@ -393,14 +398,14 @@ fn handle_range_small_file(
 
     if start >= file_size {
         return Err(AppError::RequestedRangeNotSatisfiable(format!(
-            "Range bytes={}-{} is not satisfiable for file size {file_size}",
-            start, end
+            "Range bytes={start}-{end} is not satisfiable for file size {file_size}"
         )));
     }
 
     let actual_end = end.min(file_size - 1);
     let range_size = actual_end - start + 1;
 
+    #[allow(clippy::cast_possible_truncation)]
     let body = content[start as usize..(actual_end + 1) as usize].to_vec();
 
     let mut response = (StatusCode::PARTIAL_CONTENT, body).into_response();
@@ -409,7 +414,7 @@ fn handle_range_small_file(
     apply_content_length(&mut response, &range_size.to_string());
     apply_content_range(
         &mut response,
-        &format!("bytes {}-{}/{}", start, actual_end, file_size),
+        &format!("bytes {start}-{actual_end}/{file_size}"),
     );
     apply_cache_control(&mut response, cache_max_age, Some(path), cache_rules);
 

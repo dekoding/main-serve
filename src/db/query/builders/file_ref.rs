@@ -5,6 +5,7 @@ use crate::db::query::types::BuiltQuery;
 /// Build `SELECT COALESCE(MAX({order_col}), 0) as max_order FROM {table}`.
 ///
 /// Used to determine the next attachment order when adding file/media references.
+#[must_use]
 pub fn build_file_ref_max_order(
     table_name: &str,
     order_col: &str,
@@ -21,7 +22,8 @@ pub fn build_file_ref_max_order(
 /// Build `INSERT INTO {table} ({columns}) VALUES ({placeholders})`.
 ///
 /// Used for attaching file store entries to content entities.
-/// Parameters: file_id, entity_id, content_type, order
+/// Parameters: `file_id`, `entity_id`, `content_type`, order
+#[must_use]
 pub fn build_file_ref_insert(
     table_name: &str,
     columns: &[&str],
@@ -50,6 +52,7 @@ pub fn build_file_ref_insert(
 /// Used to retrieve a content reference after insertion.
 ///
 /// Shared by media store and file store.
+#[must_use]
 pub fn build_file_ref_select(
     table_name: &str,
     file_id_col: &str,
@@ -73,6 +76,7 @@ pub fn build_file_ref_select(
 }
 
 /// Used for detaching file and media store entries from content entities.
+#[must_use]
 pub fn build_file_ref_delete(
     table_name: &str,
     file_id_col: &str,

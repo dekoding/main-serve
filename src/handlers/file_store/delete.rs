@@ -11,6 +11,11 @@ use crate::handlers::file_store::{FileStoreContext, check_file_store_ownership};
 use crate::middleware::auth::extractor::RequestContext;
 
 /// Handle deleting a file store entry.
+///
+/// # Errors
+///
+/// Returns an error on authentication failure, ownership violations, or
+/// database and storage errors.
 pub async fn handle_file_store_delete(ctx: &FileStoreContext<'_>) -> Result<Response, AppError> {
     let pool = &ctx.db_ctx.pool;
     let driver = &ctx.db_ctx.pool.driver();
@@ -18,14 +23,15 @@ pub async fn handle_file_store_delete(ctx: &FileStoreContext<'_>) -> Result<Resp
     let id = ctx.require_id()?;
     let trash_enabled = ctx.config.trash.as_ref().is_some_and(|t| t.enabled);
 
-    if trash_enabled {
-        if ctx.config.ownership.is_some() {
-            let auth_info = ctx.handler_ctx.extract_auth_info().await?;
-            if !ctx.handler_ctx.endpoint.roles.is_admin(&auth_info.role) {
-                check_file_store_ownership(ctx.handler_ctx, ctx.config, id, driver).await?;
-            }
+    let check_ownership = ctx.config.ownership.is_some();
+    if check_ownership {
+        let auth_info = ctx.handler_ctx.extract_auth_info().await?;
+        if !ctx.handler_ctx.endpoint.roles.is_admin(&auth_info.role) {
+            check_file_store_ownership(ctx.handler_ctx, ctx.config, id, driver).await?;
         }
+    }
 
+    if trash_enabled {
         let built = build_select_file_path(&ctx.config.table, ctx.db_ctx.pool.driver());
         let row = pool.fetch_optional_json(&built.sql, &[id.into()]).await?;
         if let Some(row) = row
@@ -33,7 +39,7 @@ pub async fn handle_file_store_delete(ctx: &FileStoreContext<'_>) -> Result<Resp
         {
             let store_root = storage
                 .root_path()
-                .unwrap_or(PathBuf::from(&ctx.config.storage));
+                .unwrap_or_else(|| PathBuf::from(&ctx.config.storage));
             let trash_dest = store_root.join(".trash").join(file_path);
             let source_path = store_root.join(file_path);
 
@@ -53,8 +59,7 @@ pub async fn handle_file_store_delete(ctx: &FileStoreContext<'_>) -> Result<Resp
 
         if rows_affected == 0 {
             return Err(AppError::NotFound(format!(
-                "File entry with id '{}' not found",
-                id
+                "File entry with id '{id}' not found"
             )));
         }
 
@@ -82,7 +87,7 @@ pub async fn handle_file_store_delete(ctx: &FileStoreContext<'_>) -> Result<Resp
         {
             let file_path_buf = storage
                 .root_path()
-                .unwrap_or(PathBuf::from(&ctx.config.storage))
+                .unwrap_or_else(|| PathBuf::from(&ctx.config.storage))
                 .join(file_path);
             if storage.exists(&file_path_buf).await {
                 storage
@@ -97,8 +102,7 @@ pub async fn handle_file_store_delete(ctx: &FileStoreContext<'_>) -> Result<Resp
 
         if rows_affected == 0 {
             return Err(AppError::NotFound(format!(
-                "File entry with id '{}' not found",
-                id
+                "File entry with id '{id}' not found"
             )));
         }
 

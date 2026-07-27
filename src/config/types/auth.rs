@@ -6,8 +6,9 @@ use serde::Deserialize;
 /// Password hashing algorithm for user registration.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
-/// PasswordHashAlgorithm
+/// `PasswordHashAlgorithm`
 pub enum PasswordHashAlgorithm {
+    /// Argon2id hashing algorithm.
     #[default]
     Argon2id,
 }
@@ -15,7 +16,7 @@ pub enum PasswordHashAlgorithm {
 /// User registration configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// RegisterConfig
+/// `RegisterConfig`
 pub struct RegisterConfig {
     /// Whether registration is enabled.
     pub enabled: bool,
@@ -31,7 +32,7 @@ pub struct RegisterConfig {
 }
 
 impl Default for RegisterConfig {
-    /// Returns a RegisterConfig with registration disabled by default.
+    /// Returns a `RegisterConfig` with registration disabled by default.
     fn default() -> Self {
         Self {
             enabled: false,
@@ -46,7 +47,7 @@ impl Default for RegisterConfig {
 /// Top-level auth configuration - defines available auth providers.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// AuthConfig
+/// `AuthConfig`
 pub struct AuthConfig {
     /// JWT authentication configuration.
     pub jwt: Option<JwtConfig>,
@@ -64,21 +65,23 @@ pub struct AuthConfig {
 /// Token revocation store type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
-/// RevocationStoreType
+/// `RevocationStoreType`
 pub enum RevocationStoreType {
+    /// In-memory store (ephemeral, lost on restart).
     InMemory,
+    /// Database-backed store (persistent across restarts).
     Database,
 }
 
 /// Configuration for JWT token revocation.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// JwtRevocationConfig
+/// `JwtRevocationConfig`
 pub struct JwtRevocationConfig {
-    /// Store type: "in_memory" or "database".
+    /// Store type: "`in_memory`" or "database".
     pub store: RevocationStoreType,
     /// Database table name for the revocation store (only when store is "database").
-    /// Defaults to "token_blacklist".
+    /// Defaults to "`token_blacklist`".
     pub db_table: Option<String>,
     /// Interval in seconds between cleanup runs for expired revocation entries.
     /// Only applicable for "database" store.
@@ -86,7 +89,7 @@ pub struct JwtRevocationConfig {
 }
 
 impl Default for JwtRevocationConfig {
-    /// Returns a JwtRevocationConfig with in-memory store and 1-hour cleanup interval.
+    /// Returns a `JwtRevocationConfig` with in-memory store and 1-hour cleanup interval.
     fn default() -> Self {
         Self {
             store: RevocationStoreType::InMemory,
@@ -99,7 +102,7 @@ impl Default for JwtRevocationConfig {
 /// JWT authentication provider configuration.
 #[derive(Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// JwtConfig
+/// `JwtConfig`
 pub struct JwtConfig {
     /// HMAC secret or RSA/EC key material.
     pub secret: String,
@@ -120,7 +123,7 @@ pub struct JwtConfig {
 }
 
 impl Default for JwtConfig {
-    /// Returns a JwtConfig with HS256 signing and a 1-hour token expiry.
+    /// Returns a `JwtConfig` with HS256 signing and a 1-hour token expiry.
     fn default() -> Self {
         Self {
             secret: String::new(),
@@ -136,22 +139,30 @@ impl Default for JwtConfig {
 
 /// Supported JWT signing algorithms.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-/// JwtAlgorithm
+/// `JwtAlgorithm`
 pub enum JwtAlgorithm {
+    /// HMAC with SHA-256.
     HS256,
+    /// HMAC with SHA-384.
     HS384,
+    /// HMAC with SHA-512.
     HS512,
+    /// RSA PKCS1 v1.5 with SHA-256.
     RS256,
+    /// RSA PKCS1 v1.5 with SHA-384.
     RS384,
+    /// RSA PKCS1 v1.5 with SHA-512.
     RS512,
+    /// ECDSA with P-256 and SHA-256.
     ES256,
+    /// ECDSA with P-384 and SHA-384.
     ES384,
 }
 
 /// API key authentication provider configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// ApiKeyConfig
+/// `ApiKeyConfig`
 pub struct ApiKeyConfig {
     /// Where to look for the API key.
     pub location: ApiKeyLocation,
@@ -163,7 +174,7 @@ pub struct ApiKeyConfig {
 }
 
 impl Default for ApiKeyConfig {
-    /// Returns an ApiKeyConfig with header-based lookup and `X-API-Key` as the default header.
+    /// Returns an `ApiKeyConfig` with header-based lookup and `X-API-Key` as the default header.
     fn default() -> Self {
         Self {
             location: ApiKeyLocation::Header,
@@ -176,16 +187,18 @@ impl Default for ApiKeyConfig {
 /// Where to look for the API key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
-/// ApiKeyLocation
+/// `ApiKeyLocation`
 pub enum ApiKeyLocation {
+    /// Look for the API key in an HTTP request header.
     Header,
+    /// Look for the API key in the request query string.
     Query,
 }
 
 /// A single API key with an optional role.
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-/// ApiKeyEntry
+/// `ApiKeyEntry`
 pub struct ApiKeyEntry {
     /// The API key value.
     pub key: String,
@@ -197,7 +210,7 @@ pub struct ApiKeyEntry {
 /// HTTP Basic authentication provider configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// BasicAuthConfig
+/// `BasicAuthConfig`
 pub struct BasicAuthConfig {
     /// HTTP realm for WWW-Authenticate challenges.
     pub realm: String,
@@ -207,7 +220,7 @@ pub struct BasicAuthConfig {
 }
 
 impl Default for BasicAuthConfig {
-    /// Returns a BasicAuthConfig with "main-serve" as the default authentication realm.
+    /// Returns a `BasicAuthConfig` with "main-serve" as the default authentication realm.
     fn default() -> Self {
         Self {
             realm: "main-serve".to_string(),
@@ -219,7 +232,7 @@ impl Default for BasicAuthConfig {
 /// A user for HTTP Basic authentication.
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-/// BasicAuthUser
+/// `BasicAuthUser`
 pub struct BasicAuthUser {
     /// Username.
     pub username: String,
@@ -230,42 +243,44 @@ pub struct BasicAuthUser {
     pub role: Option<String>,
 }
 
-/// OAuth2 role mapping match mode.
+/// `OAuth2` role mapping match mode.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
-/// RoleMatchMode
+/// `RoleMatchMode`
 pub enum RoleMatchMode {
+    /// Match `` `IdP` `` roles exactly against the `role_map` keys.
     #[default]
     Exact,
+    /// Match `` `IdP` `` roles by checking if the role contains any `role_map` key as a substring.
     Contains,
 }
 
-/// Configuration for mapping IdP roles/groups to Main Serve roles.
+/// Configuration for mapping `IdP` roles/groups to Main Serve roles.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// RoleMappingConfig
+/// `RoleMappingConfig`
 pub struct RoleMappingConfig {
-    /// Default Main Serve role when no IdP role maps.
+    /// Default Main Serve role when no `IdP` role maps.
     pub default_role: String,
-    /// Name of the claim in the userinfo response containing IdP roles/groups.
+    /// Name of the claim in the userinfo response containing `IdP` roles/groups.
     /// Defaults to "groups".
     #[serde(default = "default_role_claim")]
     pub role_claim: String,
-    /// Mapping from IdP role/group values to Main Serve roles.
+    /// Mapping from `IdP` role/group values to Main Serve roles.
     #[serde(default)]
     pub role_map: std::collections::HashMap<String, String>,
-    /// How to match IdP roles against the role_map keys.
+    /// How to match `IdP` roles against the `role_map` keys.
     #[serde(default)]
     pub match_mode: RoleMatchMode,
 }
 
-/// Returns "groups" as the default IdP role claim name.
+/// Returns "groups" as the default `IdP` role claim name.
 fn default_role_claim() -> String {
     "groups".to_string()
 }
 
 impl Default for RoleMappingConfig {
-    /// Returns a RoleMappingConfig with exact matching and "user" as the default role.
+    /// Returns a `RoleMappingConfig` with exact matching and "user" as the default role.
     fn default() -> Self {
         Self {
             default_role: "user".to_string(),
@@ -279,7 +294,7 @@ impl Default for RoleMappingConfig {
 /// OAuth2/OIDC authentication provider configuration.
 #[derive(Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// OAuth2Config
+/// `OAuth2Config`
 pub struct OAuth2Config {
     /// Provider name (informational only).
     pub provider: String,
@@ -308,24 +323,24 @@ pub struct OAuth2Config {
     /// Maximum number of pending `OAuth2` authorization flows allowed simultaneously.
     #[serde(default = "default_max_pending_states")]
     pub max_pending_states: usize,
-    /// OAuth2 role mapping configuration. When set, IdP roles/groups from
+    /// `OAuth2` role mapping configuration. When set, `IdP` roles/groups from
     /// the userinfo response are mapped to Main Serve roles.
     #[serde(default)]
     pub role_mapping: Option<RoleMappingConfig>,
 }
 
-/// Returns 300 seconds (5 minutes) as the default OAuth2 authorization state TTL.
-fn default_state_ttl() -> u64 {
+/// Returns 300 seconds (5 minutes) as the default `OAuth2` authorization state TTL.
+const fn default_state_ttl() -> u64 {
     300 // 5 minutes
 }
 
-/// Returns 1000 as the default maximum number of concurrent pending OAuth2 authorization states.
-fn default_max_pending_states() -> usize {
+/// Returns 1000 as the default maximum number of concurrent pending `OAuth2` authorization states.
+const fn default_max_pending_states() -> usize {
     1000
 }
 
 impl Default for OAuth2Config {
-    /// Returns an OAuth2Config with a 5-minute state TTL and no role mapping.
+    /// Returns an `OAuth2Config` with a 5-minute state TTL and no role mapping.
     fn default() -> Self {
         Self {
             provider: "generic".to_string(),
@@ -371,7 +386,7 @@ impl fmt::Debug for ApiKeyEntry {
 }
 
 impl fmt::Debug for BasicAuthUser {
-    /// Formats the struct with the password_hash field redacted.
+    /// Formats the struct with the `password_hash` field redacted.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("BasicAuthUser")
             .field("username", &self.username)
@@ -382,7 +397,7 @@ impl fmt::Debug for BasicAuthUser {
 }
 
 impl fmt::Debug for OAuth2Config {
-    /// Formats the struct with the client_secret field redacted.
+    /// Formats the struct with the `client_secret` field redacted.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("OAuth2Config")
             .field("provider", &self.provider)

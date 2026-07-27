@@ -10,7 +10,7 @@ use crate::middleware::auth::extractor::RequestContext;
 
 /// Build an UPDATE query from a JSON body, targeting a single record by PK.
 ///
-/// Handles JSONB column casting for PostgreSQL and uses a sentinel WHERE clause
+/// Handles JSONB column casting for `PostgreSQL` and uses a sentinel WHERE clause
 /// (`1 = 0`) when PK coercion fails to prevent type mismatch errors.
 ///
 /// # Errors
@@ -20,7 +20,7 @@ use crate::middleware::auth::extractor::RequestContext;
 /// Returns `AppError::Internal` if the table has no primary key column.
 pub fn build_update(
     db_ctx: &DatabaseContext,
-    ctx: MutationContext,
+    ctx: &MutationContext,
     pk_value: &str,
     body: &serde_json::Value,
     context: &RequestContext,
@@ -66,7 +66,7 @@ pub fn build_update(
             placeholder(db_ctx.pool.driver(), param_idx)
         };
 
-        set_parts.push(format!("{} = {}", key, set_value));
+        set_parts.push(format!("{key} = {set_value}"));
         params.push(final_value);
         param_idx += 1;
     }

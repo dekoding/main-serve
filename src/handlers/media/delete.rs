@@ -13,6 +13,14 @@ use crate::handlers::media::trash::handle_media_trash_delete;
 use crate::middleware::auth::extractor::RequestContext;
 use crate::storage::Storage;
 
+/// Handle `DELETE` for a media endpoint.
+///
+/// Routes to trash or permanent delete based on configuration.
+///
+/// # Errors
+///
+/// Returns `AppError::Auth` on authentication failure. Returns `AppError::Internal`
+/// or `AppError::FileOperation` on database or storage errors.
 pub async fn handle_media_delete(
     handler_ctx: &HandlerContext<'_>,
     id: &str,
@@ -31,6 +39,12 @@ pub async fn handle_media_delete(
 }
 
 // collapsible_if suppressed: early return pattern would obscure the delete logic.
+/// Permanently delete a media item by ID: removes the file from storage and the row from the database.
+///
+/// # Errors
+///
+/// Returns `AppError::NotFound` if the item does not exist. Returns `AppError::FileOperation`
+/// if storage deletion fails. Returns `AppError::Internal` on database errors.
 pub async fn delete_media_permanently(
     id: &str,
     config: &MediaConfig,
@@ -65,8 +79,7 @@ pub async fn delete_media_permanently(
 
     if rows_affected == 0 {
         return Err(AppError::NotFound(format!(
-            "Media item with id '{}' not found",
-            id
+            "Media item with id '{id}' not found"
         )));
     }
 

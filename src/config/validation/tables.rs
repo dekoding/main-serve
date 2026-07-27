@@ -1,5 +1,5 @@
 /// Validate table schemas reference existing databases and have valid columns.
-pub(crate) fn validate_tables(config: &crate::config::types::AppConfig, errors: &mut Vec<String>) {
+pub fn validate_tables(config: &crate::config::types::AppConfig, errors: &mut Vec<String>) {
     // Check for duplicate table name + database combinations
     let mut seen_tables = std::collections::HashSet::new();
 
@@ -27,7 +27,7 @@ pub(crate) fn validate_tables(config: &crate::config::types::AppConfig, errors: 
 
         // Check table has at least one column
         if table.columns.is_empty() {
-            errors.push(format!("{}: must have at least one column", label));
+            errors.push(format!("{label}: must have at least one column"));
         }
 
         // Check column names are not empty and not duplicated
@@ -35,7 +35,7 @@ pub(crate) fn validate_tables(config: &crate::config::types::AppConfig, errors: 
         let mut has_pk = false;
         for col in &table.columns {
             if col.name.is_empty() {
-                errors.push(format!("{}: has a column with an empty name", label));
+                errors.push(format!("{label}: has a column with an empty name"));
             }
             if !col_names.insert(&col.name) {
                 errors.push(format!(
@@ -85,8 +85,7 @@ pub(crate) fn validate_tables(config: &crate::config::types::AppConfig, errors: 
         }
         if !has_pk {
             errors.push(format!(
-                "{}: must have at least one primary key column",
-                label
+                "{label}: must have at least one primary key column"
             ));
         }
 
@@ -99,10 +98,11 @@ pub(crate) fn validate_tables(config: &crate::config::types::AppConfig, errors: 
                 ));
             }
             // Check referenced table exists (by name + database match)
-            let table_exists = config
-                .tables
-                .iter()
-                .any(|t| t.name == fk.references_table && t.database == table.database);
+            let table_exists = config.tables.iter().any(|t| {
+                let name_matches = t.name == fk.references_table;
+                let db_matches = t.database == table.database;
+                name_matches && db_matches
+            });
             if !table_exists {
                 errors.push(format!(
                     "{}: foreign_keys references table '{}' which is not defined",

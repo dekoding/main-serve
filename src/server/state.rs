@@ -30,7 +30,7 @@ use crate::storage::{Storage, create_store};
 /// this trait, allowing `AppState` to hold either variant behind a
 /// single type.
 #[async_trait::async_trait]
-/// RevocationStoreBackend
+/// `RevocationStoreBackend`
 pub trait RevocationStoreBackend: Send + Sync {
     /// Check whether the given JTI has been revoked.
     async fn is_revoked(&self, jti: &str) -> bool;
@@ -46,7 +46,7 @@ pub trait RevocationStoreBackend: Send + Sync {
 /// expiry time. Entries are lazily cleaned up during revocation checks
 /// and periodic cleanup runs.
 #[derive(Debug, Clone, Default)]
-/// InMemoryRevocationStore
+/// `InMemoryRevocationStore`
 pub struct InMemoryRevocationStore {
     /// Map of JTI -> revocation expiry instant, wrapped in Arc for shared cloning.
     revoked: Arc<tokio::sync::Mutex<std::collections::HashMap<String, Instant>>>,
@@ -81,18 +81,18 @@ impl RevocationStoreBackend for InMemoryRevocationStore {
 /// `expires_at` (timestamptz). Entries are cleaned up periodically based
 /// on the configured interval.
 #[derive(Debug, Clone)]
-/// DatabaseRevocationStore
+/// `DatabaseRevocationStore`
 pub struct DatabaseRevocationStore {
     /// The database pool for this store.
     pool: DatabasePool,
-    /// Table name for the revocation store (default: "token_blacklist").
+    /// Table name for the revocation store (default: "`token_blacklist`").
     table_name: String,
 }
 
 impl DatabaseRevocationStore {
     /// Create a new database-backed revocation store.
     #[must_use]
-    pub fn new(pool: DatabasePool, table_name: String) -> Self {
+    pub const fn new(pool: DatabasePool, table_name: String) -> Self {
         Self { pool, table_name }
     }
 
@@ -167,7 +167,7 @@ impl RevocationStoreBackend for DatabaseRevocationStore {
 
 /// Unified revocation store that can be either in-memory or database-backed.
 #[derive(Debug)]
-/// RevocationStoreImpl
+/// `RevocationStoreImpl`
 pub enum RevocationStoreImpl {
     /// In-memory store.
     InMemory(Arc<InMemoryRevocationStore>),
@@ -221,7 +221,7 @@ impl RevocationStoreImpl {
 
 /// Shared application state available to all handlers.
 #[derive(Clone)]
-/// AppState
+/// `AppState`
 pub struct AppState {
     /// The current parsed configuration, swappable on hot-reload.
     pub config: Arc<RwLock<AppConfig>>,
@@ -260,7 +260,7 @@ pub struct AppState {
 
     /// Token revocation store (in-memory or database-backed). Used when JWT
     /// revocation is enabled. Initialized after database pools are available
-    /// (for database-backed stores). Wrapped in OnceLock for deferred init.
+    /// (for database-backed stores). Wrapped in `OnceLock` for deferred init.
     pub revocation_store: OnceLock<RevocationStoreImpl>,
 
     /// Compiled JSON schemas for per-column validation on JSONB/JSON columns.
@@ -327,7 +327,7 @@ impl AppState {
 
     /// Get a storage store by name.
     #[must_use]
-    /// get_store
+    /// `get_store`
     pub fn get_store(&self, name: &str) -> Option<Arc<dyn Storage>> {
         self.stores.get(name).cloned()
     }
@@ -348,7 +348,9 @@ impl AppState {
         }
 
         // Check for wildcard pattern matches (e.g., /app/{*rest} matches /app/foo/bar)
-        find_wildcard_match(&configs, path, |_| true)
+        let result = find_wildcard_match(&configs, path, |_| true);
+        drop(configs);
+        result
     }
 
     /// Get the endpoint configuration for a given path and method.
@@ -384,10 +386,17 @@ impl AppState {
         }
 
         // Check for wildcard pattern matches (e.g., /app/{*rest} matches /app/foo/bar)
-        find_wildcard_match(&configs, path, method_check)
+        let result = find_wildcard_match(&configs, path, method_check);
+        drop(configs);
+        result
     }
 
     /// Resolve database pool and table config.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the database pool is not found or the table is not
+    /// configured.
     pub async fn get_db_context(&self, db: &str, table: &str) -> Result<DatabaseContext, AppError> {
         let pool = self.db_pool(db).await?;
 
@@ -399,8 +408,7 @@ impl AppState {
                 .find(|t| t.name == table && t.database == db)
                 .ok_or_else(|| {
                     AppError::Internal(format!(
-                        "Table '{}' in database '{}' not found in config",
-                        table, db
+                        "Table '{table}' in database '{db}' not found in config"
                     ))
                 })?
                 .clone()
@@ -409,23 +417,32 @@ impl AppState {
     }
 
     /// Get database pool from state
+    ///
+    /// # Errors
+    ///
+    /// Returns an `AppError::Internal` if the database has no configured pool.
     pub async fn db_pool(&self, db: &str) -> Result<DatabasePool, AppError> {
         let pool = {
             let pools = self.db_pools.read().await;
             pools
                 .get(db)
-                .ok_or_else(|| AppError::Internal(format!("Database '{}' has no pool", db)))?
+                .ok_or_else(|| AppError::Internal(format!("Database '{db}' has no pool")))?
                 .clone()
         };
         Ok(pool)
     }
 
     /// Helper function to get the registration database pool and config.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `AppError::Config` if registration is not enabled, or an
+    /// `AppError::Internal` if the database pool is not found.
     pub async fn registration_pool(&self) -> Result<(DatabasePool, RegisterConfig), AppError> {
         let (pool, register_config) = {
             let register_config = {
                 let config = self.config.read().await;
-                config.auth.register.as_ref().cloned().ok_or_else(|| {
+                config.auth.register.clone().ok_or_else(|| {
                     AppError::Config("User registration is not enabled".to_string())
                 })?
             };
@@ -447,8 +464,10 @@ impl AppState {
             .auth
             .jwt
             .as_ref()
-            .ok_or_else(|| AppError::Config("JWT is not configured".to_string()))?;
-        Ok(jwt_config.clone())
+            .ok_or_else(|| AppError::Config("JWT is not configured".to_string()))?
+            .clone();
+        drop(config);
+        Ok(jwt_config)
     }
 }
 
@@ -458,7 +477,7 @@ impl AppState {
 /// parents, etc.) and returns a map from role name to the set of inherited
 /// roles. Roles not present in the hierarchy map to an empty set.
 #[must_use]
-/// compute_role_inheritance
+/// `compute_role_inheritance`
 pub fn compute_role_inheritance(
     role_hierarchy: &Option<RoleHierarchy>,
 ) -> HashMap<String, HashSet<String>> {
@@ -542,9 +561,9 @@ pub async fn build_stores_from_config(
 /// Returns two vectors:
 /// - `unchanged`: Store names that exist in both configs with the same backend+root
 /// - `changed_or_removed`: Store names that need recreation (changed or removed from config)
-pub fn compute_store_changes(
-    old_configs: &HashMap<String, StoreConfig>,
-    new_configs: &HashMap<String, StoreConfig>,
+pub fn compute_store_changes<S: std::hash::BuildHasher>(
+    old_configs: &HashMap<String, StoreConfig, S>,
+    new_configs: &HashMap<String, StoreConfig, S>,
 ) -> (Vec<String>, Vec<String>) {
     let mut unchanged = Vec::new();
     let mut changed_or_removed = Vec::new();
@@ -634,7 +653,7 @@ mod tests {
     #[tokio::test]
     async fn test_revocation_store_revoke_and_check() {
         let store = InMemoryRevocationStore::default();
-        let expires_at = std::time::Instant::now() + std::time::Duration::from_secs(3600);
+        let expires_at = std::time::Instant::now() + std::time::Duration::from_hours(1);
 
         store.revoke("jti-1", expires_at).await;
         assert!(store.is_revoked("jti-1").await);
@@ -644,8 +663,10 @@ mod tests {
     #[tokio::test]
     async fn test_revocation_store_cleanup_removes_expired() {
         let store = InMemoryRevocationStore::default();
-        let expired = std::time::Instant::now() - std::time::Duration::from_secs(60);
-        let valid = std::time::Instant::now() + std::time::Duration::from_secs(3600);
+        let expired = std::time::Instant::now()
+            .checked_sub(std::time::Duration::from_mins(1))
+            .unwrap();
+        let valid = std::time::Instant::now() + std::time::Duration::from_hours(1);
 
         store.revoke("expired-jti", expired).await;
         store.revoke("valid-jti", valid).await;
@@ -669,7 +690,7 @@ mod tests {
     #[tokio::test]
     async fn test_revocation_store_multiple_entries() {
         let store = InMemoryRevocationStore::default();
-        let expires = std::time::Instant::now() + std::time::Duration::from_secs(3600);
+        let expires = std::time::Instant::now() + std::time::Duration::from_hours(1);
 
         for i in 0..100 {
             store.revoke(&format!("jti-{i}"), expires).await;
@@ -684,7 +705,9 @@ mod tests {
     #[tokio::test]
     async fn test_revocation_store_cleanup_all_expired() {
         let store = InMemoryRevocationStore::default();
-        let expired = std::time::Instant::now() - std::time::Duration::from_secs(1);
+        let expired = std::time::Instant::now()
+            .checked_sub(std::time::Duration::from_secs(1))
+            .unwrap();
 
         store.revoke("jti-1", expired).await;
         store.revoke("jti-2", expired).await;

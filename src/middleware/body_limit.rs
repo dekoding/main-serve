@@ -12,6 +12,11 @@ use crate::server::state::AppState;
 /// Checks the Content-Length header and rejects with 413 if exceeded.
 /// If the header is not present, the body is read to check size, then
 /// reconstructed so downstream handlers can consume it.
+///
+/// # Errors
+///
+/// Returns an `AppError::PayloadTooLarge` if the body exceeds the configured
+/// maximum size.
 pub async fn body_limit_middleware(
     State(state): State<AppState>,
     request: Request<Body>,

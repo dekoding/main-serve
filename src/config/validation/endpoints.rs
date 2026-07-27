@@ -2,7 +2,7 @@ use crate::config::types::{AppConfig, EndpointAction};
 use crate::db::query::helpers::is_safe_sql_fragment;
 
 /// Validate endpoint configs: correct action types, valid references, etc.
-pub(crate) fn validate_endpoints(config: &AppConfig, errors: &mut Vec<String>) {
+pub fn validate_endpoints(config: &AppConfig, errors: &mut Vec<String>) {
     const HTTP_STATUS_MIN: u16 = 100;
     const HTTP_STATUS_MAX: u16 = 599;
 

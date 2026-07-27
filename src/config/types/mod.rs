@@ -66,7 +66,7 @@ pub use store::*;
 /// and `editor` inherits from `author`.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(transparent)]
-/// RoleHierarchy
+/// `RoleHierarchy`
 pub struct RoleHierarchy {
     /// Role name -> list of parent roles it inherits from.
     pub roles: HashMap<String, Vec<String>>,
@@ -79,7 +79,7 @@ pub struct RoleHierarchy {
 /// Top-level configuration - the direct deserialization target for the YAML file.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// AppConfig
+/// `AppConfig`
 pub struct AppConfig {
     /// Server bind address, port, TLS, and runtime settings.
     pub server: ServerConfig,

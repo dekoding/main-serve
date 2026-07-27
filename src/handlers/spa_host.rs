@@ -20,6 +20,10 @@ use crate::server::state::AppState;
 use crate::storage::Storage;
 
 /// Route handler for SPA hosting.
+///
+/// # Errors
+///
+/// Returns an `AppError::NotFound` if the endpoint is not found.
 pub async fn handle_spa_host_route(
     state: axum::extract::State<AppState>,
     matched_path: axum::extract::MatchedPath,
@@ -110,69 +114,63 @@ pub(crate) async fn handle_spa_head(
         root.join(relative)
     };
 
-    match storage.metadata(&resolved).await {
-        Ok(meta) => {
-            let content_type = mime_from_path(&resolved);
+    if let Ok(meta) = storage.metadata(&resolved).await {
+        let content_type = mime_from_path(&resolved);
 
-            let mut response = Response::new(axum::body::Body::empty());
-            *response.status_mut() = StatusCode::OK;
-            apply_content_type(&mut response, content_type);
-            apply_cache_control(
-                &mut response,
-                config.cache_max_age,
-                Some(&resolved),
-                &config.cache_rules,
+        let mut response = Response::new(axum::body::Body::empty());
+        *response.status_mut() = StatusCode::OK;
+        apply_content_type(&mut response, content_type);
+        apply_cache_control(
+            &mut response,
+            config.cache_max_age,
+            Some(&resolved),
+            &config.cache_rules,
+        );
+        apply_content_length(&mut response, &meta.size.to_string());
+
+        if config.etag {
+            let etag_value = format!("\"{}-{}\"", resolved.display(), meta.size);
+            response.headers_mut().insert(
+                header::ETAG,
+                HeaderValue::from_str(&etag_value).unwrap_or(HeaderValue::from_static("\"none\"")),
             );
-            apply_content_length(&mut response, &meta.size.to_string());
 
-            if config.etag {
-                let etag_value = format!("\"{}-{}\"", resolved.display(), meta.size);
-                response.headers_mut().insert(
-                    header::ETAG,
-                    HeaderValue::from_str(&etag_value)
-                        .unwrap_or(HeaderValue::from_static("\"none\"")),
-                );
-
-                if let Some(if_none_match) = headers.get(header::IF_NONE_MATCH) {
-                    let etag_match = if_none_match
-                        .to_str()
-                        .ok()
-                        .map(|s| s.trim() == etag_value.trim())
-                        .unwrap_or(false);
-                    if etag_match {
-                        *response.status_mut() = StatusCode::NOT_MODIFIED;
-                        response.headers_mut().insert(
-                            header::ETAG,
-                            HeaderValue::from_str(&etag_value)
-                                .unwrap_or(HeaderValue::from_static("\"none\"")),
-                        );
-                    }
-                }
-            }
-
-            Ok(response)
-        }
-        Err(_) => {
-            let index_path = root.join(&config.index);
-            match storage.metadata(&index_path).await {
-                Ok(meta) => {
-                    let content_type = mime_from_path(&index_path);
-                    let status =
-                        StatusCode::from_u16(config.fallback_status).unwrap_or(StatusCode::OK);
-                    let mut response = Response::new(axum::body::Body::empty());
-                    *response.status_mut() = status;
-                    apply_content_type(&mut response, content_type);
-                    apply_cache_control(
-                        &mut response,
-                        config.cache_max_age,
-                        Some(&index_path),
-                        &config.cache_rules,
+            if let Some(if_none_match) = headers.get(header::IF_NONE_MATCH) {
+                let etag_match = if_none_match
+                    .to_str()
+                    .ok()
+                    .is_some_and(|s| s.trim() == etag_value.trim());
+                if etag_match {
+                    *response.status_mut() = StatusCode::NOT_MODIFIED;
+                    response.headers_mut().insert(
+                        header::ETAG,
+                        HeaderValue::from_str(&etag_value)
+                            .unwrap_or(HeaderValue::from_static("\"none\"")),
                     );
-                    apply_content_length(&mut response, &meta.size.to_string());
-                    Ok(response)
                 }
-                Err(_) => Ok((StatusCode::NOT_FOUND, "").into_response()),
             }
+        }
+
+        Ok(response)
+    } else {
+        let index_path = root.join(&config.index);
+        match storage.metadata(&index_path).await {
+            Ok(meta) => {
+                let content_type = mime_from_path(&index_path);
+                let status = StatusCode::from_u16(config.fallback_status).unwrap_or(StatusCode::OK);
+                let mut response = Response::new(axum::body::Body::empty());
+                *response.status_mut() = status;
+                apply_content_type(&mut response, content_type);
+                apply_cache_control(
+                    &mut response,
+                    config.cache_max_age,
+                    Some(&index_path),
+                    &config.cache_rules,
+                );
+                apply_content_length(&mut response, &meta.size.to_string());
+                Ok(response)
+            }
+            Err(_) => Ok((StatusCode::NOT_FOUND, "").into_response()),
         }
     }
 }
@@ -219,8 +217,7 @@ async fn serve_spa_file(
             let etag_match = if_none_match
                 .to_str()
                 .ok()
-                .map(|s| s.trim() == etag_value.trim())
-                .unwrap_or(false);
+                .is_some_and(|s| s.trim() == etag_value.trim());
             if etag_match {
                 *response.status_mut() = StatusCode::NOT_MODIFIED;
                 *response.headers_mut() = std::mem::take(response.headers_mut());

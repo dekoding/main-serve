@@ -9,6 +9,11 @@ use crate::handlers::file_store::{FileStoreContext, is_field_writable, user_role
 use crate::middleware::auth::extractor::RequestContext;
 
 /// Handle creating a file store entry.
+///
+/// # Errors
+///
+/// Returns an error on authentication failure, field permission violations,
+/// or database errors.
 pub async fn handle_file_store_create(ctx: &FileStoreContext<'_>) -> Result<Response, AppError> {
     let pool = &ctx.db_ctx.pool;
     let table_config = &ctx.db_ctx.table_config;
@@ -25,8 +30,7 @@ pub async fn handle_file_store_create(ctx: &FileStoreContext<'_>) -> Result<Resp
                     && !is_field_writable(k, &user_roles, permissions)
                 {
                     return Err(AppError::Forbidden(format!(
-                        "Field '{}' is not writable by the current user's roles",
-                        k
+                        "Field '{k}' is not writable by the current user's roles"
                     )));
                 }
             }
@@ -49,8 +53,7 @@ pub async fn handle_file_store_create(ctx: &FileStoreContext<'_>) -> Result<Resp
             .config
             .ownership
             .as_ref()
-            .map(|o| o.owner_column.as_str())
-            .unwrap_or("owner_id");
+            .map_or("owner_id", |o| o.owner_column.as_str());
         body_map.insert(
             owner_col.to_string(),
             serde_json::Value::String(user_id.clone()),
@@ -100,8 +103,7 @@ pub async fn handle_file_store_create(ctx: &FileStoreContext<'_>) -> Result<Resp
         {
             let id_str = id_val
                 .as_i64()
-                .map(|i| i.to_string())
-                .unwrap_or_else(|| id_val.to_string());
+                .map_or_else(|| id_val.to_string(), |i| i.to_string());
             obj.insert("id".to_string(), serde_json::Value::String(id_str));
         }
         Ok((

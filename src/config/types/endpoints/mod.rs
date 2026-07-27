@@ -13,9 +13,9 @@
 pub mod common;
 /// crud
 pub mod crud;
-/// custom_response
+/// `custom_response`
 pub mod custom_response;
-/// file_store
+/// `file_store`
 pub mod file_store;
 /// listing
 pub mod listing;
@@ -23,9 +23,9 @@ pub mod listing;
 pub mod media;
 /// proxy
 pub mod proxy;
-/// spa_host
+/// `spa_host`
 pub mod spa_host;
-/// static_files
+/// `static_files`
 pub mod static_files;
 
 pub use common::*;
@@ -47,18 +47,20 @@ mod tests {
     use serde::Deserialize;
 
     #[test]
+    #[allow(clippy::items_after_statements)] // test-only struct defined inline with test logic
     fn test_deserialize_flat_roles() {
-        let yaml = r#"roles: ["admin", "editor"]"#;
+        #[allow(clippy::match_wildcard_for_single_variants)]
         #[derive(Deserialize)]
         struct Wrapper {
             roles: RolesConfig,
         }
+        let yaml = r#"roles: ["admin", "editor"]"#;
         let wrapper: Wrapper = serde_yaml::from_str(yaml).expect("should deserialize flat roles");
         match &wrapper.roles {
             RolesConfig::Flat(roles) => {
                 assert_eq!(roles, &["admin", "editor"]);
             }
-            _ => panic!("expected Flat variant"),
+            RolesConfig::MethodSpecific(_) => unreachable!("yaml contains flat roles"),
         }
     }
 
@@ -74,6 +76,8 @@ roles:
   head: ["admin", "editor"]
   options: []
 "#;
+        #[allow(clippy::items_after_statements)] // test-only struct defined inline with test logic
+        #[allow(clippy::match_wildcard_for_single_variants)]
         #[derive(Deserialize)]
         struct Wrapper {
             roles: RolesConfig,
@@ -90,17 +94,19 @@ roles:
                 assert_eq!(ms.head.as_ref().unwrap(), &["admin", "editor"]);
                 assert!(ms.options.as_ref().unwrap().is_empty());
             }
-            _ => panic!("expected MethodSpecific variant"),
+            RolesConfig::Flat(_) => unreachable!("yaml contains method-specific roles"),
         }
     }
 
     #[test]
+    #[allow(clippy::items_after_statements)] // test-only struct defined inline with test logic
     fn test_deserialize_partial_method_specific_roles() {
         let yaml = r#"
 roles:
   get: ["admin"]
   delete: ["admin", "editor"]
 "#;
+        #[allow(clippy::match_wildcard_for_single_variants)]
         #[derive(Deserialize)]
         struct Wrapper {
             roles: RolesConfig,
@@ -117,37 +123,41 @@ roles:
                 assert!(ms.head.is_none());
                 assert!(ms.options.is_none());
             }
-            _ => panic!("expected MethodSpecific variant"),
+            RolesConfig::Flat(_) => unreachable!("yaml contains method-specific roles"),
         }
     }
 
     #[test]
+    #[allow(clippy::items_after_statements)] // test-only struct defined inline with test logic
     fn test_deserialize_empty_roles() {
-        let yaml = r#"roles: []"#;
+        #[allow(clippy::match_wildcard_for_single_variants)]
         #[derive(Deserialize)]
         struct Wrapper {
             roles: RolesConfig,
         }
+        let yaml = r"roles: []";
         let wrapper: Wrapper = serde_yaml::from_str(yaml).expect("should deserialize empty roles");
         match &wrapper.roles {
             RolesConfig::Flat(roles) => assert!(roles.is_empty()),
-            _ => panic!("expected Flat variant"),
+            RolesConfig::MethodSpecific(_) => unreachable!("empty roles deserialize as Flat"),
         }
     }
 
     #[test]
+    #[allow(clippy::items_after_statements)] // test-only struct defined inline with test logic
     fn test_deserialize_default_roles() {
-        let yaml = r#""#;
+        #[allow(clippy::match_wildcard_for_single_variants)]
         #[derive(Deserialize)]
         struct Wrapper {
             #[serde(default)]
             roles: RolesConfig,
         }
+        let yaml = r"";
         let wrapper: Wrapper =
             serde_yaml::from_str(yaml).expect("should deserialize default roles");
         match &wrapper.roles {
             RolesConfig::Flat(roles) => assert!(roles.is_empty()),
-            _ => panic!("expected Flat variant"),
+            RolesConfig::MethodSpecific(_) => unreachable!("default roles deserialize as Flat"),
         }
     }
 
@@ -236,15 +246,10 @@ roles:
     /// Test that an endpoint with flat roles deserializes correctly.
     #[test]
     fn test_endpoint_config_flat_roles_roundtrip() {
-        let yaml = r#"
-path: "/api/test"
-methods: ["get", "post"]
-action: "crud"
-auth: "jwt"
-roles: ["admin", "editor"]
-"#;
-        #[derive(Deserialize)]
+        #[allow(clippy::items_after_statements)] // test-only struct defined inline with test logic
+        #[allow(clippy::match_wildcard_for_single_variants)]
         #[allow(dead_code)] // Wrapper is a test-only struct for deserialization round-trip verification
+        #[derive(Deserialize)]
         struct Wrapper {
             path: String,
             methods: Vec<HttpMethod>,
@@ -256,12 +261,19 @@ roles: ["admin", "editor"]
             #[serde(default)]
             roles: RolesConfig,
         }
+        let yaml = r#"
+path: "/api/test"
+methods: ["get", "post"]
+action: "crud"
+auth: "jwt"
+roles: ["admin", "editor"]
+"#;
         let wrapper: Wrapper = serde_yaml::from_str(yaml).expect("should deserialize endpoint");
         match &wrapper.roles {
             RolesConfig::Flat(roles) => {
                 assert_eq!(roles, &["admin", "editor"]);
             }
-            _ => panic!("expected Flat variant"),
+            RolesConfig::MethodSpecific(_) => unreachable!("yaml contains flat roles"),
         }
         assert_eq!(wrapper.auth, "jwt");
         assert_eq!(wrapper.methods.len(), 2);
@@ -270,6 +282,21 @@ roles: ["admin", "editor"]
     /// Test that an endpoint with method-specific roles deserializes correctly.
     #[test]
     fn test_endpoint_config_method_specific_roles_roundtrip() {
+        #[allow(clippy::items_after_statements)] // test-only struct defined inline with test logic
+        #[allow(clippy::match_wildcard_for_single_variants)]
+        #[allow(dead_code)] // Wrapper is a test-only struct for deserialization round-trip verification
+        #[derive(Deserialize)]
+        struct Wrapper {
+            path: String,
+            methods: Vec<HttpMethod>,
+            action: EndpointAction,
+            #[serde(default)]
+            crud: Option<CrudConfig>,
+            #[serde(default = "super::common::default_auth_none")]
+            auth: String,
+            #[serde(default)]
+            roles: RolesConfig,
+        }
         let yaml = r#"
 path: "/api/test"
 methods: ["get", "post", "delete"]
@@ -280,19 +307,6 @@ roles:
   post: ["admin"]
   delete: ["admin"]
 "#;
-        #[derive(Deserialize)]
-        #[allow(dead_code)] // Wrapper is a test-only struct for deserialization round-trip verification
-        struct Wrapper {
-            path: String,
-            methods: Vec<HttpMethod>,
-            action: EndpointAction,
-            #[serde(default)]
-            crud: Option<CrudConfig>,
-            #[serde(default = "super::common::default_auth_none")]
-            auth: String,
-            #[serde(default)]
-            roles: RolesConfig,
-        }
         let wrapper: Wrapper = serde_yaml::from_str(yaml).expect("should deserialize endpoint");
         match &wrapper.roles {
             RolesConfig::MethodSpecific(ms) => {
@@ -301,7 +315,7 @@ roles:
                 assert_eq!(ms.delete.as_ref().unwrap(), &["admin"]);
                 assert!(ms.patch.is_none());
             }
-            _ => panic!("expected MethodSpecific variant"),
+            RolesConfig::Flat(_) => unreachable!("yaml contains method-specific roles"),
         }
     }
 }

@@ -13,10 +13,13 @@ use crate::error::AppError;
 
 /// A database connection pool that abstracts over the supported backends.
 #[derive(Debug, Clone)]
-/// DatabasePool
+/// `DatabasePool`
 pub enum DatabasePool {
+    /// `SQLite` connection pool.
     Sqlite(sqlx::SqlitePool),
+    /// `PostgreSQL` connection pool.
     Postgres(sqlx::PgPool),
+    /// `MySQL` connection pool.
     Mysql(sqlx::MySqlPool),
 }
 
@@ -62,7 +65,7 @@ impl DatabasePool {
                     .connect_with(options)
                     .await
                     .map_err(|e| AppError::Config(format!("Failed to connect to SQLite: {e}")))?;
-                Ok(DatabasePool::Sqlite(pool))
+                Ok(Self::Sqlite(pool))
             }
             DatabaseDriver::Postgres => {
                 let pool = sqlx::postgres::PgPoolOptions::new()
@@ -72,7 +75,7 @@ impl DatabasePool {
                     .connect(&config.url)
                     .await
                     .map_err(|e| AppError::Config(format!("Failed to connect to Postgres: {e}")))?;
-                Ok(DatabasePool::Postgres(pool))
+                Ok(Self::Postgres(pool))
             }
             DatabaseDriver::Mysql => {
                 let pool = sqlx::mysql::MySqlPoolOptions::new()
@@ -82,7 +85,7 @@ impl DatabasePool {
                     .connect(&config.url)
                     .await
                     .map_err(|e| AppError::Config(format!("Failed to connect to MySQL: {e}")))?;
-                Ok(DatabasePool::Mysql(pool))
+                Ok(Self::Mysql(pool))
             }
         }
     }
@@ -134,9 +137,9 @@ impl DatabasePool {
 
     /// Execute an INSERT statement and return the auto-generated last insert ID.
     ///
-    /// For MySQL, retrieves the `last_insert_id` directly from the `QueryResult`
+    /// For `MySQL`, retrieves the `last_insert_id` directly from the `QueryResult`
     /// to avoid connection-pool races with `SELECT LAST_INSERT_ID()`.
-    /// For SQLite, runs `SELECT last_insert_rowid()` on the same connection.
+    /// For `SQLite`, runs `SELECT last_insert_rowid()` on the same connection.
     /// For Postgres, returns `0` (Postgres uses `RETURNING` instead).
     ///
     /// # Errors
@@ -148,9 +151,9 @@ impl DatabasePool {
         params: &[serde_json::Value],
     ) -> Result<u64, AppError> {
         match self {
-            DatabasePool::Sqlite(p) => execute_with_last_id_sqlite(p, sql, params).await,
-            DatabasePool::Mysql(p) => execute_mysql_with_last_id(p, sql, params).await,
-            DatabasePool::Postgres(_) => Ok(0),
+            Self::Sqlite(p) => execute_with_last_id_sqlite(p, sql, params).await,
+            Self::Mysql(p) => execute_mysql_with_last_id(p, sql, params).await,
+            Self::Postgres(_) => Ok(0),
         }
     }
 
@@ -177,11 +180,11 @@ impl DatabasePool {
     /// Get the driver type of this pool.
     #[must_use]
     /// driver
-    pub fn driver(&self) -> DatabaseDriver {
+    pub const fn driver(&self) -> DatabaseDriver {
         match self {
-            DatabasePool::Sqlite(_) => DatabaseDriver::Sqlite,
-            DatabasePool::Postgres(_) => DatabaseDriver::Postgres,
-            DatabasePool::Mysql(_) => DatabaseDriver::Mysql,
+            Self::Sqlite(_) => DatabaseDriver::Sqlite,
+            Self::Postgres(_) => DatabaseDriver::Postgres,
+            Self::Mysql(_) => DatabaseDriver::Mysql,
         }
     }
 
@@ -203,10 +206,10 @@ impl DatabasePool {
 /// # Errors
 ///
 /// Returns `AppError::Config` if any pool fails to connect.
-pub async fn create_pools(
-    databases: &HashMap<String, DatabaseConfig>,
-) -> Result<HashMap<String, DatabasePool>, AppError> {
-    let mut pools = HashMap::new();
+pub async fn create_pools<S: std::hash::BuildHasher + Sync + Send + Default>(
+    databases: &HashMap<String, DatabaseConfig, S>,
+) -> Result<HashMap<String, DatabasePool, S>, AppError> {
+    let mut pools: HashMap<_, _, S> = HashMap::default();
     for (name, config) in databases {
         tracing::info!("Connecting to database '{name}' ({:?})...", config.driver);
         let pool = DatabasePool::connect(config).await?;
@@ -217,7 +220,9 @@ pub async fn create_pools(
 }
 
 /// Gracefully close all pools.
-pub async fn close_pools(pools: &HashMap<String, DatabasePool>) {
+pub async fn close_pools<S: std::hash::BuildHasher + Sync>(
+    pools: &HashMap<String, DatabasePool, S>,
+) {
     for (name, pool) in pools {
         tracing::info!("Closing database pool '{name}'...");
         if let Err(e) = pool.close().await {
@@ -392,7 +397,7 @@ impl_db_helpers!(
 );
 
 /// Execute an INSERT and return the last insert ID directly from the
-/// `QueryResult`. For MySQL, this avoids the connection-pool race where
+/// `QueryResult`. For `MySQL`, this avoids the connection-pool race where
 /// `SELECT LAST_INSERT_ID()` could run on a different connection than the
 /// INSERT itself.
 async fn execute_mysql_with_last_id(
@@ -409,7 +414,7 @@ async fn execute_mysql_with_last_id(
 }
 
 /// Execute an INSERT and return the last insert row ID.
-/// For SQLite, this retrieves the `last_insert_rowid` directly from the
+/// For `SQLite`, this retrieves the `last_insert_rowid` directly from the
 /// `QueryResult` on the same connection that performed the INSERT.
 async fn execute_with_last_id_sqlite(
     pool: &sqlx::SqlitePool,
@@ -421,5 +426,5 @@ async fn execute_with_last_id_sqlite(
         query = bind_sqlite_param(query, param);
     }
     let result = query.execute(pool).await?;
-    Ok(result.last_insert_rowid() as u64)
+    Ok(result.last_insert_rowid().cast_unsigned())
 }

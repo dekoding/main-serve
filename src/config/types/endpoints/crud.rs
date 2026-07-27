@@ -3,10 +3,9 @@ use serde::Deserialize;
 
 use crate::db::query::types::JoinConfig;
 
-/// CRUD-specific configuration for an endpoint.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// CrudConfig
+/// CRUD-specific configuration for an endpoint.
 pub struct CrudConfig {
     /// Name of the table to operate on.
     pub table: String,
@@ -64,10 +63,9 @@ impl Default for CrudConfig {
     }
 }
 
-/// A computed (virtual) field defined by a SQL expression.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
-/// ComputedFieldConfig
+/// A computed (virtual) field defined by a SQL expression.
 pub struct ComputedFieldConfig {
     /// Alias name for the computed field.
     pub name: String,

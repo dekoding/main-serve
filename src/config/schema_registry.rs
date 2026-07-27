@@ -19,7 +19,7 @@ use crate::error::AppError;
 /// Built once at config load time and is shareable across requests (via `Arc`).
 #[derive(Debug)]
 pub struct SchemaRegistry {
-    /// Per-column validators, keyed by (table_name, column_name).
+    /// Per-column validators, keyed by (`table_name`, `column_name`).
     /// Only populated for JSONB/columns that have a schema configured.
     column_validators: HashMap<(String, String), Arc<JsonSchema>>,
 }
@@ -93,7 +93,10 @@ impl SchemaRegistry {
         // Prefer external file reference
         if let Some(ref path_str) = col.validation_schema {
             let path = PathBuf::from(path_str);
-            let full_path = config_path.parent().unwrap_or(Path::new(".")).join(&path);
+            let full_path = config_path
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join(&path);
             let resolved = full_path.canonicalize().map_err(|e| {
                 AppError::Config(format!(
                     "Failed to resolve external schema file '{}': {e}",
@@ -168,6 +171,7 @@ impl SchemaRegistry {
     /// Return the validators for all schema-validated columns in the given
     /// table, keyed by column name. Returns `None` if the table has no
     /// registered column validators.
+    #[must_use]
     pub fn get_table_schema(&self, table_name: &str) -> Option<HashMap<String, Arc<JsonSchema>>> {
         let result: HashMap<String, Arc<JsonSchema>> = self
             .column_validators
@@ -193,6 +197,7 @@ impl SchemaRegistry {
 ///
 /// If the value passes validation, returns an empty vec. Otherwise returns one
 /// message per validation error.
+#[must_use]
 pub fn validate_json_with_schema(value: &Value, schema: &JsonSchema) -> Vec<String> {
     let validator = schema.compiled();
     validator
@@ -294,14 +299,14 @@ mod tests {
     #[test]
     fn test_create_registry_with_valid_global_schema() {
         let inline_schema: serde_yaml::Value = serde_yaml::from_str(
-            r#"
+            r"
 type: object
 required:
   - name
 properties:
   name:
     type: string
-"#,
+",
         )
         .unwrap();
 
@@ -384,11 +389,11 @@ properties:
     fn test_get_table_schema_names() {
         let inline: serde_yaml::Value = serde_yaml::from_str("type: object").unwrap();
         let inline2: serde_yaml::Value = serde_yaml::from_str(
-            r#"
+            r"
 type: object
 properties:
   key: { type: string }
-"#,
+",
         )
         .unwrap();
 
@@ -414,14 +419,14 @@ properties:
     #[test]
     fn test_validate_json_with_schema_valid() {
         let schema: serde_yaml::Value = serde_yaml::from_str(
-            r#"
+            r"
 type: object
 required:
   - name
 properties:
   name:
     type: string
-"#,
+",
         )
         .unwrap();
         let validator = Validator::new(&serde_json::to_value(&schema).unwrap()).unwrap();
@@ -440,14 +445,14 @@ properties:
     #[test]
     fn test_validate_json_with_schema_invalid_type() {
         let schema: serde_yaml::Value = serde_yaml::from_str(
-            r#"
+            r"
 type: object
 required:
   - name
 properties:
   name:
     type: string
-"#,
+",
         )
         .unwrap();
         let validator = Validator::new(&serde_json::to_value(&schema).unwrap()).unwrap();
@@ -470,7 +475,7 @@ properties:
     #[test]
     fn test_validate_json_with_schema_missing_required() {
         let schema: serde_yaml::Value = serde_yaml::from_str(
-            r#"
+            r"
 type: object
 required:
   - name
@@ -480,7 +485,7 @@ properties:
     type: string
   email:
     type: string
-"#,
+",
         )
         .unwrap();
         let validator = Validator::new(&serde_json::to_value(&schema).unwrap()).unwrap();

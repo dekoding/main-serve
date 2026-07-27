@@ -183,7 +183,7 @@ async fn test_interpolation_in_update_body() {
         "content": "Updated content by ${request.user.id}"
     });
 
-    let q = build_update(&db_context, mutate_ctx, "1", &body, &context, &None).unwrap();
+    let q = build_update(&db_context, &mutate_ctx, "1", &body, &context, &None).unwrap();
 
     assert!(
         q.params

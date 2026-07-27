@@ -42,7 +42,7 @@ static FILTER_KEY_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| compile_regex(r"^(.*)\[([a-z_]+)\]$"));
 
 /// Parse a filter key like `metadata.user.age[gt]` into a `FilterExpression`.
-pub(crate) fn parse_filter_key(key: &str) -> Result<FilterExpression, AppError> {
+pub fn parse_filter_key(key: &str) -> Result<FilterExpression, AppError> {
     let re = &*FILTER_KEY_RE;
     let (path_str, operator_str) = if let Some(caps) = re.captures(key) {
         let path_str = caps.get(1).map_or(key, |m| m.as_str());
@@ -100,7 +100,7 @@ pub(crate) fn parse_filter_key(key: &str) -> Result<FilterExpression, AppError> 
 /// - `metadata#>'{user,role}'` -> `metadata`
 /// - `metadata.role` -> `metadata`
 #[must_use]
-pub(crate) fn extract_base_column(field: &str) -> String {
+pub fn extract_base_column(field: &str) -> String {
     // Handle JSONPath syntax starting with $
     if field.starts_with('$') {
         // Extract column name from $.metadata.role or $.metadata.tags[0]
@@ -118,11 +118,10 @@ pub(crate) fn extract_base_column(field: &str) -> String {
         // Extract column name from operator syntax like metadata->>'role'
         // Split on -> and #> but keep the first part before any of these operators
         let parts: Vec<&str> = field.split(|c| ['>', '#'].contains(&c)).collect();
-        if let Some(first) = parts.first() {
-            first.trim_end_matches('-').to_string()
-        } else {
-            field.to_string()
-        }
+        parts.first().map_or_else(
+            || field.to_string(),
+            |first| first.trim_end_matches('-').to_string(),
+        )
     } else if is_bracket_notation(field) {
         // Extract base from bracket notation
         let (base, _) = parse_sort_field(field);
@@ -141,7 +140,7 @@ pub(crate) fn extract_base_column(field: &str) -> String {
 /// Converts `metadata.role` to `$.role` and `metadata[role]` to `$.role`.
 /// Converts `metadata.user.profile` to `$.user.profile` and `metadata[user][profile]` to `$.user.profile`.
 #[must_use]
-pub(crate) fn extract_jsonb_path(field: &str) -> String {
+pub fn extract_jsonb_path(field: &str) -> String {
     let (_, path) = parse_sort_field(field);
     if path.is_empty() {
         return "$".to_string();
@@ -152,7 +151,7 @@ pub(crate) fn extract_jsonb_path(field: &str) -> String {
 /// Validate that a filter column exists in the table schema.
 /// Returns true if the column is valid (either a regular column or a JSONB column).
 #[must_use]
-pub(crate) fn is_valid_filter_column(field: &str, columns: &[ColumnConfig]) -> bool {
+pub fn is_valid_filter_column(field: &str, columns: &[ColumnConfig]) -> bool {
     let base = extract_base_column(field);
     is_jsonb_column(&base, columns) || column_exists(&base, columns)
 }
@@ -396,7 +395,7 @@ mod tests {
     fn test_build_filter_param_with_type() {
         let table = sample_jsonb_table();
         let meta_col = table.columns.iter().find(|c| c.name == "metadata").unwrap();
-        let val = build_filter_param("true", &meta_col.column_type, DatabaseDriver::Sqlite);
+        let val = build_filter_param("true", meta_col.column_type, DatabaseDriver::Sqlite);
         assert_eq!(val, serde_json::json!(true));
     }
 

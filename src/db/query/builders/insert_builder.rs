@@ -11,7 +11,7 @@ use crate::middleware::auth::extractor::RequestContext;
 /// Build an INSERT query from a JSON body.
 ///
 /// Handles auto-population of the owner field via `insert_owner`,
-/// validates field names, handles JSONB column casting for PostgreSQL,
+/// validates field names, handles JSONB column casting for `PostgreSQL`,
 /// and generates the appropriate `RETURNING` clause per driver.
 ///
 /// # Errors
@@ -51,10 +51,10 @@ pub fn build_insert(
             .find(|c| c.name == *owner_field)
             .map(|c| &c.column_type);
 
-        let coerced = match owner_col_type {
-            Some(ct) => coerce_filter_value_by_type(user_id, ct, db_ctx.pool.driver()),
-            None => serde_json::Value::String(user_id.to_string()),
-        };
+        let coerced = owner_col_type.map_or_else(
+            || serde_json::Value::String(user_id.clone()),
+            |ct| coerce_filter_value_by_type(user_id, *ct, db_ctx.pool.driver()),
+        );
         columns.push(owner_field.clone());
         let placeholder = placeholder(driver, param_idx);
         placeholders.push(placeholder);
@@ -113,18 +113,17 @@ pub fn build_insert(
 
     let pk_col = find_pk_column(table_config)?;
     let returning = match driver {
-        DatabaseDriver::Postgres | DatabaseDriver::Sqlite => {
-            if let Some(ref owner_field) = owner_col {
+        DatabaseDriver::Postgres | DatabaseDriver::Sqlite => owner_col.map_or_else(
+            || format!(" RETURNING {}", quote_identifier(&pk_col, driver)),
+            |of| {
                 format!(
                     " RETURNING {}, {}",
                     quote_identifier(&pk_col, driver),
-                    quote_identifier(owner_field, driver)
+                    quote_identifier(&of, driver)
                 )
-            } else {
-                format!(" RETURNING {}", quote_identifier(&pk_col, driver))
-            }
-        }
-        _ => String::new(),
+            },
+        ),
+        DatabaseDriver::Mysql => String::new(),
     };
 
     let sql = format!(

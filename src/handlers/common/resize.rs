@@ -1,4 +1,4 @@
-/// Shared image resize logic used by static_files and media handlers.
+/// Shared image resize logic used by `static_files` and media handlers.
 ///
 /// Both modules needed identical implementations for:
 /// - Parsing resize query parameters (w, h, fit, format)
@@ -16,16 +16,20 @@ use crate::handlers::common::utils::{apply_cache_control, apply_content_type};
 
 /// Query parameters for image resizing.
 pub struct ResizeParams<'a> {
+    /// Target width in pixels (None = preserve aspect ratio from height).
     pub width: Option<u32>,
+    /// Target height in pixels (None = preserve aspect ratio from width).
     pub height: Option<u32>,
+    /// Resize fit mode (e.g. "cover", "contain", `` `scale_down` ``).
     pub fit: Option<&'a str>,
+    /// Output image format (None = use source format).
     pub output_format: Option<image::ImageFormat>,
 }
 
 /// Parse resize query parameters from a query map.
-pub fn parse_resize_params<'a>(
-    query_params: &'a std::collections::HashMap<String, String>,
-) -> ResizeParams<'a> {
+pub fn parse_resize_params<S: std::hash::BuildHasher>(
+    query_params: &std::collections::HashMap<String, String, S>,
+) -> ResizeParams<'_> {
     let width = query_params.get("w").and_then(|w| w.parse().ok());
     let height = query_params.get("h").and_then(|h| h.parse().ok());
     let fit = query_params.get("fit").map(std::string::String::as_str);
@@ -45,6 +49,7 @@ pub fn parse_resize_params<'a>(
 ///
 /// Returns `(target_width, target_height)`. If no resizing is needed,
 /// returns the original dimensions.
+#[must_use]
 pub fn calculate_target_dimensions(
     src_width: u32,
     src_height: u32,
@@ -55,13 +60,17 @@ pub fn calculate_target_dimensions(
         (Some(w), None, _) => (Some(w), None),
         (None, Some(h), _) => (None, Some(h)),
         (Some(w), Some(h), Some("cover")) => {
-            let ratio = src_width as f64 / src_height as f64;
-            let h_ratio = h as f64 / w as f64;
+            let ratio = f64::from(src_width) / f64::from(src_height);
+            let h_ratio = f64::from(h) / f64::from(w);
             if ratio > h_ratio {
-                let new_h = (w as f64 / ratio) as u32;
+                #[allow(clippy::cast_possible_truncation)]
+                #[allow(clippy::cast_sign_loss)]
+                let new_h = (f64::from(w) / ratio) as u32;
                 (Some(w), Some(new_h))
             } else {
-                let new_w = (h as f64 * ratio) as u32;
+                #[allow(clippy::cast_possible_truncation)]
+                #[allow(clippy::cast_sign_loss)]
+                let new_w = (f64::from(h) * ratio) as u32;
                 (Some(new_w), Some(h))
             }
         }
@@ -119,6 +128,7 @@ pub fn resize_image(
 /// Build a response for resized image data.
 ///
 /// Sets Content-Type and optional Cache-Control headers.
+#[must_use]
 pub fn build_resize_response(
     output_bytes: Vec<u8>,
     content_type: &str,

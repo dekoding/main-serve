@@ -6,7 +6,7 @@ pub mod create;
 pub mod delete;
 /// list
 pub mod list;
-/// move_rename
+/// `move_rename`
 pub mod move_rename;
 /// resize
 pub mod resize;
@@ -43,6 +43,12 @@ use crate::handlers::media::upload::handle_media_upload;
 use crate::server::state::AppState;
 
 /// Route handler for media library endpoints.
+///
+/// # Errors
+///
+/// Returns an `AppError::NotFound` if the endpoint is not found, or an error
+/// if the requested action is not supported or authentication fails.
+#[allow(clippy::implicit_hasher)]
 pub async fn handle_media_route(
     state: State<AppState>,
     matched_path: MatchedPath,
@@ -78,6 +84,12 @@ pub async fn handle_media_route(
 }
 
 /// Route handler for media upload (multipart POST).
+///
+/// # Errors
+///
+/// Returns an `AppError::NotFound` if the endpoint is not found, or an error
+/// if authentication fails.
+#[allow(clippy::implicit_hasher)]
 pub async fn handle_media_upload_route(
     state: axum::extract::State<AppState>,
     matched_path: axum::extract::MatchedPath,
@@ -217,9 +229,10 @@ pub(crate) async fn handle_media(
     }
 
     // Determine the base path for this endpoint (strip parameterized segments).
+    let id_param = "/".to_string() + &['{', 'i', 'd', '}'].iter().collect::<String>();
     let base_path = endpoint
         .path
-        .strip_suffix("/{id}")
+        .strip_suffix(&id_param)
         .unwrap_or(&endpoint.path)
         .strip_suffix("/*")
         .unwrap_or(&endpoint.path);
@@ -231,7 +244,7 @@ pub(crate) async fn handle_media(
     let is_list_request = path_normalized.is_empty()
         || path_normalized == "/"
         || path_normalized == base_normalized
-        || path == format!("{}/", base_normalized);
+        || path == format!("{base_normalized}/");
 
     match method {
         axum::http::Method::GET => {

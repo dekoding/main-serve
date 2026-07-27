@@ -13,7 +13,7 @@ use crate::error::AppError;
 
 /// Pending `OAuth2` authorization flow (stored between authorize and callback).
 #[derive(Debug)]
-/// PendingOAuth2
+/// `PendingOAuth2`
 pub struct PendingOAuth2 {
     /// PKCE code verifier to include in the token exchange.
     pub code_verifier: String,
@@ -24,7 +24,7 @@ pub struct PendingOAuth2 {
 /// Validate an `OAuth2` access token by calling the userinfo endpoint.
 ///
 /// Returns the user's subject and optional role from the userinfo response.
-/// If `role_mapping` is provided, IdP roles/groups from the userinfo
+/// If `role_mapping` is provided, `IdP` roles/groups from the userinfo
 /// response are mapped to Main Serve roles.
 ///
 /// # Errors
@@ -48,7 +48,7 @@ pub(crate) async fn validate_oauth2_token(
 
 /// Fetch user information from the OIDC userinfo endpoint.
 ///
-/// If `role_mapping` is provided, IdP roles/groups from the userinfo
+/// If `role_mapping` is provided, `IdP` roles/groups from the userinfo
 /// response are mapped to Main Serve roles using the configured mapping.
 /// Otherwise, falls back to the legacy `role` claim.
 pub(crate) async fn fetch_userinfo(
@@ -82,37 +82,39 @@ pub(crate) async fn fetch_userinfo(
         .ok_or_else(|| AppError::Auth("OAuth2 userinfo response missing 'sub' claim".to_string()))?
         .to_string();
 
-    let role = if let Some(mapping) = role_mapping {
-        let idp_roles = userinfo
-            .get(&mapping.role_claim)
-            .map(extract_role_values)
-            .unwrap_or_else(|| vec![String::new()]);
+    let role = role_mapping.map_or_else(
+        || {
+            userinfo
+                .get("role")
+                .and_then(|v| v.as_str())
+                .map(ToString::to_string)
+        },
+        |mapping| {
+            let idp_roles = userinfo
+                .get(&mapping.role_claim)
+                .map_or_else(|| vec![String::new()], extract_role_values);
 
-        let mapped = idp_roles.iter().find_map(|idp_role| {
-            mapping
-                .role_map
-                .get(idp_role.as_str())
-                .cloned()
-                .or_else(|| {
-                    if mapping.match_mode == RoleMatchMode::Contains {
-                        mapping
-                            .role_map
-                            .iter()
-                            .find(|(k, _)| idp_role.contains(k.as_str()))
-                            .map(|(_, v)| v.clone())
-                    } else {
-                        None
-                    }
-                })
-        });
+            let mapped = idp_roles.iter().find_map(|idp_role| {
+                mapping
+                    .role_map
+                    .get(idp_role.as_str())
+                    .cloned()
+                    .or_else(|| {
+                        if mapping.match_mode == RoleMatchMode::Contains {
+                            mapping
+                                .role_map
+                                .iter()
+                                .find(|(k, _)| idp_role.contains(k.as_str()))
+                                .map(|(_, v)| v.clone())
+                        } else {
+                            None
+                        }
+                    })
+            });
 
-        mapped.or(Some(mapping.default_role.clone()))
-    } else {
-        userinfo
-            .get("role")
-            .and_then(|v| v.as_str())
-            .map(ToString::to_string)
-    };
+            mapped.or_else(|| Some(mapping.default_role.clone()))
+        },
+    );
 
     Ok((sub, role))
 }
@@ -291,7 +293,7 @@ mod tests {
         let old = PendingOAuth2 {
             code_verifier: "old".to_string(),
             created_at: Instant::now()
-                .checked_sub(std::time::Duration::from_secs(600))
+                .checked_sub(std::time::Duration::from_mins(10))
                 .unwrap(),
         };
         let recent = PendingOAuth2 {
@@ -301,7 +303,7 @@ mod tests {
         pending.insert("old".to_string(), old);
         pending.insert("recent".to_string(), recent);
 
-        cleanup_expired(&mut pending, std::time::Duration::from_secs(300));
+        cleanup_expired(&mut pending, std::time::Duration::from_mins(5));
         assert!(!pending.contains_key("old"), "Old entry should be removed");
         assert!(pending.contains_key("recent"), "Recent entry should remain");
     }
@@ -309,7 +311,7 @@ mod tests {
     #[test]
     fn test_cleanup_expired_empty_map() {
         let mut pending: HashMap<String, PendingOAuth2> = HashMap::new();
-        cleanup_expired(&mut pending, std::time::Duration::from_secs(300));
+        cleanup_expired(&mut pending, std::time::Duration::from_mins(5));
         assert!(pending.is_empty());
     }
 
@@ -330,7 +332,7 @@ mod tests {
                 created_at: Instant::now(),
             },
         );
-        cleanup_expired(&mut pending, std::time::Duration::from_secs(300));
+        cleanup_expired(&mut pending, std::time::Duration::from_mins(5));
         assert_eq!(pending.len(), 2, "All entries should remain");
     }
 
@@ -427,8 +429,7 @@ mod tests {
 
         let idp_roles = userinfo
             .get("groups")
-            .map(extract_role_values)
-            .unwrap_or_else(|| vec![String::new()]);
+            .map_or_else(|| vec![String::new()], extract_role_values);
 
         let mapped = idp_roles.iter().find_map(|idp_role| {
             mapping
@@ -524,7 +525,7 @@ mod tests {
         assert_eq!(mapped, None);
 
         // .or(Some(default_role)) should yield "user"
-        let final_role = mapped.or(Some(mapping.default_role.clone()));
+        let final_role = mapped.or(Some(mapping.default_role));
         assert_eq!(final_role, Some("user".to_string()));
     }
 
@@ -545,8 +546,7 @@ mod tests {
 
         let idp_roles = userinfo
             .get("groups")
-            .map(extract_role_values)
-            .unwrap_or_else(|| vec![String::new()]);
+            .map_or_else(|| vec![String::new()], extract_role_values);
 
         let mapped = idp_roles.iter().find_map(|idp_role| {
             mapping
@@ -567,7 +567,7 @@ mod tests {
         });
 
         // Empty string won't match any key, falls back to default
-        let final_role = mapped.or(Some(mapping.default_role.clone()));
+        let final_role = mapped.or(Some(mapping.default_role));
         assert_eq!(final_role, Some("user".to_string()));
     }
 
@@ -589,8 +589,7 @@ mod tests {
 
         let idp_roles = userinfo
             .get("groups")
-            .map(extract_role_values)
-            .unwrap_or_else(|| vec![String::new()]);
+            .map_or_else(|| vec![String::new()], extract_role_values);
 
         // find_map returns the first match - "editor-group" matches "editor"
         let mapped = idp_roles.iter().find_map(|idp_role| {

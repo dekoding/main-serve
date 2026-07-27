@@ -1,7 +1,7 @@
 /// Shared helpers for ID extraction and image detection.
 ///
-/// These utilities eliminate duplicated logic across media, file_store, and
-/// static_files handlers.
+/// These utilities eliminate duplicated logic across media, `file_store`, and
+/// `static_files` handlers.
 use std::path::Path;
 
 use crate::error::AppError;
@@ -9,17 +9,17 @@ use crate::error::AppError;
 /// Extract the last path segment as an ID string.
 /// Works for paths like `/media/123`, `/_main-serve/media/trash/456`, etc.
 #[must_use]
-/// extract_id
+/// `extract_id`
 pub fn extract_id(path: &str) -> Option<String> {
     let segments: Vec<&str> = path.trim_matches('/').split('/').collect();
-    segments.last().map(|s| s.to_string())
+    segments.last().map(std::string::ToString::to_string)
 }
 
 /// Check if a file extension suggests an image file.
 ///
 /// Supports common image formats: jpg, jpeg, png, gif, webp, bmp, svg, ico.
 #[must_use]
-/// is_image_extension
+/// `is_image_extension`
 pub fn is_image_extension(ext: &str) -> bool {
     matches!(
         ext.to_lowercase().as_str(),
@@ -31,6 +31,11 @@ pub fn is_image_extension(ext: &str) -> bool {
 ///
 /// This provides an extra layer of security by checking the actual file
 /// format rather than relying solely on file extension.
+///
+/// # Errors
+///
+/// Returns an `AppError::BadRequest` if the data does not match any supported
+/// image magic byte signature.
 pub fn validate_image_magic_bytes(data: &[u8]) -> Result<(), AppError> {
     // PNG signature
     if data.len() >= 8 && &data[0..8] == b"\x89PNG\r\n\x1a\n" {
@@ -148,10 +153,17 @@ pub async fn parse_multipart_file(
     Ok((file_content, original_filename))
 }
 
+/// Extract the file path from a row returned by a database query.
+///
+/// Returns the value of the `file_path` column.
+///
+/// # Errors
+///
+/// Returns `AppError::NotFound` if the row is `None` or lacks a `file_path` field.
 pub fn extract_file_path(row: Option<serde_json::Value>, id: &str) -> Result<String, AppError> {
     row.and_then(|r| {
         r.get("file_path")
             .and_then(|v| v.as_str().map(String::from))
     })
-    .ok_or_else(|| AppError::NotFound(format!("Item with id '{}' not found", id)))
+    .ok_or_else(|| AppError::NotFound(format!("Item with id '{id}' not found")))
 }

@@ -20,34 +20,41 @@ use crate::server::state::AppState;
 
 use crate::middleware::auth::validators::jwt::create_token;
 
-/// Shared config reader for OAuth2 operations.
+/// Shared config reader for `OAuth2` operations.
 ///
-/// Reads the OAuth2 and JWT configuration from `AppState`, validating that
+/// Reads the `OAuth2` and JWT configuration from `AppState`, validating that
 /// both are properly configured. Returns the config values cloned for
 /// downstream use without holding the read lock.
 ///
 /// # Errors
 ///
-/// Returns `AppError::Config` if OAuth2 or JWT is not configured.
+/// Returns `AppError::Config` if `OAuth2` or JWT is not configured.
 async fn get_oauth2_config(
     state: &AppState,
 ) -> Result<(Arc<OAuth2Config>, Arc<JwtConfig>), AppError> {
     let config = state.config.read().await;
-    let oauth2 = config
+    let oauth2_clone = config
         .auth
         .oauth2
         .as_ref()
-        .ok_or_else(|| AppError::Config("OAuth2 is not configured".to_string()))?;
-    let jwt_config = config.auth.jwt.as_ref().ok_or_else(|| {
-        AppError::Config(
-            "JWT config is required for OAuth2 code flow (used to mint tokens after login)"
-                .to_string(),
-        )
-    })?;
-    Ok((Arc::new(oauth2.clone()), Arc::new(jwt_config.clone())))
+        .ok_or_else(|| AppError::Config("OAuth2 is not configured".to_string()))?
+        .clone();
+    let jwt_config_clone = config
+        .auth
+        .jwt
+        .as_ref()
+        .ok_or_else(|| {
+            AppError::Config(
+                "JWT config is required for OAuth2 code flow (used to mint tokens after login)"
+                    .to_string(),
+            )
+        })?
+        .clone();
+    drop(config);
+    Ok((Arc::new(oauth2_clone), Arc::new(jwt_config_clone)))
 }
 
-/// Validate the OAuth2 state parameter and pending entry.
+/// Validate the `OAuth2` state parameter and pending entry.
 ///
 /// Removes the pending state entry (one-time use) and verifies it has not
 /// expired. Returns the `PendingOAuth2` entry for downstream use.
@@ -75,7 +82,7 @@ async fn validate_state(
     Ok(pending)
 }
 
-/// Exchange the authorization code for tokens at the IdP.
+/// Exchange the authorization code for tokens at the `IdP`.
 ///
 /// Returns the access token string extracted from the token response.
 ///
@@ -94,10 +101,10 @@ async fn exchange_token(
         .get("access_token")
         .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::Auth("Token response missing access_token".to_string()))
-        .map(|t| t.to_string())
+        .map(std::string::ToString::to_string)
 }
 
-/// Fetch user info from the IdP using the access token.
+/// Fetch user info from the `IdP` using the access token.
 ///
 /// Returns the subject and optional role from the userinfo endpoint.
 ///
@@ -265,9 +272,9 @@ pub async fn handle_oauth2_authorize(State(state): State<AppState>) -> Result<Re
 /// Returns `AppError::Auth` if the `IdP` returned an error or the state is
 /// invalid/expired. Returns `AppError::BadRequest` if required query parameters
 /// are missing.
-pub async fn handle_oauth2_callback(
+pub async fn handle_oauth2_callback<S: std::hash::BuildHasher>(
     State(state): State<AppState>,
-    Query(params): Query<HashMap<String, String>>,
+    Query(params): Query<HashMap<String, String, S>>,
 ) -> Result<Response, AppError> {
     // Check for error response from the IdP.
     if let Some(error) = params.get("error") {
@@ -290,7 +297,7 @@ pub async fn handle_oauth2_callback(
             .auth
             .oauth2
             .as_ref()
-            .map_or(std::time::Duration::from_secs(300), |o| {
+            .map_or(std::time::Duration::from_mins(5), |o| {
                 std::time::Duration::from_secs(o.state_ttl)
             })
     };

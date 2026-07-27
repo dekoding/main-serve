@@ -9,6 +9,14 @@ use crate::handlers::file_store::{FileStoreContext, apply_row_permissions};
 use crate::middleware::auth::extractor::RequestContext;
 
 /// Handle listing file store entries.
+///
+/// # Errors
+///
+/// Returns an error on authentication failure, field permission violations,
+/// or database errors.
+#[allow(clippy::cast_possible_truncation)]
+#[allow(clippy::cast_sign_loss)]
+#[allow(clippy::cast_precision_loss)]
 pub async fn handle_file_store_list(ctx: &FileStoreContext<'_>) -> Result<Response, AppError> {
     let pool = &ctx.db_ctx.pool;
     let mut qp = extract_query_params(ctx.handler_ctx.query_params);
@@ -41,7 +49,7 @@ pub async fn handle_file_store_list(ctx: &FileStoreContext<'_>) -> Result<Respon
     // Filter out trashed items
     rows.retain(|row| row.get("trashed_at").and_then(|v| v.as_str()).is_none());
 
-    let total: i64 = rows.len() as i64;
+    let total: usize = rows.len();
 
     // Convert numeric ids to strings for consistency with create/get responses
     for row in &mut rows {
@@ -50,8 +58,7 @@ pub async fn handle_file_store_list(ctx: &FileStoreContext<'_>) -> Result<Respon
         {
             let id_str = id_val
                 .as_i64()
-                .map(|i| i.to_string())
-                .unwrap_or_else(|| id_val.to_string());
+                .map_or_else(|| id_val.to_string(), |i| i.to_string());
             obj.insert("id".to_string(), serde_json::Value::String(id_str));
         }
     }
@@ -69,7 +76,7 @@ pub async fn handle_file_store_list(ctx: &FileStoreContext<'_>) -> Result<Respon
             "page": page,
             "page_size": page_size,
             "total": total,
-            "total_pages": (total as f64 / page_size as f64).ceil() as u64,
+            "total_pages": (total as f64 / page_size as f64).ceil() as usize,
         }
     });
 

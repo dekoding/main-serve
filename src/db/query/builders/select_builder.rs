@@ -1,4 +1,4 @@
-use crate::db::query::helpers::{coerce_pk_value, find_pk_column};
+use crate::db::query::helpers::{coerce_pk_value, find_pk_column, resolve_fields};
 use crate::db::query::select::SelectBuilder;
 use crate::db::query::types::{BuiltQuery, SelectContext};
 use crate::error::AppError;
@@ -20,7 +20,6 @@ pub fn build_select_list(
     context: &RequestContext,
 ) -> Result<BuiltQuery, AppError> {
     let table_name = &db_ctx.table_config.name;
-    use crate::db::query::helpers::resolve_fields;
 
     let fields = resolve_fields(&ctx.fields, &db_ctx.table_config);
     let mut sb = SelectBuilder::new(table_name, fields, db_ctx.pool.driver());
@@ -50,7 +49,6 @@ pub fn build_select_one(
 ) -> Result<BuiltQuery, AppError> {
     let table_config = &db_ctx.table_config;
     let table_name = &table_config.name;
-    use crate::db::query::helpers::resolve_fields;
 
     let fields = resolve_fields(&ctx.fields, table_config);
     let pk_col = find_pk_column(table_config)?;

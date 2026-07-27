@@ -11,6 +11,11 @@ use crate::handlers::file_store::{
 use crate::middleware::auth::extractor::RequestContext;
 
 /// Handle updating a file store entry.
+///
+/// # Errors
+///
+/// Returns an error on authentication failure, ownership violations, field
+/// permission violations, or database errors.
 pub async fn handle_file_store_update(ctx: &FileStoreContext<'_>) -> Result<Response, AppError> {
     let pool = &ctx.db_ctx.pool;
     let table_config = &ctx.db_ctx.table_config;
@@ -32,8 +37,7 @@ pub async fn handle_file_store_update(ctx: &FileStoreContext<'_>) -> Result<Resp
                     && !is_field_writable(k, &user_roles, permissions)
                 {
                     return Err(AppError::Forbidden(format!(
-                        "Field '{}' is not writable by the current user's roles",
-                        k
+                        "Field '{k}' is not writable by the current user's roles"
                     )));
                 }
             }
@@ -61,7 +65,7 @@ pub async fn handle_file_store_update(ctx: &FileStoreContext<'_>) -> Result<Resp
     };
     let built = build_update(
         ctx.db_ctx,
-        mutate_ctx,
+        &mutate_ctx,
         ctx.require_id()?,
         &serde_json::Value::Object(body_map),
         &RequestContext::default(),
@@ -85,10 +89,10 @@ pub async fn handle_file_store_update(ctx: &FileStoreContext<'_>) -> Result<Resp
     )?;
     let row = pool.fetch_optional_json(&built.sql, &built.params).await?;
 
-    let response = match row {
-        Some(row) => axum::Json(row),
-        None => axum::Json(serde_json::json!({ "rows_affected": rows_affected })),
-    };
+    let response = row.map_or_else(
+        || axum::Json(serde_json::json!({ "rows_affected": rows_affected })),
+        axum::Json,
+    );
 
     Ok((StatusCode::OK, response).into_response())
 }

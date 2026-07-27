@@ -10,6 +10,10 @@ use crate::handlers::common::utils::{apply_content_length, apply_content_type};
 use crate::storage::Storage;
 
 /// Handle sharing: GET /shared/:token.
+///
+/// # Errors
+///
+/// Returns an `AppError::MethodNotAllowed` if sharing is not enabled.
 pub async fn handle_media_share_get(
     token: &str,
     config: &MediaConfig,

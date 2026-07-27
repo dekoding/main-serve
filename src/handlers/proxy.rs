@@ -78,17 +78,17 @@ pub async fn handle_proxy(
         }
     }
 
-    // Append query string if present.
-    let upstream_url = if let Some(query) = uri.query() {
-        format!(
-            "{}{}?{}",
-            proxy.upstream.trim_end_matches('/'),
-            upstream_path,
-            query
-        )
-    } else {
-        format!("{}{}", proxy.upstream.trim_end_matches('/'), upstream_path)
-    };
+    let upstream_url = uri.query().map_or_else(
+        || format!("{}{}", proxy.upstream.trim_end_matches('/'), upstream_path),
+        |query| {
+            format!(
+                "{}{}?{}",
+                proxy.upstream.trim_end_matches('/'),
+                upstream_path,
+                query
+            )
+        },
+    );
 
     // Collect the incoming body.
     let body_bytes = body

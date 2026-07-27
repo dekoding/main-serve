@@ -8,7 +8,7 @@ pub mod helpers;
 pub mod revocation;
 /// select
 pub mod select;
-/// select_one
+/// `select_one`
 pub mod select_one;
 /// traits
 pub mod traits;

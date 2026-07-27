@@ -202,7 +202,7 @@ pub(crate) fn extract_bearer_token(auth_header: &str) -> Option<&str> {
 }
 
 /// Maps a `JwtAlgorithm` to its corresponding `jsonwebtoken::Algorithm` variant.
-fn map_algorithm(alg: JwtAlgorithm) -> Algorithm {
+const fn map_algorithm(alg: JwtAlgorithm) -> Algorithm {
     match alg {
         JwtAlgorithm::HS256 => Algorithm::HS256,
         JwtAlgorithm::HS384 => Algorithm::HS384,
@@ -472,7 +472,7 @@ mod tests {
         let token = create_token("user1", Some("admin"), &config, Some(jti), None).unwrap();
 
         let store = InMemoryRevocationStore::default();
-        let expires_at = std::time::Instant::now() + std::time::Duration::from_secs(3600);
+        let expires_at = std::time::Instant::now() + std::time::Duration::from_hours(1);
         store.revoke(jti, expires_at).await;
 
         let err = validate_token::<InMemoryRevocationStore>(&token, &config, Some(&store))
@@ -506,7 +506,7 @@ mod tests {
 
         // Revoke a JTI that doesn't match any token
         let fake_jti = "nonexistent-jti";
-        let expires_at = std::time::Instant::now() + std::time::Duration::from_secs(3600);
+        let expires_at = std::time::Instant::now() + std::time::Duration::from_hours(1);
         store.revoke(fake_jti, expires_at).await;
 
         // Token without jti should still validate
@@ -528,7 +528,7 @@ mod tests {
         let token2 = create_token("user2", None, &config, Some(jti2), None).unwrap();
 
         // Only revoke jti1
-        let expires_at = std::time::Instant::now() + std::time::Duration::from_secs(3600);
+        let expires_at = std::time::Instant::now() + std::time::Duration::from_hours(1);
         store.revoke(jti1, expires_at).await;
 
         // token1 should be rejected

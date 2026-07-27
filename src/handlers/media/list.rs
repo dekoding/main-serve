@@ -13,10 +13,21 @@ use crate::handlers::common::utils::DatabaseContext;
 use crate::middleware::auth::extractor::RequestContext;
 
 /// Handle media list (GET /).
-pub async fn handle_media_list(
+///
+/// # Errors
+///
+/// Returns an error on authentication failure or database errors.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss
+)]
+/// Conversions to f64 and back to u64 are intentional for computing
+/// `total_pages` via ceiling division for DB pagination parameters.
+pub async fn handle_media_list<S: std::hash::BuildHasher + Send + Sync>(
     db_ctx: &DatabaseContext,
     config: &MediaConfig,
-    query_params: &HashMap<String, String>,
+    query_params: &HashMap<String, String, S>,
 ) -> Result<Response, AppError> {
     let page = query_params
         .get("page")
@@ -30,10 +41,10 @@ pub async fn handle_media_list(
         .unwrap_or(config.pagination.default_page_size);
 
     let sort = query_params.get("sort").cloned().or_else(|| {
-        if !config.sorting.default_field.is_empty() {
-            Some(config.sorting.default_field.clone())
-        } else {
+        if config.sorting.default_field.is_empty() {
             None
+        } else {
+            Some(config.sorting.default_field.clone())
         }
     });
 
@@ -80,9 +91,14 @@ pub async fn handle_media_list(
     let total: i64 = count_row
         .as_ref()
         .and_then(|r| r.get("count"))
-        .and_then(|v| v.as_i64())
+        .and_then(serde_json::Value::as_i64)
         .unwrap_or(0);
 
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        clippy::cast_sign_loss
+    )]
     let response = serde_json::json!({
         "data": rows,
         "pagination": {
@@ -97,6 +113,10 @@ pub async fn handle_media_list(
 }
 
 /// Handle media get by ID.
+///
+/// # Errors
+///
+/// Returns an error on database errors.
 pub async fn handle_media_get(db_ctx: &DatabaseContext, id: &str) -> Result<Response, AppError> {
     let built = build_select_one(
         db_ctx,
@@ -104,15 +124,16 @@ pub async fn handle_media_get(db_ctx: &DatabaseContext, id: &str) -> Result<Resp
         id,
         &RequestContext::default(),
     )?;
-    match db_ctx
+    db_ctx
         .pool
         .fetch_optional_json(&built.sql, &built.params)
         .await?
-    {
-        Some(row) => Ok((StatusCode::OK, axum::Json(row)).into_response()),
-        None => Err(AppError::NotFound(format!(
-            "Media item with id '{}' not found",
-            id
-        ))),
-    }
+        .map_or_else(
+            || {
+                Err(AppError::NotFound(format!(
+                    "Media item with id '{id}' not found"
+                )))
+            },
+            |row| Ok((StatusCode::OK, axum::Json(row)).into_response()),
+        )
 }

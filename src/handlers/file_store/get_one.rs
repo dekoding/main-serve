@@ -12,6 +12,11 @@ use crate::handlers::file_store::{
 use crate::middleware::auth::extractor::RequestContext;
 
 /// Handle getting a single file store entry.
+///
+/// # Errors
+///
+/// Returns an error on authentication failure, ownership violations, or
+/// database errors.
 pub async fn handle_file_store_get_one(
     handler_ctx: &HandlerContext<'_>,
     db_ctx: &crate::handlers::common::utils::DatabaseContext,
@@ -62,15 +67,13 @@ pub async fn handle_file_store_get_one(
             {
                 let id_str = id_val
                     .as_i64()
-                    .map(|i| i.to_string())
-                    .unwrap_or_else(|| id_val.to_string());
+                    .map_or_else(|| id_val.to_string(), |i| i.to_string());
                 obj.insert("id".to_string(), serde_json::Value::String(id_str));
             }
             Ok((StatusCode::OK, axum::Json(row)).into_response())
         }
         None => Err(AppError::NotFound(format!(
-            "File entry with id '{}' not found",
-            id
+            "File entry with id '{id}' not found"
         ))),
     }
 }

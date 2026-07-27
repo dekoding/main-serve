@@ -34,7 +34,7 @@ pub fn validate_config(config: &AppConfig) -> Result<(), AppError> {
     validate_tables(config, &mut errors);
     validate_endpoints(config, &mut errors);
     validate_auth(config, &mut errors);
-    validate_role_hierarchy(&config.role_hierarchy, &mut errors);
+    validate_role_hierarchy(config.role_hierarchy.as_ref(), &mut errors);
 
     if errors.is_empty() {
         Ok(())

@@ -57,7 +57,7 @@ pub fn build_set_restored(
 
 /// Build `UPDATE {table} SET file_path = {new_path} WHERE id = {param}`.
 ///
-/// Used by media/move_rename.rs for file path updates.
+/// Used by `media/move_rename.rs` for file path updates.
 ///
 /// # Errors
 ///

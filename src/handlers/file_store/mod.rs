@@ -1,10 +1,16 @@
 /// File store (database-backed file catalog) handler.
 pub mod content_refs;
+/// Create new file store entries.
 pub mod create;
+/// Delete file store entries.
 pub mod delete;
+/// Retrieve a single file store entry by ID.
 pub mod get_one;
+/// List file store entries with filtering, sorting, and pagination.
 pub mod list;
+/// Trash management for file store entries.
 pub mod trash;
+/// Update file store entries.
 pub mod update;
 
 use std::collections::HashMap;
@@ -22,22 +28,36 @@ use crate::storage::Storage;
 
 /// Shared context for file store CRUD operations.
 pub struct FileStoreContext<'a> {
+    /// HTTP handler context with state, endpoint config, headers, and query params.
     pub handler_ctx: &'a HandlerContext<'a>,
+    /// Database context with pool and table schema.
     pub db_ctx: &'a DatabaseContext,
+    /// File store endpoint configuration.
     pub config: &'a FileStoreConfig,
+    /// File ID extracted from the request path (None for list/create).
     pub id: Option<&'a str>,
+    /// Request body as JSON (None for GET/deletes).
     pub body: Option<&'a serde_json::Value>,
+    /// Storage backend instance (None for metadata-only operations).
     pub storage: Option<&'a dyn Storage>,
 }
 
 impl FileStoreContext<'_> {
     /// Extract the file ID, returning an error if not present.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `AppError::Internal` if no file ID is set on the context.
     pub fn require_id(&self) -> Result<&str, AppError> {
         self.id
             .ok_or_else(|| AppError::Internal("File ID required".to_string()))
     }
 
     /// Extract the storage backend, returning an error if not present.
+    ///
+    /// # Errors
+    ///
+    /// Returns an `AppError::Internal` if no storage backend is set on the context.
     pub fn require_storage(&self) -> Result<&dyn Storage, AppError> {
         self.storage
             .ok_or_else(|| AppError::Internal("Storage backend required".to_string()))
@@ -45,13 +65,19 @@ impl FileStoreContext<'_> {
 }
 
 /// Route handler for file store endpoints.
+///
+/// # Errors
+///
+/// Returns an `AppError::NotFound` if the endpoint is not found, or an error
+/// if the requested action is not supported or authentication fails.
+#[allow(clippy::implicit_hasher)]
 pub async fn handle_file_store_route(
     state: axum::extract::State<AppState>,
     matched_path: axum::extract::MatchedPath,
     method: axum::http::Method,
     uri: axum::http::Uri,
     headers: axum::http::HeaderMap,
-    query: axum::extract::Query<HashMap<String, String>>,
+    #[allow(clippy::implicit_hasher)] query: axum::extract::Query<HashMap<String, String>>,
     body: axum::body::Bytes,
 ) -> Result<Response, AppError> {
     let path_str = matched_path.as_str();
@@ -128,8 +154,7 @@ async fn dispatch_file_store(
                 .await
             }
             None => Err(AppError::BadRequest(format!(
-                "File ID required for path: {}",
-                path
+                "File ID required for path: {path}"
             ))),
         },
         axum::http::Method::DELETE => {
@@ -183,9 +208,11 @@ async fn dispatch_file_store_get(
     config: &FileStoreConfig,
     path: &str,
 ) -> Result<Response, AppError> {
+    const ID_PARAM: &str = "{id}";
     let endpoint_path = handler_ctx.endpoint.path.trim_end_matches('/');
+    let id_suffix = format!("/{ID_PARAM}");
     let base_path = endpoint_path
-        .strip_suffix("/{id}")
+        .strip_suffix(&id_suffix)
         .or_else(|| endpoint_path.strip_suffix("/*"))
         .unwrap_or(endpoint_path)
         .trim_end_matches('/');
@@ -272,8 +299,7 @@ async fn check_file_store_ownership(
     let owner_col = config
         .ownership
         .as_ref()
-        .map(|o| o.owner_column.as_str())
-        .unwrap_or("owner_id");
+        .map_or("owner_id", |o| o.owner_column.as_str());
 
     let built = build_select_by_id(&config.table, &[owner_col], *driver)
         .map_err(|e| AppError::Internal(format!("Failed to build query: {e}")))?;
@@ -302,7 +328,7 @@ async fn apply_row_permissions(
         if let Some(obj) = row.as_object() {
             let mut filtered = serde_json::Map::new();
             for (key, value) in obj {
-                let readable = is_field_readable(key, config).await;
+                let readable = is_field_readable(key, config);
                 if readable {
                     filtered.insert(key.clone(), value.clone());
                 }
@@ -317,10 +343,11 @@ async fn apply_row_permissions(
 }
 
 /// Check if a field is writable based on permissions.
-pub fn is_field_writable(
+#[must_use]
+pub fn is_field_writable<S: ::std::hash::BuildHasher>(
     field: &str,
     user_roles: &[String],
-    permissions: &HashMap<String, crate::config::types::FileStoreFieldPermissions>,
+    permissions: &HashMap<String, crate::config::types::FileStoreFieldPermissions, S>,
 ) -> bool {
     if let Some(field_perm) = permissions.get(field) {
         if field_perm.write.iter().any(|r| r == "*") {
@@ -332,20 +359,18 @@ pub fn is_field_writable(
 }
 
 /// Get a list of user roles from the auth info.
+#[must_use]
 pub fn user_roles(role: &Option<String>) -> Vec<String> {
-    match role {
-        Some(r) => vec![r.clone()],
-        None => vec![],
-    }
+    role.as_ref().map_or_else(Vec::new, |r| vec![r.clone()])
 }
 
 /// Check if a field is readable based on permissions.
-async fn is_field_readable(field: &str, config: &FileStoreConfig) -> bool {
+#[must_use]
+pub fn is_field_readable(field: &str, config: &FileStoreConfig) -> bool {
     let owner_col = config
         .ownership
         .as_ref()
-        .map(|o| o.owner_column.as_str())
-        .unwrap_or("owner_id");
+        .map_or("owner_id", |o| o.owner_column.as_str());
     let auto_readonly = ["id", "created_at", "updated_at", owner_col];
     if auto_readonly.contains(&field) {
         return true;
@@ -364,10 +389,11 @@ async fn is_field_readable(field: &str, config: &FileStoreConfig) -> bool {
 }
 
 /// Check if a field is readable based on the user's roles.
-pub fn is_field_readable_by_role(
+#[must_use]
+pub fn is_field_readable_by_role<S: ::std::hash::BuildHasher>(
     field: &str,
     user_roles: &[String],
-    permissions: &HashMap<String, crate::config::types::FileStoreFieldPermissions>,
+    permissions: &HashMap<String, crate::config::types::FileStoreFieldPermissions, S>,
 ) -> bool {
     if let Some(field_perm) = permissions.get(field) {
         if field_perm.read.iter().any(|r| r == "*") {

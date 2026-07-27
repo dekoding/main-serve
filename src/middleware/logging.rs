@@ -21,7 +21,7 @@ use crate::server::state::AppState;
 /// with default HTTP tracing behavior via `TraceLayer::new_for_http()`.
 /// Body-level logging is handled separately by `body_logging_middleware`.
 #[must_use]
-/// build_trace_layer
+/// `build_trace_layer`
 pub fn build_trace_layer()
 -> TraceLayer<tower_http::classify::SharedClassifier<tower_http::classify::ServerErrorsAsFailures>>
 {
@@ -41,7 +41,7 @@ pub async fn body_logging_middleware(
 ) -> Response {
     let config = state.config.read().await;
     let log_req = config.logging.log_request_body;
-    let log_res = config.logging.log_response_body;
+    let log_response = config.logging.log_response_body;
     let max_log_size = config.logging.max_body_log_size;
     drop(config);
 
@@ -70,7 +70,7 @@ pub async fn body_logging_middleware(
     let response = next.run(request).await;
 
     // --- Response body logging ---
-    if log_res {
+    if log_response {
         let (parts, body) = response.into_parts();
         let bytes = body
             .collect()

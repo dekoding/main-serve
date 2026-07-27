@@ -9,7 +9,7 @@ use crate::middleware::auth::extractor::RequestContext;
 /// Build a DELETE query targeting a single record by PK.
 ///
 /// Uses a sentinel WHERE clause (`1 = 0`) when PK coercion fails to prevent
-/// type mismatch errors on PostgreSQL when binding a non-numeric string
+/// type mismatch errors on `PostgreSQL` when binding a non-numeric string
 /// to an integer column.
 ///
 /// # Errors

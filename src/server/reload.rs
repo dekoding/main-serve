@@ -64,6 +64,7 @@ pub async fn handle_health(State(state): State<AppState>) -> impl IntoResponse {
 ///
 /// Returns a `(StatusCode, Json)` error tuple if the admin token is missing
 /// or invalid, or if config loading/migration fails.
+#[allow(clippy::too_many_lines)]
 pub async fn handle_reload(
     State(mut state): State<AppState>,
     headers: HeaderMap,
@@ -171,7 +172,7 @@ pub async fn handle_reload(
             (Vec::new(), Arc::clone(&state.stores))
         } else {
             // Collect old store references (no longer needed after pool drain inlining).
-            let _old_stores: Vec<Arc<dyn crate::storage::Storage>> = changed_or_removed
+            let removed_stores: Vec<Arc<dyn crate::storage::Storage>> = changed_or_removed
                 .iter()
                 .filter_map(|name| state.stores.get(name).cloned())
                 .collect();
@@ -198,7 +199,7 @@ pub async fn handle_reload(
                     map.insert(name.clone(), store);
                 }
             }
-            (_old_stores, Arc::new(map))
+            (removed_stores, Arc::new(map))
         }
     };
 
@@ -212,6 +213,8 @@ pub async fn handle_reload(
         *config = new_config;
         *store_configs = new_store_configs;
         drop(store_configs);
+        drop(pools);
+        drop(config);
         state.stores = new_stores;
         old_pools
     };

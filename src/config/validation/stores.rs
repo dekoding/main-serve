@@ -7,7 +7,8 @@ use crate::config::types::{StoreBackend, StoreConfig};
 /// Checks that each store has the correct backend-specific config present,
 /// all required fields within that config are non-empty, and no conflicting
 /// backend configs are set simultaneously.
-pub(crate) fn validate_stores(stores: &HashMap<String, StoreConfig>, errors: &mut Vec<String>) {
+#[allow(clippy::too_many_lines)] // validates multiple store backends and their required fields
+pub fn validate_stores(stores: &HashMap<String, StoreConfig>, errors: &mut Vec<String>) {
     for (name, store) in stores {
         let label = format!("stores.{name}");
 

@@ -29,6 +29,11 @@ const SKIP_ROUTES: &[&str] = &[
 /// 3. Validates credentials based on endpoint auth config
 /// 4. Checks role authorization
 /// 5. Inserts auth info into request extensions for handlers
+///
+/// # Errors
+///
+/// Returns `AppError::Unauthorized` if credentials are invalid, or
+/// `AppError::Forbidden` if the user lacks the required roles.
 pub async fn auth_middleware(
     state: axum::extract::State<AppState>,
     mut req: Request<Body>,

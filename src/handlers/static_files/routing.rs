@@ -119,6 +119,15 @@ pub async fn handle_static_files(
     }
 }
 
+/// Handle file upload requests for a static files endpoint.
+///
+/// Accepts multipart form data and routes to the upload handler.
+/// Only handles POST, PUT, and PATCH methods.
+///
+/// # Errors
+///
+/// Returns `AppError::Internal` if static file config is missing or storage does not exist.
+/// Returns `AppError::MethodNotAllowed` for unsupported HTTP methods.
 pub async fn handle_file_upload_route(
     multipart: axum::extract::Multipart,
     state: State<AppState>,

@@ -17,7 +17,15 @@ use crate::handlers::common::utils::{DatabaseContext, HandlerContext};
 use crate::middleware::auth::extractor::RequestContext;
 use crate::storage::Storage;
 
-/// Handle trash management routes.
+/// Handle trash management routes for media.
+///
+/// Dispatches to list, empty, restore, or permanent-delete handlers
+/// based on the HTTP method and path.
+///
+/// # Errors
+///
+/// Returns `AppError::MethodNotAllowed` if trash is not enabled.
+/// Returns `AppError::BadRequest` on invalid paths.
 pub async fn handle_media_trash(
     handler_ctx: &HandlerContext<'_>,
     method: axum::http::Method,
@@ -73,6 +81,11 @@ pub async fn handle_media_trash(
     }
 }
 
+/// List all trashed media items.
+///
+/// # Errors
+///
+/// Returns `AppError::Internal` on database errors.
 pub async fn handle_media_trash_list(db_ctx: &DatabaseContext) -> Result<Response, AppError> {
     let built = build_select_trashed(&db_ctx.table_config.name, db_ctx.pool.driver());
     let rows = db_ctx.pool.fetch_all_json(&built.sql, &[]).await?;
@@ -80,6 +93,15 @@ pub async fn handle_media_trash_list(db_ctx: &DatabaseContext) -> Result<Respons
     Ok((StatusCode::OK, axum::Json(rows)).into_response())
 }
 
+/// Restore a trashed media item by moving it back to its original location.
+///
+/// The file is renamed from the trash directory back to its original path,
+/// and the database row's trash flag is cleared.
+///
+/// # Errors
+///
+/// Returns `AppError::Internal` if trash is not enabled. Returns `AppError::Auth`
+/// on authentication failure. Returns `AppError::FileOperation` on storage errors.
 pub async fn handle_media_trash_restore(
     handler_ctx: &HandlerContext<'_>,
     id: &str,
@@ -139,6 +161,14 @@ pub async fn handle_media_trash_restore(
         .into_response())
 }
 
+/// Permanently delete all trashed media items (empty the trash).
+///
+/// Deletes every database row currently in the trash. Individual files in
+/// storage are left behind (they will be cleaned up by the retention policy).
+///
+/// # Errors
+///
+/// Returns `AppError::Internal` on database errors.
 pub async fn handle_media_trash_empty(
     config: &MediaConfig,
     db_ctx: &DatabaseContext,
@@ -170,6 +200,14 @@ pub async fn handle_media_trash_empty(
         .into_response())
 }
 
+/// Permanently delete a single trashed media item.
+///
+/// Deletes the file from the trash directory and removes the database row.
+///
+/// # Errors
+///
+/// Returns `AppError::Internal` if trash is not enabled. Returns `AppError::NotFound`
+/// if the trashed item does not exist. Returns `AppError::FileOperation` on storage errors.
 pub async fn handle_media_trash_permanent_delete(
     handler_ctx: &HandlerContext<'_>,
     id: &str,
@@ -225,6 +263,16 @@ pub async fn handle_media_trash_permanent_delete(
         .into_response())
 }
 
+/// Move a media item to trash (soft delete).
+///
+/// Renames the file from its original location to the trash directory under
+/// the user's path, and updates the database row's trash flag.
+///
+/// # Errors
+///
+/// Returns `AppError::Internal` if trash is not enabled. Returns `AppError::Auth`
+/// on authentication failure. Returns `AppError::FileOperation` on storage errors.
+/// Returns `AppError::NotFound` if the media item does not exist.
 pub async fn handle_media_trash_delete(
     handler_ctx: &HandlerContext<'_>,
     id: &str,
@@ -277,8 +325,7 @@ pub async fn handle_media_trash_delete(
 
     if rows_affected == 0 {
         return Err(AppError::NotFound(format!(
-            "Media item with id '{}' not found",
-            id
+            "Media item with id '{id}' not found"
         )));
     }
 

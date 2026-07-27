@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use crate::config::types::{AppConfig, RoleHierarchy};
 
 /// Validate auth references in endpoints point to configured providers.
-pub(crate) fn validate_auth(config: &AppConfig, errors: &mut Vec<String>) {
+#[allow(clippy::too_many_lines)] // single-pass validation across multiple auth provider configurations
+pub fn validate_auth(config: &AppConfig, errors: &mut Vec<String>) {
     let valid_providers: Vec<&str> = {
         let mut v = vec!["none"];
         if config.auth.jwt.is_some() {
@@ -133,10 +134,7 @@ pub(crate) fn validate_auth(config: &AppConfig, errors: &mut Vec<String>) {
 /// Checks for self-references and cycles (direct and transitive) in the
 /// role hierarchy DAG. A cycle would make transitive role resolution
 /// ambiguous.
-pub(crate) fn validate_role_hierarchy(
-    role_hierarchy: &Option<RoleHierarchy>,
-    errors: &mut Vec<String>,
-) {
+pub fn validate_role_hierarchy(role_hierarchy: Option<&RoleHierarchy>, errors: &mut Vec<String>) {
     let Some(hierarchy) = role_hierarchy else {
         return;
     };

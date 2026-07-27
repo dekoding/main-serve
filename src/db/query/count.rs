@@ -14,6 +14,10 @@ use crate::middleware::auth::extractor::RequestContext;
 /// conditions through the same pipeline as the list query, guaranteeing that
 /// JSONB nested paths, LHS bracket notation, and multiple filters produce
 /// identical SQL to `build_select_list`.
+///
+/// # Errors
+///
+/// Returns an error if the where clause or filters cannot be interpolated.
 pub fn build_select_list_count(
     table_name: &str,
     driver: DatabaseDriver,

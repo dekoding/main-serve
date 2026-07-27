@@ -4,15 +4,15 @@ pub mod auth;
 pub mod common;
 /// crud
 pub mod crud;
-/// custom_response
+/// `custom_response`
 pub mod custom_response;
-/// file_store
+/// `file_store`
 pub mod file_store;
 /// media
 pub mod media;
 /// proxy
 pub mod proxy;
-/// spa_host
+/// `spa_host`
 pub mod spa_host;
-/// static_files
+/// `static_files`
 pub mod static_files;

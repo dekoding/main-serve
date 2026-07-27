@@ -11,12 +11,16 @@ use crate::handlers::common::resize::{build_resize_response, parse_resize_params
 use crate::storage::Storage;
 
 /// Handle media resize.
-pub async fn handle_media_resize(
+///
+/// # Errors
+///
+/// Returns an `AppError::MethodNotAllowed` if image resize is not enabled.
+pub async fn handle_media_resize<S: std::hash::BuildHasher + Send + Sync>(
     storage: &dyn Storage,
     root: &Path,
     id: &str,
     config: &MediaConfig,
-    query_params: &std::collections::HashMap<String, String>,
+    query_params: &std::collections::HashMap<String, String, S>,
     pool: &crate::db::pool::DatabasePool,
 ) -> Result<Response, AppError> {
     let image_resize = config
@@ -41,7 +45,7 @@ pub async fn handle_media_resize(
     let image_data = storage
         .read(&resolved_path)
         .await
-        .map_err(|_| AppError::NotFound(format!("Media file not found: {}", file_path)))?;
+        .map_err(|_| AppError::NotFound(format!("Media file not found: {file_path}")))?;
 
     let params = parse_resize_params(query_params);
 
@@ -62,6 +66,17 @@ pub async fn handle_media_resize(
     ))
 }
 
+/// Handle a media thumbnail request for a specific image.
+///
+/// Looks up the image in the database, reads it from storage, applies a
+/// thumbnail-sized resize (150px or the configured thumbnail style size),
+/// and returns the resized image with a 24-hour cache header.
+///
+/// # Errors
+///
+/// Returns `AppError::MethodNotAllowed` if image resize is not enabled.
+/// Returns `AppError::NotFound` if the image file is not found.
+/// Returns `AppError::Internal` on encoding errors.
 pub async fn handle_media_thumbnail(
     storage: &dyn Storage,
     root: &Path,
@@ -78,8 +93,7 @@ pub async fn handle_media_thumbnail(
         .styles
         .iter()
         .find(|s| s.name == "thumbnail")
-        .map(|s| s.max_width.min(s.max_height))
-        .unwrap_or(150);
+        .map_or(150, |s| s.max_width.min(s.max_height));
 
     let mut params = std::collections::HashMap::new();
     params.insert("w".to_string(), default_size.to_string());
