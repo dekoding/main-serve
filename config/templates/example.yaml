@@ -1,0 +1,816 @@
+# yaml-language-server: $schema=../main-serve.schema.json
+#
+# Main Serve - Example Configuration
+#
+# This is an example configuration demonstrating all available features.
+# For full documentation of every field and its behavior, see docs/spec.md.
+#
+# ENVIRONMENT VARIABLE INTERPOLATION:
+#   Any string value supports ${ENV_VAR} and ${ENV_VAR:-default} syntax.
+#   This is resolved at config load time. Use this for secrets.
+#
+# REQUEST CONTEXT INTERPOLATION:
+#   Supports ${request.user.id}, ${request.user.role}, ${request.headers.NAME}.
+#   Example: where_clause: "author_id = ${request.user.id}"
+#
+# FILE INCLUDES ($include directive):
+#   Split large configs across multiple files. Paths relative to the containing file.
+#   Glob patterns (e.g. "endpoints/*.yaml") are supported.
+#   Circular includes are detected and rejected.
+#
+
+server:
+  host: "127.0.0.1"
+
+  port: 8080
+
+  workers: 0
+
+  max_body_size: 10485760
+
+  keep_alive: 75
+
+  shutdown_timeout: 30
+
+  tls:
+    cert: "/path/to/cert.pem"
+
+    key: "/path/to/key.pem"
+
+logging:
+  level: "info"
+
+  format: "pretty"
+
+  log_request_body: false
+
+  log_response_body: false
+
+  max_body_log_size: 16384
+
+cors:
+  allowed_origins: []
+
+  allowed_methods: []
+
+  allowed_headers: []
+
+  allow_credentials: false
+
+  max_age: 86400
+
+rate_limit:
+  enabled: false
+
+  max_requests: 100
+
+  window_seconds: 60
+
+  key_strategy: "ip"
+
+  key_header: ""
+
+  cleanup_threshold: 10000
+
+databases:
+  main:
+    driver: "postgres"
+
+    url: "${DATABASE_URL}"
+
+    min_connections: 1
+
+    max_connections: 10
+
+    auto_migrate: true
+
+    allow_destructive: false
+
+    acquire_timeout: 5
+
+tables:
+  - name: "users"
+    database: "main"
+
+    columns:
+      - name: "id"
+        type: "serial"
+
+        primary_key: true
+
+        nullable: false
+
+        default: null
+
+        unique: false
+
+        indexed: false
+
+
+        validation: null
+
+
+      - name: "email"
+        type: "varchar"
+        unique: true
+        nullable: false
+        indexed: true
+
+      - name: "password_hash"
+        type: "text"
+        nullable: false
+
+      - name: "role"
+        type: "varchar"
+        nullable: false
+        default: "'user'"
+
+      - name: "created_at"
+        type: "timestamptz"
+        nullable: false
+        default: "now()"
+
+      - name: "updated_at"
+        type: "timestamptz"
+        nullable: false
+        default: "now()"
+
+    foreign_keys: []
+
+global_schemas:
+  blog_post:
+    type: "object"
+    required: ["title", "body"]
+    properties:
+      title: { type: "string" }
+      body: { type: "string" }
+      tags:
+        type: "array"
+        items: { type: "string" }
+    additionalProperties: false
+
+
+auth:
+  jwt:
+    secret: "${JWT_SECRET}"
+
+    algorithm: "HS256"
+
+    issuer: "main-serve"
+
+    audience: ""
+
+    expiry: 3600
+
+    role_claim: "role"
+
+    revocation:
+      store: "in_memory"
+
+      db_table: "token_blacklist"
+
+      cleanup_interval_secs: 3600
+
+  api_key:
+    location: "header"
+
+    name: "X-API-Key"
+
+    keys:
+      - key: "${API_KEY_1}"
+        role: "admin"
+      - key: "${API_KEY_2}"
+        role: "reader"
+
+  basic:
+    realm: "main-serve"
+
+    users:
+      - username: "admin"
+        password_hash: "${ADMIN_PASSWORD_HASH}"
+        role: "admin"
+
+  oauth2:
+    provider: "generic"
+    # authorization_url, token_url, userinfo_url, client_id, client_secret,
+    # and redirect_url are omitted here. Set authorization_url to enable the
+    # OAuth2 authorization code flow (requires the other fields as well).
+
+    scopes:
+      - "openid"
+      - "profile"
+      - "email"
+
+    redirect_url: "http://localhost:8080/_main-serve/oauth2/callback"
+
+    success_url: "/"
+
+    cookie_name: "main_serve_token"
+
+    state_ttl: 300
+
+    max_pending_states: 1000
+
+    role_mapping:
+      default_role: "user"
+
+      role_claim: "groups"
+
+      role_map:
+        "admin-group": "admin"
+        "editor-group": "editor"
+        "viewer-group": "user"
+
+      match_mode: "exact"
+
+  register:
+    enabled: true
+
+    table: "users"
+
+    database: "main"
+
+    default_role: "user"
+
+    password_hash: "argon2id"
+
+stores:
+  local_assets:
+    backend: "native"
+
+    root: "./public"
+
+
+
+
+  media_storage:
+    backend: "s3"
+    s3:
+      region: "us-west-2"
+      bucket: "myapp-media"
+      access_key: "${S3_ACCESS_KEY}"
+      secret_key: "${S3_SECRET_KEY}"
+      force_path_style: false
+
+  video_storage:
+    backend: "native"
+    root: "/var/media/video"
+
+  test_store:
+    backend: "memory"
+
+endpoints:
+
+  - path: "/api/users"
+    methods:
+      - "get"
+      - "post"
+
+    action: "crud"
+
+    crud:
+      table: "users"
+
+      database: "main"
+
+      fields:
+        - "id"
+        - "email"
+        - "role"
+        - "created_at"
+
+      writable_fields:
+        - "email"
+        - "password_hash"
+        - "role"
+
+      pagination:
+        enabled: true
+
+        default_page_size: 20
+
+        max_page_size: 100
+
+      filtering:
+        enabled: true
+
+        allowed_fields:
+          - "email"
+          - "role"
+          - "created_at"
+
+      sorting:
+        enabled: true
+
+        default_field: "created_at"
+
+        default_order: "desc"
+
+        allowed_fields:
+          - "id"
+          - "email"
+          - "created_at"
+
+      where_clause: null
+
+      update_where_clause: null
+
+      delete_where_clause: null
+
+      insert_owner: null
+
+      joins: []
+
+      computed_fields: []
+
+    auth: "jwt"
+    roles:
+      - "admin"
+      - "user"
+
+    cors: null
+
+    rate_limit: null
+
+
+  - path: "/api/users/{id}"
+    methods:
+      - "get"
+      - "put"
+      - "delete"
+
+    action: "crud"
+    crud:
+      table: "users"
+
+      database: "main"
+
+      fields:
+        - "id"
+        - "email"
+        - "role"
+        - "created_at"
+
+      writable_fields:
+        - "email"
+        - "role"
+    auth: "jwt"
+    roles:
+      - "admin"
+
+  - path: "/api/external/*"
+    methods:
+      - "get"
+      - "post"
+      - "put"
+      - "delete"
+
+    action: "proxy"
+
+    proxy:
+      upstream: "https://api.example.com"
+
+      path_rewrite:
+        strip_prefix: "/api/external"
+
+        add_prefix: "/v2"
+
+      headers:
+        X-Forwarded-For: "client"
+        Authorization: "Bearer ${UPSTREAM_TOKEN}"
+
+      timeouts:
+        connect: 5
+
+        read: 30
+
+        total: 60
+
+      max_response_size: 268435456
+
+    auth: "api_key"
+
+  - path: "/media"
+    methods:
+      - "get"
+      - "post"
+      - "patch"
+      - "delete"
+
+    action: "media"
+    media:
+      storage: "media_storage"
+
+      table: "media_items"
+
+      database: "main"
+
+
+      columns:
+        - "auto"
+        - "tags"
+
+      metadata_columns:
+        - name: "license"
+          type: "text"
+          nullable: true
+          default: "''"
+
+
+      upload:
+        max_size: 104857600
+
+        allowed_extensions:
+          - ".jpg"
+          - ".jpeg"
+          - ".png"
+          - ".gif"
+          - ".webp"
+          - ".pdf"
+          - ".mp4"
+          - ".mp3"
+
+        allowed_mime_types: []
+
+        mime_detection: "magic"
+
+        bulk_supported: true
+
+        create_subdirectory: "{user_id}/{year}/{month}"
+
+        versioning:
+          enabled: false
+          max_versions: 10
+
+        preview_generation:
+          enabled: false
+          previews:
+            - name: "thumbnail"
+              max_width: 200
+              max_height: 200
+              format: "webp"
+
+
+      move:
+        enabled: true
+
+        admin_override: true
+
+        auto_create_destination: false
+
+
+      rename:
+        enabled: true
+
+        admin_override: true
+
+
+      delete:
+        enabled: true
+
+        admin_override: true
+
+
+      user_scope:
+        enabled: true
+
+        mode: "shared"
+
+        admin_roles:
+          - "admin"
+          - "editor"
+
+        allow_cross_user_browse: false
+
+
+      content_references:
+        enabled: true
+
+        table: "media_entity_refs"
+
+        media_id_column: "media_id"
+        entity_id_column: "entity_id"
+        content_type_column: "content_type"
+        order_column: "attachment_order"
+
+
+        allowed_content_types: null
+
+        on_delete: "detach"
+
+
+      trash:
+        enabled: true
+
+        retention_days: 14
+
+        prefix: ".trash"
+
+        management_endpoints: true
+
+        admin_roles:
+          - "admin"
+
+
+      sharing:
+        enabled: true
+
+        signing_secret: "${FILE_SHARING_SECRET}"
+
+        default_ttl: 86400
+
+        max_ttl: 604800
+
+        prefix: "shared"
+
+        allow_any_user: true
+
+        required_link_role: null
+
+
+      pagination:
+        enabled: true
+
+        default_page_size: 20
+
+        max_page_size: 100
+
+      sorting:
+        enabled: true
+
+        default_field: "created_at"
+
+        default_order: "desc"
+
+        allowed_fields:
+          - "original_name"
+          - "mime_type"
+          - "created_at"
+          - "size"
+          - "content_type"
+
+      filtering:
+        enabled: true
+
+        allowed_fields:
+          - "mime_type"
+          - "original_name"
+          - "created_at"
+          - "size"
+          - "content_type"
+          - "tags"
+
+      facets:
+        - name: "type"
+          field: "content_type"
+          facet_type: "term"
+        - name: "date"
+          field: "created_at"
+          facet_type: "date_range"
+        - name: "size"
+          field: "size"
+          facet_type: "numeric"
+
+
+      image_resize:
+        enabled: true
+
+        max_dimension: 4096
+
+        supported_formats:
+          - "jpg"
+          - "jpeg"
+          - "png"
+          - "webp"
+
+        default_fit: "scale_down"
+
+        cache_dir: "_resized"
+
+        styles:
+          - name: "thumbnail"
+            max_width: 200
+            max_height: 200
+            resize_fit: "cover"
+            format: "webp"
+            quality: 85
+          - name: "gallery"
+            max_width: 800
+            max_height: 600
+            resize_fit: "contain"
+            format: "jpg"
+            quality: 90
+
+        generate_on_upload: true
+
+    auth: "jwt"
+    roles:
+      - "admin"
+      - "editor"
+      - "author"
+
+  - path: "/assets"
+    methods:
+      - "get"
+      - "head"
+
+    action: "static_files"
+    static_files:
+      storage: "local_assets"
+
+
+      index: "index.html"
+
+      directory_listing: false
+
+      cache_max_age: 3600
+
+      etag: true
+
+      range_requests: true
+
+      head_support: true
+
+      cache_rules:
+        - extensions: [".html"]
+          cache_control: "no-cache"
+        - extensions: [".jpg", ".png", ".gif", ".webp", ".svg"]
+          cache_control: "public, max-age=31536000, immutable"
+        - extensions: [".mp4", ".mp3"]
+          cache_control: "public, max-age=86400"
+
+
+      upload:
+        enabled: false
+
+        max_size: 10485760
+
+        allowed_extensions:
+          - ".jpg"
+          - ".jpeg"
+          - ".png"
+          - ".gif"
+          - ".pdf"
+
+        create_subdirectory: "{user_id}/{year}/{month}"
+
+        mime_detection: "magic"
+
+
+      streaming:
+        enabled: false
+
+        buffer_size: 65536
+
+        threshold: 1048576
+
+        include_content_length: true
+
+
+      image_resize:
+        enabled: false
+
+        max_dimension: 4096
+
+        supported_formats:
+          - "jpg"
+          - "jpeg"
+          - "png"
+          - "webp"
+
+        default_fit: "scale_down"
+
+        cache_dir: null
+
+  - path: "/app/*"
+    methods:
+      - "get"
+      - "head"
+
+    action: "spa_host"
+    spa_host:
+      storage: "local_assets"
+
+      index: "index.html"
+
+      cache_max_age: 3600
+
+      cache_rules:
+        - extensions: [".html"]
+          cache_control: "no-cache, no-store"
+        - extensions: [".js", ".css", ".woff2", ".png", ".svg"]
+          cache_control: "public, max-age=31536000, immutable"
+
+      etag: true
+
+      fallback_status: 200
+
+    auth: "jwt"
+
+  - path: "/api/files"
+    methods:
+      - "get"
+      - "post"
+      - "patch"
+      - "delete"
+
+    action: "file_store"
+    file_store:
+      storage: "media_storage"
+
+      table: "files"
+
+      database: "main"
+
+      metadata_columns:
+        - name: "original_name"
+          type: "text"
+        - name: "mime_type"
+          type: "text"
+        - name: "size"
+          type: "bigint"
+        - name: "uploader_id"
+          type: "uuid"
+        - name: "tags"
+          type: "jsonb"
+          nullable: true
+          default: "null"
+        - name: "description"
+          type: "text"
+          nullable: true
+          default: "null"
+        - name: "alt_text"
+          type: "text"
+          nullable: true
+          default: "null"
+
+      field_permissions:
+        original_name:
+          read: ["admin", "editor"]
+          write: ["admin"]
+        mime_type:
+          read: ["admin", "editor", "author"]
+          write: ["admin"]
+        tags:
+          read: ["admin", "editor"]
+          write: ["admin", "editor"]
+        description:
+          read: ["admin", "editor"]
+          write: ["admin", "editor", "author"]
+        alt_text:
+          read: ["admin", "editor"]
+          write: ["admin", "editor", "author"]
+
+      ownership:
+        owner_column: "uploader_id"
+        admin_override: true
+
+      trash:
+        enabled: true
+        retention_days: 30
+
+      pagination:
+        enabled: true
+        default_page_size: 20
+        max_page_size: 100
+
+      sorting:
+        enabled: true
+        default_field: "created_at"
+        default_order: "desc"
+        allowed_fields:
+          - "original_name"
+          - "mime_type"
+          - "created_at"
+          - "size"
+
+      filtering:
+        enabled: true
+        allowed_fields:
+          - "mime_type"
+          - "original_name"
+          - "created_at"
+          - "size"
+
+    auth: "jwt"
+    roles:
+      - "admin"
+
+  - path: "/api/info"
+    methods:
+      - "get"
+
+    action: "custom_response"
+
+    custom_response:
+      status: 200
+
+      content_type: "application/json"
+
+      body: '{"name": "Main Serve", "version": "0.3.0"}'
+
+      headers:
+        X-Custom-A: "hello"
+        X-Custom-B: "world"
+
+    auth: "none"

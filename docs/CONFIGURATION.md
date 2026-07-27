@@ -1,6 +1,6 @@
 # Configuration Reference
 
-This document provides detailed documentation for every configuration field in Main Serve. For a quick annotated example, see [spec.yaml](../config/spec.yaml). For a hands-on introduction, see the [Quickstart Guide](QUICKSTART.md).
+This document provides detailed documentation for every configuration field in Main Serve. For a quick example, see [config/templates/example.yaml](../config/templates/example.yaml). For a hands-on introduction, see the [Quickstart Guide](QUICKSTART.md).
 
 ---
 

@@ -7,9 +7,9 @@
             "description": "Main Serve - Full YAML Configuration Schema",
             "additionalProperties": false,
             "properties": {
-                "server": {
-                    "$ref": "#/definitions/Server",
-                    "description": "Main Serve core server settings. These settings affect core HTTP server behavior.\nIf not set, Main Serve will use the following defaults:\n- host: \"127.0.0.1\"\n- port: 8080\n- workers: 0\n- max_body_size: 10485760\n- keep_alive: 75\n- shutdown_timeout: 30"
+"server": {
+    "$ref": "#/definitions/Server",
+    "description": "Core HTTP server settings (host, port, workers, body size, keep-alive, shutdown, TLS)."
                 },
                 "logging": {
                     "$ref": "#/definitions/Logging",
@@ -39,16 +39,17 @@
                     "$ref": "#/definitions/Stores",
                     "description": "Named storage backends. Endpoints that need file storage reference these by key."
                 },
-                "endpoints": {
-                    "type": "array",
-                    "description": "The core of Main Serve. Each entry in the endpoints list defines an HTTP route and its behavior.\nDefine API routes, static file serving paths, and reverse proxies.",
+"endpoints": {
+    "type": "array",
+    "description": "API routes. Each entry defines an HTTP path, methods, and action behavior.",
+                    "minItems": 1,
                     "items": {
                         "$ref": "#/definitions/Endpoint"
                     }
                 },
-                "global_schemas": {
-                    "$ref": "#/definitions/GlobalSchemas",
-                    "description": "Named JSON Schema documents for reuse across table columns.\nEach key is a unique name referenced via `validation_schema_ref` from column configs.\nSchemas are compiled once at config load time."
+"global_schemas": {
+    "$ref": "#/definitions/GlobalSchemas",
+    "description": "Named JSON Schema documents for reuse across table columns via validation_schema_ref."
                 }
             },
             "required": [
@@ -227,6 +228,7 @@
                 "expiry": {
                     "type": "integer",
                     "description": "Token expiry duration in seconds.",
+                    "minimum": 1,
                     "default": 3600
                 },
                 "role_claim": {
@@ -244,25 +246,28 @@
             ],
             "title": "Jwt"
         },
-        "Oauth2": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-                "provider": {
-                    "type": "string",
-                    "description": "OAuth2 provider name (for logging/identification)."
-                },
-                "authorization_url": {
-                    "type": "string",
-                    "description": "Authorization endpoint URL (IdP's login page). Optional (defaults to empty string). When set, enables the OAuth2 authorization code flow and registers the /_main-serve/oauth2/authorize and callback endpoints."
+"Oauth2": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+        "provider": {
+            "type": "string",
+            "description": "OAuth2 provider name (for logging/identification)."
+        },
+        "authorization_url": {
+            "type": "string",
+            "description": "Authorization endpoint URL (IdP login page). When set, enables the authorization code flow with PKCE.",
+                    "format": "uri"
                 },
                 "token_url": {
                     "type": "string",
-                    "description": "Token endpoint URL (where the code is exchanged for tokens).\nRequired when authorization_url is set."
+                    "description": "Token endpoint URL (where the code is exchanged for tokens).\nRequired when authorization_url is set.",
+                    "format": "uri"
                 },
-                "userinfo_url": {
-                    "type": "string",
-                    "description": "UserInfo endpoint URL (OIDC). Optional (defaults to empty string).\nUsed to validate bearer tokens (mode 1) and to fetch user info after code exchange (mode 2). Returns JSON with \"sub\" and optional \"role\" fields."
+        "userinfo_url": {
+            "type": "string",
+            "description": "UserInfo endpoint URL (OIDC). Used for bearer token validation (mode 1) and user info after code exchange (mode 2).",
+                    "format": "uri"
                 },
                 "client_id": {
                     "type": "string",
@@ -285,10 +290,10 @@
                         "type": "string"
                     }
                 },
-                "redirect_url": {
-                    "type": "string",
-                    "description": "Callback URL that the IdP redirects to after authentication. Must match the redirect URI registered with the OAuth2 provider.\nRequired when authorization_url is set.",
-                    "format": "uri",
+        "redirect_url": {
+            "type": "string",
+            "description": "Callback URL that the IdP redirects to after authentication. Must match the redirect URI registered with the OAuth2 provider.",
+            "format": "uri",
                     "qt-uri-protocols": [
                         "http",
                         "https"
@@ -311,19 +316,21 @@
                     ],
                     "default": "/"
                 },
-                "cookie_name": {
-                    "type": "string",
-                    "description": "Name of the HttpOnly cookie set after a successful OAuth2 login.\n Contains the minted JWT. The JWT auth middleware also checks this cookie, so endpoints with `auth: \"jwt\"` work seamlessly after login.",
-                    "default": "main_serve_token"
+        "cookie_name": {
+            "type": "string",
+            "description": "Name of the HttpOnly cookie set after OAuth2 login. Contains the minted JWT.",
+            "default": "main_serve_token"
                 },
                 "state_ttl": {
                     "type": "integer",
                     "description": "Maximum lifetime (in seconds) for a pending OAuth2 authorization state.\nStates older than this are expired and rejected during the callback.",
+                    "minimum": 1,
                     "default": 300
                 },
                 "max_pending_states": {
                     "type": "integer",
                     "description": "Maximum number of pending OAuth2 authorization flows allowed simultaneously.\nLimits memory usage from concurrent or abandoned authorization flows.",
+                    "minimum": 1,
                     "default": 1000
                 },
                 "role_mapping": {
@@ -345,24 +352,22 @@
             "type": [ "object", "null" ],
             "additionalProperties": false,
             "properties": {
-                "allowed_origins": {
-                    "type": "array",
-                    "description": "Allowed origins. Use [\"*\"] to allow all.",
-                    "items": {
-                        "type": "string"
-                    },
-                    "default": "[]"
+"allowed_origins": {
+    "type": "array",
+    "description": "Allowed origins. Use [\"*\"] to allow all.",
+    "items": { "type": "string" },
+    "default": []
                 },
-                "allowed_methods": {
-                    "type": "array",
-                    "description": "Allowed HTTP methods.",
-                    "items": {
-                        "anyOf": [
-                            { "type": "string", "enum": [ "GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD" ] },
-                            { "$ref": "#/definitions/EnvVar" }
-                        ]
-                    },
-                    "default": "[]"
+"allowed_methods": {
+    "type": "array",
+    "description": "Allowed HTTP methods.",
+    "items": {
+        "anyOf": [
+            { "type": "string", "enum": [ "GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD" ] },
+            { "$ref": "#/definitions/EnvVar" }
+        ]
+    },
+    "default": []
                 },
                 "allowed_headers": {
                     "type": "array",
@@ -372,15 +377,15 @@
                     },
                     "default": "[]"
                 },
-                "allow_credentials": {
-                    "type": "boolean",
-                    "description": "Whether to allow credentials (cookies, authorization headers).",
-                    "default": "false"
+"allow_credentials": {
+    "type": "boolean",
+    "description": "Whether to allow credentials (cookies, authorization headers).",
+    "default": false
                 },
-                "max_age": {
-                    "type": "integer",
-                    "description": "Max age for preflight cache in seconds.",
-                    "default": 86400
+"max_age": {
+    "type": "integer",
+    "description": "Max age for CORS preflight cache in seconds.",
+    "default": 86400
                 }
             },
             "title": "Cors"
@@ -417,11 +422,13 @@
                 "min_connections": {
                     "type": "integer",
                     "description": "Minimum number of connections in the pool.",
+                    "minimum": 0,
                     "default": 1
                 },
                 "max_connections": {
                     "type": "integer",
                     "description": "Maximum number of connections in the pool.",
+                    "minimum": 1,
                     "default": 10
                 },
                 "auto_migrate": {
@@ -431,12 +438,13 @@
                 },
                 "allow_destructive": {
                     "type": "boolean",
-                    "description": "Whether auto-migration is allowed to drop columns that exist in the database but are no longer present in the YAML config.\nWhen false (the default), removed columns are logged as warnings but left untouched - no data is lost.\nWhen true, columns missing from the YAML config will be dropped from the database via ALTER TABLE ... DROP COLUMN. THIS IS DESTRUCTIVE and cannot be undone.",
+                    "description": "When true, auto-migration drops columns missing from the YAML config. THIS IS DESTRUCTIVE.",
                     "default": false
                 },
                 "acquire_timeout": {
                     "type": "integer",
                     "description": "Pool connection acquire timeout in seconds.\nHow long to wait for a connection from the pool before returning an error.",
+                    "minimum": 1,
                     "default": 5
                 }
             },
@@ -462,7 +470,7 @@
             "additionalProperties": false,
             "properties": {
                 "backend": {
-                    "description": "Storage backend type: \"native\" (local disk), \"s3\" (Amazon S3),\n\"azure\" (Azure Blob Storage), \"gcs\" (Google Cloud Storage),\n\"memory\" (in-memory for testing, no config needed).",
+                    "description": "Storage backend type.",
                     "anyOf": [
                         { "type": "string", "enum": [ "native", "s3", "azure", "gcs", "memory" ] },
                         { "$ref": "#/definitions/EnvVar" }
@@ -553,14 +561,16 @@
                     "allOf": [
                         { "if": { "properties": { "backend": { "const": "native" } } } },
                         { "then": { "required": [ "root" ] } },
-                        { "not": { "required": [ "s3" ] } },
-                        { "not": { "required": [ "azure" ] } },
-                        { "not": { "required": [ "gcs" ] } },
-                        { "not": { "required": [ "memory" ] } },
-                        { "not": { "properties": { "backend": { "const": "s3" } } } },
-                        { "not": { "properties": { "backend": { "const": "azure" } } } },
-                        { "not": { "properties": { "backend": { "const": "gcs" } } } },
-                        { "not": { "properties": { "backend": { "const": "memory" } } } }
+                        { "not": { "anyOf": [
+                            { "required": [ "s3" ] },
+                            { "required": [ "azure" ] },
+                            { "required": [ "gcs" ] },
+                            { "required": [ "memory" ] },
+                            { "properties": { "backend": { "const": "s3" } } },
+                            { "properties": { "backend": { "const": "azure" } } },
+                            { "properties": { "backend": { "const": "gcs" } } },
+                            { "properties": { "backend": { "const": "memory" } } }
+                        ]}}
                     ]
                 },
                 {
@@ -568,13 +578,15 @@
                     "allOf": [
                         { "if": { "properties": { "backend": { "const": "s3" } } } },
                         { "then": { "required": [ "s3" ] } },
-                        { "not": { "required": [ "root" ] } },
-                        { "not": { "required": [ "azure" ] } },
-                        { "not": { "required": [ "gcs" ] } },
-                        { "not": { "properties": { "backend": { "const": "native" } } } },
-                        { "not": { "properties": { "backend": { "const": "azure" } } } },
-                        { "not": { "properties": { "backend": { "const": "gcs" } } } },
-                        { "not": { "properties": { "backend": { "const": "memory" } } } }
+                        { "not": { "anyOf": [
+                            { "required": [ "root" ] },
+                            { "required": [ "azure" ] },
+                            { "required": [ "gcs" ] },
+                            { "properties": { "backend": { "const": "native" } } },
+                            { "properties": { "backend": { "const": "azure" } } },
+                            { "properties": { "backend": { "const": "gcs" } } },
+                            { "properties": { "backend": { "const": "memory" } } }
+                        ]}}
                     ]
                 },
                 {
@@ -582,14 +594,16 @@
                     "allOf": [
                         { "if": { "properties": { "backend": { "const": "azure" } } } },
                         { "then": { "required": [ "azure" ] } },
-                        { "not": { "required": [ "root" ] } },
-                        { "not": { "required": [ "s3" ] } },
-                        { "not": { "required": [ "gcs" ] } },
-                        { "not": { "required": [ "memory" ] } },
-                        { "not": { "properties": { "backend": { "const": "native" } } } },
-                        { "not": { "properties": { "backend": { "const": "s3" } } } },
-                        { "not": { "properties": { "backend": { "const": "gcs" } } } },
-                        { "not": { "properties": { "backend": { "const": "memory" } } } }
+                        { "not": { "anyOf": [
+                            { "required": [ "root" ] },
+                            { "required": [ "s3" ] },
+                            { "required": [ "gcs" ] },
+                            { "required": [ "memory" ] },
+                            { "properties": { "backend": { "const": "native" } } },
+                            { "properties": { "backend": { "const": "s3" } } },
+                            { "properties": { "backend": { "const": "gcs" } } },
+                            { "properties": { "backend": { "const": "memory" } } }
+                        ]}}
                     ]
                 },
                 {
@@ -597,28 +611,32 @@
                     "allOf": [
                         { "if": { "properties": { "backend": { "const": "gcs" } } } },
                         { "then": { "required": [ "gcs" ] } },
-                        { "not": { "required": [ "root" ] } },
-                        { "not": { "required": [ "s3" ] } },
-                        { "not": { "required": [ "azure" ] } },
-                        { "not": { "required": [ "memory" ] } },
-                        { "not": { "properties": { "backend": { "const": "native" } } } },
-                        { "not": { "properties": { "backend": { "const": "s3" } } } },
-                        { "not": { "properties": { "backend": { "const": "azure" } } } },
-                        { "not": { "properties": { "backend": { "const": "memory" } } } }
+                        { "not": { "anyOf": [
+                            { "required": [ "root" ] },
+                            { "required": [ "s3" ] },
+                            { "required": [ "azure" ] },
+                            { "required": [ "memory" ] },
+                            { "properties": { "backend": { "const": "native" } } },
+                            { "properties": { "backend": { "const": "s3" } } },
+                            { "properties": { "backend": { "const": "azure" } } },
+                            { "properties": { "backend": { "const": "memory" } } }
+                        ]}}
                     ]
                 },
                 {
                     "description": "Memory backend configuration (no config needed)",
                     "allOf": [
                         { "if": { "properties": { "backend": { "const": "memory" } } } },
-                        { "not": { "required": [ "root" ] } },
-                        { "not": { "required": [ "s3" ] } },
-                        { "not": { "required": [ "azure" ] } },
-                        { "not": { "required": [ "gcs" ] } },
-                        { "not": { "properties": { "backend": { "const": "native" } } } },
-                        { "not": { "properties": { "backend": { "const": "s3" } } } },
-                        { "not": { "properties": { "backend": { "const": "azure" } } } },
-                        { "not": { "properties": { "backend": { "const": "gcs" } } } }
+                        { "not": { "anyOf": [
+                            { "required": [ "root" ] },
+                            { "required": [ "s3" ] },
+                            { "required": [ "azure" ] },
+                            { "required": [ "gcs" ] },
+                            { "properties": { "backend": { "const": "native" } } },
+                            { "properties": { "backend": { "const": "s3" } } },
+                            { "properties": { "backend": { "const": "azure" } } },
+                            { "properties": { "backend": { "const": "gcs" } } }
+                        ]}}
                     ]
                 }
             ]
@@ -639,9 +657,10 @@
                 "methods": {
                     "type": "array",
                     "description": "Supported HTTP verbs.",
+                    "minItems": 1,
                     "items": {
                         "anyOf": [
-                            { "type": "string", "enum": [ "get", "post", "put", "patch", "delete", "head" ] },
+                            { "type": "string", "enum": [ "get", "post", "put", "patch", "delete", "head", "options" ] },
                             { "$ref": "#/definitions/EnvVar" }
                         ]
                     }
@@ -700,6 +719,7 @@
                 "roles": {
                     "type": "array",
                     "description": "Authorization: which roles are allowed to access this endpoint. If omitted, any authenticated user is allowed",
+                    "minItems": 1,
                     "items": {
                         "type": "string"
                     }
@@ -775,33 +795,33 @@
                 },
                 "filtering": {
                     "$ref": "#/definitions/Filtering",
-                    "description": "Enable filtering on GET list endpoints (query parameters become WHERE clauses).\nIf filtering is enabled on a JSONB column, the API supports dot-notation and LHS brackets syntax for filtering on nested fields.\nDot-notation example: ?metadata.role=admin\nLHS brackets example: ?metadata[role]=admin"
+                    "description": "Enable filtering on GET list endpoints (query parameters become WHERE clauses)."
                 },
                 "sorting": {
                     "$ref": "#/definitions/Sorting",
-                    "description": "Enable sorting on GET list endpoints (?sort=field&order=asc).\nIf sorting is enabled on a JSONB column, the API supports dot-notation and LHS brackets syntax for sorting on nested fields.\nDot-notation example: ?sort=metadata.role&order=asc\nLHS brackets example: ?sort=metadata[role]&order=asc"
+                    "description": "Enable sorting on GET list endpoints (?sort=field&order=asc)."
                 },
                 "where_clause": {
                     "type": [ "string", "null" ],
-                    "description": "WHERE clause applied to all queries on this endpoint. Can be static (e.g. \"deleted_at IS NULL\") or dynamic with interpolation (e.g. \"author_id = ${request.user.id}\").",
+                    "description": "WHERE clause applied to all queries. Supports ${request.user.id} interpolation.",
                     "examples": [ "deleted_at IS NULL" ],
                     "default": null
                 },
                 "update_where_clause": {
                     "type": [ "string", "null" ],
-                    "description": "WHERE clause applied specifically to UPDATE queries. Can be static or dynamic with interpolation (e.g. \"author_id = ${request.user.id}\"). Combined with where_clause using AND.",
+                    "description": "WHERE clause for UPDATE queries only. Combined with where_clause using AND.",
                     "examples": [ "author_id = ${request.user.id}" ],
                     "default": null
                 },
                 "delete_where_clause": {
                     "type": [ "string", "null" ],
-                    "description": "WHERE clause applied specifically to DELETE queries. Can be static or dynamic with interpolation (e.g. \"author_id = ${request.user.id}\"). Combined with where_clause using AND.",
+                    "description": "WHERE clause for DELETE queries only. Combined with where_clause using AND.",
                     "examples": [ "author_id = ${request.user.id}" ],
                     "default": null
                 },
                 "insert_owner": {
                     "type": [ "string", "null" ],
-                    "description": "Column name to automatically populate with the authenticated user's ID (${request.user.id}) on INSERT (POST) requests. If the column already has a value in the request body, that value takes precedence.",
+                    "description": "Column to auto-populate with ${request.user.id} on INSERT. If already in request body, that value takes precedence.",
                     "examples": [ "author_id" ],
                     "default": null
                 },
@@ -910,11 +930,13 @@
                 "default_page_size": {
                     "type": "integer",
                     "description": "Default page size.",
+                    "minimum": 1,
                     "default": 20
                 },
                 "max_page_size": {
                     "type": "integer",
                     "description": "Maximum allowed page size.",
+                    "minimum": 1,
                     "default": 100
                 }
             },
@@ -959,6 +981,8 @@
                 "status": {
                     "type": "integer",
                     "description": "HTTP status code.",
+                    "minimum": 100,
+                    "maximum": 599,
                     "default": 200
                 },
                 "content_type": {
@@ -1018,6 +1042,7 @@
                 "max_response_size": {
                     "type": "integer",
                     "description": "Maximum upstream response body size in bytes. Responses exceeding this limit are rejected to prevent memory exhaustion.\nSet to 0 to disable the limit.",
+                    "minimum": 0,
                     "default": 268435456
                 }
             },
@@ -1066,16 +1091,19 @@
                 "connect": {
                     "type": "integer",
                     "description": "Connect timeout.",
+                    "minimum": 1,
                     "default": 5
                 },
                 "read": {
                     "type": "integer",
                     "description": "Read timeout",
+                    "minimum": 1,
                     "default": 30
                 },
                 "total": {
                     "type": "integer",
                     "description": "Maximum total time for the proxied request.",
+                    "minimum": 1,
                     "default": 60
                 }
             },
@@ -1103,6 +1131,7 @@
                 "cache_max_age": {
                     "type": "integer",
                     "description": "Cache-Control header max-age in seconds. 0 disables caching.",
+                    "minimum": 0,
                     "default": 3600
                 },
                 "etag": {
@@ -1291,6 +1320,7 @@
                 "max_size": {
                     "type": "integer",
                     "description": "Maximum upload size in bytes.",
+                    "minimum": 1,
                     "default": 104857600
                 },
                 "allowed_extensions": {
@@ -1350,9 +1380,12 @@
                 "max_versions": {
                     "type": "integer",
                     "description": "Maximum number of versions to keep.",
+                    "minimum": 1,
                     "default": 10
                 }
             },
+            "if": { "properties": { "enabled": { "const": true } } },
+            "then": { "required": [ "max_versions" ] },
             "title": "FileVersioning"
         },
         "PreviewGeneration": {
@@ -1578,6 +1611,7 @@
                 "retention_days": {
                     "type": "integer",
                     "description": "Number of days to retain trashed files.",
+                    "minimum": 1,
                     "default": 14
                 },
                 "prefix": {
@@ -1618,11 +1652,13 @@
                 "default_ttl": {
                     "type": "integer",
                     "description": "Default TTL for share links in seconds.",
+                    "minimum": 1,
                     "default": 86400
                 },
                 "max_ttl": {
                     "type": "integer",
                     "description": "Maximum TTL for share links in seconds.",
+                    "minimum": 1,
                     "default": 604800
                 },
                 "prefix": {
@@ -1754,6 +1790,7 @@
                 "max_dimension": {
                     "type": "integer",
                     "description": "Maximum dimension (width or height) for auto-resize.\nImages larger than this will be scaled down.",
+                    "minimum": 1,
                     "default": 4096
                 },
                 "supported_formats": {
@@ -1822,6 +1859,8 @@
                 "quality": {
                     "type": "integer",
                     "description": "Quality (0-100).",
+                    "minimum": 1,
+                    "maximum": 100,
                     "default": 85
                 }
             },
@@ -1919,6 +1958,8 @@
                     "default": "argon2id"
                 }
             },
+            "if": { "properties": { "enabled": { "const": true } } },
+            "then": { "required": [ "table", "database", "default_role" ] },
             "title": "RegisterConfig"
         },
         "PasswordHashAlgorithm": {
@@ -1961,6 +2002,7 @@
                 "max_body_log_size": {
                     "type": "integer",
                     "description": "Maximum body size (in bytes) that will be included in log output.\nBodies larger than this are truncated. Applies to both request and response body logging.",
+                    "minimum": 1,
                     "default": 16384
                 }
             },
@@ -1978,11 +2020,13 @@
                 "max_requests": {
                     "type": "integer",
                     "description": "Maximum number of requests per window.",
+                    "minimum": 1,
                     "default": 100
                 },
                 "window_seconds": {
                     "type": "integer",
                     "description": "Window duration in seconds.",
+                    "minimum": 1,
                     "default": 60
                 },
                 "key_strategy": {
@@ -2000,6 +2044,7 @@
                 "cleanup_threshold": {
                     "type": "integer",
                     "description": "Number of tracked client entries before triggering cleanup of expired entries.\nIncrease for high-traffic deployments with many unique clients.",
+                    "minimum": 1,
                     "default": 10000
                 }
             },
@@ -2020,26 +2065,32 @@
                 "port": {
                     "type": "integer",
                     "description": "Port number for the HTTP listener.",
+                    "minimum": 1,
+                    "maximum": 65535,
                     "default" : 8080
                 },
                 "workers": {
                     "type": "integer",
                     "description": "Number of worker threads. Set to 0 or omit for auto (num CPUs).",
+                    "minimum": 0,
                     "default": 0
                 },
                 "max_body_size": {
                     "type": "integer",
                     "description": "Maximum request body size in bytes. Requests exceeding this are rejected with 413.\nNot applied to file uploads - those are configured under static_files.upload.\nNot applied to proxied requests - those are configured under proxy.max_response_size.",
+                    "minimum": 1,
                     "default": 10485760
                 },
                 "keep_alive": {
                     "type": "integer",
-                    "description": "HTTP keep-alive timeout in seconds. 0 disables keep-alive.\nWhen > 0, idle keep-alive connections are closed after this many seconds\nwithout a new request (implemented via hyper's header_read_timeout).",
+                    "description": "HTTP keep-alive timeout in seconds. 0 disables keep-alive.",
+                    "minimum": 0,
                     "default": 75
                 },
                 "shutdown_timeout": {
                     "type": "integer",
                     "description": "Graceful shutdown timeout in seconds.\nAfter receiving SIGTERM/SIGINT, in-flight requests have this long to complete.",
+                    "minimum": 1,
                     "default": 30
                 },
                 "tls": {
@@ -2097,6 +2148,7 @@
                 "columns": {
                     "type": "array",
                     "description": "Column definitions. Every table must have at least one primary key column.",
+                    "minItems": 1,
                     "items": {
                         "$ref": "#/definitions/Column"
                     }
@@ -2358,6 +2410,7 @@
                 "max_dimension": {
                     "type": "integer",
                     "description": "Maximum dimension (width or height) for auto-resize.\nImages larger than this will be scaled down.",
+                    "minimum": 1,
                     "default": 4096
                 },
                 "supported_formats": {
@@ -2408,11 +2461,13 @@
                 "buffer_size": {
                     "type": "integer",
                     "description": "Chunk size in bytes for streaming. Must be lower than threshold.",
+                    "minimum": 1,
                     "default": 65536
                 },
                 "threshold": {
                     "type": "integer",
                     "description": "Threshold for enabling streaming (files larger than this use streaming).\nFiles below this threshold are read entirely into memory.",
+                    "minimum": 1,
                     "default": 1048576
                 },
                 "include_content_length": {
@@ -2650,6 +2705,7 @@
                 "cache_max_age": {
                     "type": "integer",
                     "description": "Default Cache-Control max-age in seconds for served files.",
+                    "minimum": 0,
                     "default": 3600
                 },
                 "cache_rules": {
@@ -2667,6 +2723,8 @@
                 "fallback_status": {
                     "type": "integer",
                     "description": "HTTP status code for SPA fallback responses (non-existent paths).",
+                    "minimum": 100,
+                    "maximum": 599,
                     "default": 200
                 }
             },

@@ -9,7 +9,7 @@
 //! - Pagination, sorting, and filtering
 //! - Metadata columns
 //!
-//! Config: based on the file_store action from spec.yaml with SQLite and native storage.
+//! Config: based on the file_store action from config/templates/example.yaml with SQLite and native storage.
 
 use crate::support::{BinaryHandle, LiveClient};
 use reqwest::StatusCode;

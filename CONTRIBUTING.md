@@ -87,7 +87,7 @@ This is a **Rust** project and tries to follow typical Rust patterns. Please adh
 
 ### How you can help
 
-The easiest way to contribute is to help with documentation. Almost all documentation is currently in the [README](./README.md), the [YAML spec](./config/spec.yaml), and the code itself. All other forms of documentation are a work in progress, and you could contribute immediately by helping to update things like the [quickstart guide](./docs/QUICKSTART.md) or [configuration guide](./docs/CONFIGURATION.md). The project would also benefit from a collection of high-quality server configurations to use as templates.
+The easiest way to contribute is to help with documentation. Almost all documentation is currently in the [README](./README.md), the [behavioral spec](./docs/SPEC.md), the [JSON Schema](./config/main-serve.schema.json), and the code itself. All other forms of documentation are a work in progress, and you could contribute immediately by helping to update things like the [quickstart guide](./docs/QUICKSTART.md) or [configuration guide](./docs/CONFIGURATION.md). The project would also benefit from a collection of high-quality server configurations to use as templates.
 
 There are also a number of features that an expert Rust developer could assist with immediately:
 
