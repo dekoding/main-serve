@@ -105,6 +105,7 @@ impl Default for JwtRevocationConfig {
 /// `JwtConfig`
 pub struct JwtConfig {
     /// HMAC secret or RSA/EC key material.
+    #[serde(skip_serializing, default)]
     pub secret: String,
     /// Signing algorithm.
     pub algorithm: JwtAlgorithm,
@@ -201,6 +202,7 @@ pub enum ApiKeyLocation {
 /// `ApiKeyEntry`
 pub struct ApiKeyEntry {
     /// The API key value.
+    #[serde(skip_serializing, default)]
     pub key: String,
     /// Optional role assigned to this key.
     #[serde(default)]
@@ -237,6 +239,7 @@ pub struct BasicAuthUser {
     /// Username.
     pub username: String,
     /// Argon2-hashed password.
+    #[serde(skip_serializing, default)]
     pub password_hash: String,
     /// Optional role assigned to this user.
     #[serde(default)]
@@ -307,6 +310,7 @@ pub struct OAuth2Config {
     /// `OAuth2` client ID.
     pub client_id: String,
     /// `OAuth2` client secret.
+    #[serde(skip_serializing, default)]
     pub client_secret: String,
     /// Requested scopes.
     #[serde(default)]
