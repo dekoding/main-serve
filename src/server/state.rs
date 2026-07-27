@@ -448,15 +448,7 @@ impl AppState {
             .jwt
             .as_ref()
             .ok_or_else(|| AppError::Config("JWT is not configured".to_string()))?;
-        Ok(JwtConfig {
-            secret: jwt_config.secret.clone(),
-            algorithm: jwt_config.algorithm,
-            issuer: jwt_config.issuer.clone(),
-            audience: String::new(),
-            expiry: 3600,
-            role_claim: "role".to_string(),
-            revocation: None,
-        })
+        Ok(jwt_config.clone())
     }
 }
 

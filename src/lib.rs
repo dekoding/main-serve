@@ -1,3 +1,4 @@
+#![deny(unsafe_code)]
 /// Main Serve - a high-performance, YAML-configured web server.
 ///
 /// This library crate exposes all modules for use in integration tests.

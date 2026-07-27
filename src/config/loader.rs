@@ -322,6 +322,10 @@ fn interpolate_env_vars(input: &str) -> Result<String, AppError> {
 }
 
 #[cfg(test)]
+#[allow(unsafe_code)]
+/// Test module for config loading, env-var interpolation, and $include resolution.
+/// Environment variable mutation requires `unsafe`; the test functions are serialized
+/// by `env_lock()` to prevent cross-test contamination.
 mod tests {
     use std::sync::Mutex;
 
