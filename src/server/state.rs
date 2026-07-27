@@ -92,7 +92,6 @@ pub struct DatabaseRevocationStore {
 impl DatabaseRevocationStore {
     /// Create a new database-backed revocation store.
     #[must_use]
-    /// new
     pub fn new(pool: DatabasePool, table_name: String) -> Self {
         Self { pool, table_name }
     }

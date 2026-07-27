@@ -18,7 +18,6 @@ pub struct MemoryStorage {
 impl MemoryStorage {
     /// Create a new in-memory storage instance.
     #[must_use]
-    /// new
     pub fn new() -> Self {
         Self {
             data: Arc::new(RwLock::new(HashMap::new())),

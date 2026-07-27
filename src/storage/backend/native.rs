@@ -24,7 +24,6 @@ pub struct NativeStorage {
 impl NativeStorage {
     /// Create a new native storage instance rooted at the given path.
     #[must_use]
-    /// new
     pub fn new(root: PathBuf) -> Self {
         Self { root }
     }

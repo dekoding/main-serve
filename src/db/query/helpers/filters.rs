@@ -1,4 +1,5 @@
 use crate::config::types::ColumnConfig;
+use crate::db::query::helpers::compile_regex;
 use crate::db::query::helpers::{
     column_exists, is_bracket_notation, is_dotted_path, is_jsonb_column, parse_sort_field,
 };
@@ -10,7 +11,6 @@ use std::sync::LazyLock;
 /// Maps query parameter operators (eq, ne, gt, gte, lt, lte, in, `not_in`,
 /// contains, exists, startswith, endswith, like, ilike) to typed variants.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-/// FilterOperator
 pub enum FilterOperator {
     Eq,
     Ne,
@@ -30,7 +30,6 @@ pub enum FilterOperator {
 
 /// A parsed filter expression with a field path and comparison operator.
 #[derive(Debug)]
-/// FilterExpression
 pub struct FilterExpression {
     pub path: Vec<String>,
     pub operator: FilterOperator,
@@ -38,14 +37,9 @@ pub struct FilterExpression {
 
 /// Compiled regex for parsing bracket-notation filter keys like `field[operator]`.
 ///
-/// SAFETY: This is a compile-time constant pattern. The regex literal
-/// `^(.*)\[([a-z_]+)\]$` is syntactically valid and has been tested in CI.
-/// If this regex were ever invalid, the program would fail at startup
-/// (first access of the LazyLock), which is the correct behavior for
-/// a programming error in a static pattern.
-#[allow(clippy::expect_used)]
+/// The pattern is a compile-time constant that has been tested in CI.
 static FILTER_KEY_RE: LazyLock<regex::Regex> =
-    LazyLock::new(|| regex::Regex::new(r"^(.*)\[([a-z_]+)\]$").expect("valid filter key regex"));
+    LazyLock::new(|| compile_regex(r"^(.*)\[([a-z_]+)\]$"));
 
 /// Parse a filter key like `metadata.user.age[gt]` into a `FilterExpression`.
 pub(crate) fn parse_filter_key(key: &str) -> Result<FilterExpression, AppError> {

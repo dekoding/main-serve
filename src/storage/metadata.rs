@@ -20,7 +20,6 @@ pub struct FileMetadata {
 impl FileMetadata {
     /// Create a new `FileMetadata` instance.
     #[must_use]
-    /// new
     pub fn new(name: String, is_file: bool, size: u64) -> Self {
         Self {
             name,
@@ -33,7 +32,6 @@ impl FileMetadata {
 
     /// Check if this metadata represents a directory.
     #[must_use]
-    /// is_dir
     pub fn is_dir(&self) -> bool {
         !self.is_file
     }
@@ -64,7 +62,6 @@ pub struct DirEntry {
 impl DirEntry {
     /// Create a new `DirEntry` instance.
     #[must_use]
-    /// new
     pub fn new(name: String, is_dir: bool, size: u64) -> Self {
         Self {
             name,
@@ -115,7 +112,6 @@ impl DirEntry {
 
     /// Check if this entry is a file.
     #[must_use]
-    /// is_file
     pub fn is_file(&self) -> bool {
         !self.is_dir
     }

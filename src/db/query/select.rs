@@ -39,7 +39,6 @@ pub struct SelectBuilder {
 impl SelectBuilder {
     /// Start a new SELECT against `table` with the given main-table fields.
     #[must_use]
-    /// new
     pub fn new(table: &str, fields: Vec<String>, driver: DatabaseDriver) -> Self {
         let filter_behavior: Box<dyn FilterBehavior> = match driver {
             DatabaseDriver::Postgres => Box::new(PostgresFilter),
@@ -713,7 +712,6 @@ impl SelectBuilder {
     /// Render the final SQL string and return params.
     #[must_use]
     #[allow(clippy::unwrap_used)] // write! on String is infallible
-    /// build
     pub fn build(self) -> BuiltQuery {
         let mut select = self.select_fields;
         for c in &self.computed {

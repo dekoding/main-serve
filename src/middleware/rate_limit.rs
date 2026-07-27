@@ -46,7 +46,6 @@ impl Default for RateLimiter {
 impl RateLimiter {
     /// Create a new empty rate limiter.
     #[must_use]
-    /// new
     pub fn new() -> Self {
         Self {
             entries: Arc::new(Mutex::new(HashMap::new())),

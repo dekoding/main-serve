@@ -4,17 +4,22 @@ use crate::error::AppError;
 use crate::middleware::auth::extractor::RequestContext;
 use std::sync::LazyLock;
 
+/// Compile a static regex pattern.
+///
+/// SAFETY: The pattern is a compile-time constant. If invalid, the program
+/// panics on first access of the returned `LazyLock`, which is correct
+/// behavior for a programming error in a static pattern. Callers should
+/// wrap the result in `LazyLock::new(|| compile_regex("..."))`.
+#[allow(clippy::expect_used)]
+pub fn compile_regex(pattern: &'static str) -> regex::Regex {
+    regex::Regex::new(pattern).expect("static regex pattern must be valid")
+}
+
 /// Compiled regex for interpolating `${key}` patterns in filter values.
 ///
-/// SAFETY: This is a compile-time constant pattern. The regex literal
-/// `\$\{([^}]+)\}` is syntactically valid and has been tested in CI.
-/// If this regex were ever invalid, the program would fail at startup
-/// (first access of the LazyLock), which is the correct behavior for
-/// a programming error in a static pattern.
-#[allow(clippy::expect_used)]
-/// VALUE_INTERPOLATION_RE
+/// The pattern matches `${key}` where `key` may contain `:-default` syntax.
 pub static VALUE_INTERPOLATION_RE: LazyLock<regex::Regex> =
-    LazyLock::new(|| regex::Regex::new(r"\$\{([^}]+)\}").expect("valid interpolation regex"));
+    LazyLock::new(|| compile_regex(r"\$\{([^}]+)\}"));
 
 /// Helper to interpolate a string value.
 pub(crate) fn interpolate_value(

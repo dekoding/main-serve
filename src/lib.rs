@@ -2,15 +2,15 @@
 ///
 /// This library crate exposes all modules for use in integration tests.
 pub mod config;
-/// db
+/// Database query builders, helpers, and type definitions.
 pub mod db;
-/// error
+/// Application error types.
 pub mod error;
-/// handlers
+/// HTTP request handlers for each endpoint action type.
 pub mod handlers;
-/// middleware
+/// Authentication and authorization middleware.
 pub mod middleware;
-/// server
+/// HTTP server setup and routing.
 pub mod server;
-/// storage
+/// Storage backends and file metadata types.
 pub mod storage;

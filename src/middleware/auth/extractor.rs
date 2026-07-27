@@ -128,7 +128,6 @@ pub struct UserInfo {
 impl RequestContext {
     /// Creates a new, empty `RequestContext`.
     #[must_use]
-    /// new
     pub fn new() -> Self {
         Self {
             user_id: None,
@@ -143,7 +142,6 @@ impl RequestContext {
 
     /// Creates a `RequestContext` pre-populated with the given user information.
     #[must_use]
-    /// new_with_user
     pub fn new_with_user(user: UserInfo) -> Self {
         Self {
             user_id: Some(user.id),
