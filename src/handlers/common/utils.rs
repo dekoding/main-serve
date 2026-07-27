@@ -1,6 +1,6 @@
 /// Shared handler utilities: auth extraction, DB context, and ID extraction.
 ///
-/// These functions are duplicated across media, file_store, and static_files
+/// These functions are duplicated across media, `file_store`, and `static_files`
 /// modules. They are centralized here to maintain a single source of truth.
 use std::collections::HashMap;
 use std::path::Path;
@@ -16,15 +16,19 @@ use axum::http::HeaderValue;
 use axum::response::Response;
 use http::header;
 
-/// HandlerContext
+/// `HandlerContext`
 pub struct HandlerContext<'a> {
+    /// Application state with access to config and databases.
     pub state: &'a AppState,
+    /// Endpoint configuration for this request.
     pub endpoint: &'a EndpointConfig,
+    /// HTTP request headers.
     pub headers: &'a axum::http::HeaderMap,
+    /// Parsed query parameters.
     pub query_params: &'a HashMap<String, String>,
 }
 
-impl<'a> HandlerContext<'a> {
+impl HandlerContext<'_> {
     /// Extract authentication info from request.
     ///
     /// # Errors
@@ -61,9 +65,11 @@ impl<'a> HandlerContext<'a> {
     }
 }
 
-/// DatabaseContext
+/// `DatabaseContext`
 pub struct DatabaseContext {
+    /// Database connection pool.
     pub pool: DatabasePool,
+    /// Table schema configuration.
     pub table_config: TableConfig,
 }
 
@@ -106,7 +112,7 @@ pub fn apply_cache_control(
     response.headers_mut().insert(
         header::CACHE_CONTROL,
         HeaderValue::from_str(&cache_control).unwrap_or_else(|_| {
-            HeaderValue::from_str(&format!("public, max-age={}", DEFAULT_CACHE_MAX_AGE))
+            HeaderValue::from_str(&format!("public, max-age={DEFAULT_CACHE_MAX_AGE}"))
                 .unwrap_or_else(|_| HeaderValue::from_static("public"))
         }),
     );
@@ -119,6 +125,7 @@ pub fn apply_cache_control(
 ///
 /// Cache rule extensions may include or omit the leading dot (e.g. ".js" or "js").
 /// File path extensions from `Path::extension()` do not include the dot.
+#[must_use]
 pub fn get_cache_control(
     path: &Path,
     default_max_age: u64,
@@ -160,6 +167,7 @@ pub fn get_cache_control(
 /// assert!(filtered.contains_key("name"));
 /// assert!(!filtered.contains_key("ignored"));
 /// ```
+#[must_use]
 pub fn filter_writable_body(
     body: &serde_json::Value,
     writable_columns: &[String],
@@ -168,7 +176,7 @@ pub fn filter_writable_body(
 
     if let Some(obj) = body.as_object() {
         for (k, v) in obj {
-            if writable_columns.contains(&k.to_string()) {
+            if writable_columns.contains(&k.clone()) {
                 result.insert(k.clone(), v.clone());
             }
         }
@@ -179,7 +187,7 @@ pub fn filter_writable_body(
 
 /// Format a `SystemTime` as YYYY-MM-DD HH:MM.
 #[must_use]
-/// format_modified
+/// `format_modified`
 pub fn format_modified(time: std::time::SystemTime) -> String {
     let dt: chrono::DateTime<chrono::Local> = time.into();
     dt.format("%Y-%m-%d %H:%M").to_string()
@@ -187,10 +195,13 @@ pub fn format_modified(time: std::time::SystemTime) -> String {
 
 /// Format a byte count as a human-readable size string.
 #[must_use]
-/// format_size
+/// `format_size`
 pub fn format_size(bytes: u64) -> String {
     /// Defines the ordered list of size units for human-readable byte formatting.
     const UNITS: &[&str] = &["B", "KiB", "MiB", "GiB", "TiB"];
+    #[allow(clippy::cast_possible_truncation)]
+    #[allow(clippy::cast_sign_loss)]
+    #[allow(clippy::cast_precision_loss)]
     let mut size = bytes as f64;
     for unit in UNITS {
         if size < 1024.0 {

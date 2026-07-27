@@ -18,7 +18,6 @@ pub struct MemoryStorage {
 impl MemoryStorage {
     /// Create a new in-memory storage instance.
     #[must_use]
-    /// new
     pub fn new() -> Self {
         Self {
             data: Arc::new(RwLock::new(HashMap::new())),
@@ -39,10 +38,12 @@ impl Storage for MemoryStorage {
     async fn exists(&self, path: &Path) -> bool {
         let data = self.data.read().await;
         let dirs = self.dirs.read().await;
-        data.contains_key(path)
+        let result = data.contains_key(path)
             || dirs.contains(path)
-            // A directory "exists" if any file path starts with it
-            || data.keys().any(|k| k.starts_with(path) && k != path)
+            || data.keys().any(|k| k.starts_with(path) && k != path);
+        drop(dirs);
+        drop(data);
+        result
     }
 
     async fn is_file(&self, path: &Path) -> bool {
@@ -55,9 +56,12 @@ impl Storage for MemoryStorage {
 
     async fn read(&self, path: &Path) -> Result<Vec<u8>> {
         let data = self.data.read().await;
-        data.get(path)
+        let result = data
+            .get(path)
             .cloned()
-            .ok_or_else(|| StorageError::NotFound(path.to_path_buf()))
+            .ok_or_else(|| StorageError::NotFound(path.to_path_buf()));
+        drop(data);
+        result
     }
 
     async fn open(&self, path: &Path) -> Result<Box<dyn tokio::io::AsyncRead + Send + Unpin>> {
@@ -74,13 +78,15 @@ impl Storage for MemoryStorage {
         if offset >= data.len() as u64 {
             return Ok(Box::new(Cursor::new(Vec::new())));
         }
-        let sliced = data[offset as usize..].to_vec();
+        let sliced = data[usize::try_from(offset).unwrap_or(0)..].to_vec();
         Ok(Box::new(Cursor::new(sliced)))
     }
 
     async fn write(&self, path: &Path, contents: &[u8]) -> Result<()> {
-        let mut data = self.data.write().await;
-        data.insert(path.to_path_buf(), contents.to_vec());
+        self.data
+            .write()
+            .await
+            .insert(path.to_path_buf(), contents.to_vec());
         Ok(())
     }
 
@@ -89,23 +95,30 @@ impl Storage for MemoryStorage {
         let mut existing = data.get(path).cloned().unwrap_or_default();
         existing.extend_from_slice(contents);
         data.insert(path.to_path_buf(), existing);
+        drop(data);
         Ok(())
     }
 
     async fn delete(&self, path: &Path) -> Result<()> {
-        let mut data = self.data.write().await;
-        let mut dirs = self.dirs.write().await;
+        let removed = {
+            let mut data = self.data.write().await;
+            data.remove(path)
+        };
 
-        if data.remove(path).is_some() {
+        if removed.is_some() {
             return Ok(());
         }
 
+        let mut dirs = self.dirs.write().await;
         if dirs.remove(path) {
-            // Also remove all children
             let mut prefix = path.to_path_buf();
             prefix.push("");
-            data.retain(|k, _| !k.starts_with(&prefix));
             dirs.retain(|k| !k.starts_with(&prefix));
+            drop(dirs);
+            self.data
+                .write()
+                .await
+                .retain(|k, _| !k.starts_with(&prefix));
             return Ok(());
         }
 
@@ -117,7 +130,7 @@ impl Storage for MemoryStorage {
         let dirs = self.dirs.read().await;
 
         if let Some(contents) = data.get(path) {
-            return Ok(FileMetadata::new(
+            let result = Ok(FileMetadata::new(
                 path.file_name()
                     .unwrap_or_default()
                     .to_string_lossy()
@@ -125,10 +138,13 @@ impl Storage for MemoryStorage {
                 true,
                 contents.len() as u64,
             ));
+            drop(dirs);
+            drop(data);
+            return result;
         }
 
         if dirs.contains(path) {
-            return Ok(FileMetadata::new(
+            let result = Ok(FileMetadata::new(
                 path.file_name()
                     .unwrap_or_default()
                     .to_string_lossy()
@@ -136,8 +152,13 @@ impl Storage for MemoryStorage {
                 false,
                 0,
             ));
+            drop(dirs);
+            drop(data);
+            return result;
         }
 
+        drop(dirs);
+        drop(data);
         Err(StorageError::NotFound(path.to_path_buf()))
     }
 
@@ -192,12 +213,19 @@ impl Storage for MemoryStorage {
         // Sort for consistent ordering
         entries.sort_by(|a, b| a.name.cmp(&b.name));
 
+        drop(dirs);
+        drop(data);
+
         Ok(entries)
     }
 
     async fn create_dir(&self, path: &Path) -> Result<()> {
         // Check if path already exists in dirs
-        if self.dirs.read().await.contains(path) {
+        let already_exists = {
+            let dirs = self.dirs.read().await;
+            dirs.contains(path)
+        };
+        if already_exists {
             return Err(StorageError::AlreadyExists(path.to_path_buf()));
         }
         // The root path "/" always implicitly exists.
@@ -229,6 +257,7 @@ impl Storage for MemoryStorage {
             }
         }
 
+        drop(dirs);
         Ok(())
     }
 
@@ -237,6 +266,8 @@ impl Storage for MemoryStorage {
         let data = self.data.read().await;
 
         if !dirs.contains(path) {
+            drop(data);
+            drop(dirs);
             return Err(StorageError::NotFound(path.to_path_buf()));
         }
 
@@ -247,10 +278,14 @@ impl Storage for MemoryStorage {
             || dirs.iter().any(|k| k.starts_with(&prefix) && *k != path);
 
         if has_children {
+            drop(data);
+            drop(dirs);
             return Err(StorageError::DirectoryNotEmpty(path.to_path_buf()));
         }
 
         dirs.remove(path);
+        drop(dirs);
+        drop(data);
         Ok(())
     }
 
@@ -268,6 +303,9 @@ impl Storage for MemoryStorage {
         // Remove the directory itself
         dirs.remove(path);
 
+        drop(dirs);
+        drop(data);
+
         Ok(())
     }
 
@@ -277,14 +315,20 @@ impl Storage for MemoryStorage {
 
         if let Some(contents) = data.remove(from) {
             data.insert(to.to_path_buf(), contents);
+            drop(dirs);
+            drop(data);
             return Ok(());
         }
 
         if dirs.remove(from) {
             dirs.insert(to.to_path_buf());
+            drop(dirs);
+            drop(data);
             return Ok(());
         }
 
+        drop(dirs);
+        drop(data);
         Err(StorageError::NotFound(from.to_path_buf()))
     }
 
@@ -307,9 +351,12 @@ impl Storage for MemoryStorage {
 
     async fn size(&self, path: &Path) -> Result<u64> {
         let data = self.data.read().await;
-        data.get(path)
+        let result = data
+            .get(path)
             .map(|v| v.len() as u64)
-            .ok_or_else(|| StorageError::NotFound(path.to_path_buf()))
+            .ok_or_else(|| StorageError::NotFound(path.to_path_buf()));
+        drop(data);
+        result
     }
 }
 

@@ -19,18 +19,15 @@ use serde_yaml::Value;
 
 use super::types::AppConfig;
 use super::validation::validate_config;
+use crate::db::query::helpers::compile_regex;
 use crate::error::AppError;
 
 /// Pre-compiled regex for env-var interpolation. Matches `${VAR}` and `${VAR:-default}`.
 ///
-/// SAFETY: This is a compile-time constant pattern. The regex literal is
-/// syntactically valid and has been tested in CI. If this regex were ever
-/// invalid, the program would fail at startup (first access of the LazyLock),
-/// which is the correct behavior for a programming error in a static pattern.
-#[allow(clippy::expect_used)]
-static ENV_VAR_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-((?:[^}])*))?\}").expect("env var regex is valid")
-});
+/// The pattern is a compile-time constant that has been tested in CI.
+/// Wrapped in `LazyLock` so the regex is only compiled on first access.
+static ENV_VAR_RE: LazyLock<Regex> =
+    LazyLock::new(|| compile_regex(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-((?:[^}])*))?\}"));
 
 /// Load, interpolate, parse, resolve includes, and validate a configuration file.
 ///
@@ -87,7 +84,7 @@ fn load_yaml_with_includes(path: &Path, visited: &mut HashSet<PathBuf>) -> Resul
         AppError::Config(format!("Failed to parse YAML in {}: {e}", path.display()))
     })?;
 
-    let base_dir = path.parent().unwrap_or(Path::new("."));
+    let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
     // SAFETY: path is a canonicalized absolute path from std::fs::canonicalize,
     // which always returns a path with a parent (at minimum "/").
     resolve_includes(value, base_dir, visited)
@@ -298,20 +295,18 @@ fn interpolate_env_vars(input: &str) -> Result<String, AppError> {
     let mut errors: Vec<String> = Vec::new();
     let result = re.replace_all(input, |caps: &regex::Captures| {
         let var_name = &caps[1];
-        match std::env::var(var_name) {
-            Ok(val) => val,
-            Err(_) => {
-                // Check for default value
-                if let Some(default_match) = caps.get(2) {
-                    default_match.as_str().to_string()
-                } else {
+        std::env::var(var_name).unwrap_or_else(|_| {
+            // Check for default value
+            caps.get(2).map_or_else(
+                || {
                     errors.push(format!(
                         "Environment variable '{var_name}' is not set and has no default"
                     ));
                     format!("${{UNSET_{var_name}}}")
-                }
-            }
-        }
+                },
+                |m| m.as_str().to_string(),
+            )
+        })
     });
 
     if !errors.is_empty() {
@@ -325,6 +320,10 @@ fn interpolate_env_vars(input: &str) -> Result<String, AppError> {
 }
 
 #[cfg(test)]
+#[allow(unsafe_code)]
+/// Test module for config loading, env-var interpolation, and $include resolution.
+/// Environment variable mutation requires `unsafe`; the test functions are serialized
+/// by `env_lock()` to prevent cross-test contamination.
 mod tests {
     use std::sync::Mutex;
 

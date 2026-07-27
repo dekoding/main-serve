@@ -9,6 +9,10 @@ use crate::db::query::builders::{
 use crate::error::AppError;
 
 /// Handle content reference attach.
+///
+/// # Errors
+///
+/// Returns an `AppError::MethodNotAllowed` if content references are not enabled.
 pub async fn handle_media_attach(
     id: &str,
     config: &MediaConfig,
@@ -37,7 +41,7 @@ pub async fn handle_media_attach(
         .and_then(|v| v.as_str())
         .ok_or_else(|| AppError::BadRequest("content_type is required".to_string()))?;
 
-    let entity_id_str = entity_id.to_string();
+    let entity_id_str = entity_id.clone();
     let content_type_str = content_type.to_string();
 
     if let Some(allowed) = &content_refs.allowed_content_types
@@ -45,8 +49,7 @@ pub async fn handle_media_attach(
         && !allowed.contains(&content_type_str)
     {
         return Err(AppError::BadRequest(format!(
-            "content_type '{}' is not allowed. Allowed: {:?}",
-            content_type, allowed
+            "content_type '{content_type}' is not allowed. Allowed: {allowed:?}"
         )));
     }
 
@@ -60,7 +63,7 @@ pub async fn handle_media_attach(
     let max_row = pool.fetch_optional_json(&built.sql, &[]).await?;
     let max_order: i64 = max_row
         .as_ref()
-        .and_then(|r| r.get("max_order").and_then(|v| v.as_i64()))
+        .and_then(|r| r.get("max_order").and_then(serde_json::Value::as_i64))
         .unwrap_or(0);
 
     let next_order = max_order + 1;
@@ -109,6 +112,10 @@ pub async fn handle_media_attach(
 }
 
 /// Handle content reference detach.
+///
+/// # Errors
+///
+/// Returns an `AppError::MethodNotAllowed` if content references are not enabled.
 pub async fn handle_media_detach(
     id: &str,
     config: &MediaConfig,
@@ -161,8 +168,7 @@ pub async fn handle_media_detach(
 
     if rows_affected == 0 {
         return Err(AppError::NotFound(format!(
-            "No content reference found for media id '{}', entity '{}', type '{}'",
-            id, entity_id, content_type
+            "No content reference found for media id '{id}', entity '{entity_id}', type '{content_type}'"
         )));
     }
 

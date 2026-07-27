@@ -3,7 +3,7 @@ use std::time::SystemTime;
 
 /// Metadata for a file or directory entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
-/// FileMetadata
+/// `FileMetadata`
 pub struct FileMetadata {
     /// Name of the file or directory.
     pub name: String,
@@ -20,8 +20,7 @@ pub struct FileMetadata {
 impl FileMetadata {
     /// Create a new `FileMetadata` instance.
     #[must_use]
-    /// new
-    pub fn new(name: String, is_file: bool, size: u64) -> Self {
+    pub const fn new(name: String, is_file: bool, size: u64) -> Self {
         Self {
             name,
             is_file,
@@ -33,15 +32,14 @@ impl FileMetadata {
 
     /// Check if this metadata represents a directory.
     #[must_use]
-    /// is_dir
-    pub fn is_dir(&self) -> bool {
+    pub const fn is_dir(&self) -> bool {
         !self.is_file
     }
 }
 
 /// A directory entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
-/// DirEntry
+/// `DirEntry`
 pub struct DirEntry {
     /// Name of the entry.
     pub name: String,
@@ -64,8 +62,7 @@ pub struct DirEntry {
 impl DirEntry {
     /// Create a new `DirEntry` instance.
     #[must_use]
-    /// new
-    pub fn new(name: String, is_dir: bool, size: u64) -> Self {
+    pub const fn new(name: String, is_dir: bool, size: u64) -> Self {
         Self {
             name,
             is_dir,
@@ -87,36 +84,35 @@ impl DirEntry {
 
     /// Set the Unix mode bits for this entry.
     #[must_use]
-    pub(crate) fn with_mode(mut self, mode: u32) -> Self {
+    pub(crate) const fn with_mode(mut self, mode: u32) -> Self {
         self.mode = mode;
         self
     }
 
     /// Set the UID for this entry.
     #[must_use]
-    pub(crate) fn with_uid(mut self, uid: u32) -> Self {
+    pub(crate) const fn with_uid(mut self, uid: u32) -> Self {
         self.uid = uid;
         self
     }
 
     /// Set the GID for this entry.
     #[must_use]
-    pub(crate) fn with_gid(mut self, gid: u32) -> Self {
+    pub(crate) const fn with_gid(mut self, gid: u32) -> Self {
         self.gid = gid;
         self
     }
 
     /// Set the last modification time for this entry.
     #[must_use]
-    pub(crate) fn with_modified(mut self, modified: Option<std::time::SystemTime>) -> Self {
+    pub(crate) const fn with_modified(mut self, modified: Option<std::time::SystemTime>) -> Self {
         self.modified = modified;
         self
     }
 
     /// Check if this entry is a file.
     #[must_use]
-    /// is_file
-    pub fn is_file(&self) -> bool {
+    pub const fn is_file(&self) -> bool {
         !self.is_dir
     }
 }

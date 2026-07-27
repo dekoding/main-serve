@@ -15,6 +15,7 @@
 /// `CREATE INDEX IF NOT EXISTS`; `MySQL` introspects existing indexes first and
 /// only creates missing ones.
 use std::collections::HashMap;
+use std::fmt::Write;
 
 use crate::config::types::{
     ColumnConfig, ColumnType, DatabaseConfig, DatabaseDriver, ForeignKeyAction, TableConfig,
@@ -33,10 +34,10 @@ use crate::error::AppError;
 /// # Errors
 ///
 /// Returns `AppError::Database` if the CREATE TABLE statement fails.
-pub async fn create_revocation_tables(
-    pools: &HashMap<String, DatabasePool>,
+pub async fn create_revocation_tables<S: ::std::hash::BuildHasher + Sync>(
+    pools: &HashMap<String, DatabasePool, S>,
 ) -> Result<(), AppError> {
-    let sql = match pools.values().next().map(|p| p.driver()) {
+    let sql = match pools.values().next().map(super::pool::DatabasePool::driver) {
         Some(DatabaseDriver::Sqlite) => {
             "CREATE TABLE IF NOT EXISTS \"token_blacklist\" (\
              \"jti\" TEXT PRIMARY KEY NOT NULL, \
@@ -372,7 +373,7 @@ fn generate_add_column(table_name: &str, col: &ColumnConfig, driver: DatabaseDri
     let mut col_def = format!(
         "{} {}",
         quote_identifier(&col.name, driver),
-        column_type_to_sql(&col.column_type, driver),
+        column_type_to_sql(col.column_type, driver),
     );
 
     if !col.nullable {
@@ -385,7 +386,7 @@ fn generate_add_column(table_name: &str, col: &ColumnConfig, driver: DatabaseDri
     }
 
     if let Some(ref default) = col.default {
-        col_def.push_str(&format!(" DEFAULT {default}"));
+        let _ = write!(col_def, " DEFAULT {default}");
     }
 
     format!(
@@ -407,7 +408,7 @@ fn generate_drop_column(table_name: &str, column_name: &str, driver: DatabaseDri
 
 /// Generate a CREATE TABLE IF NOT EXISTS statement.
 #[must_use]
-/// Generates a CREATE TABLE IF NOT EXISTS SQL statement from a TableConfig.
+/// Generates a CREATE TABLE IF NOT EXISTS SQL statement from a `TableConfig`.
 fn generate_create_table(table: &TableConfig, driver: DatabaseDriver) -> String {
     let mut parts: Vec<String> = Vec::new();
 
@@ -430,8 +431,8 @@ fn generate_create_table(table: &TableConfig, driver: DatabaseDriver) -> String 
             quote_identifier(&fk.column, driver),
             quote_identifier(&fk.references_table, driver),
             quote_identifier(&fk.references_column, driver),
-            fk_action_to_sql(&fk.on_delete),
-            fk_action_to_sql(&fk.on_update),
+            fk_action_to_sql(fk.on_delete),
+            fk_action_to_sql(fk.on_update),
         ));
     }
 
@@ -447,7 +448,7 @@ fn generate_column_def(col: &ColumnConfig, driver: DatabaseDriver) -> String {
     let mut col_def = format!(
         "  {} {}",
         quote_identifier(&col.name, driver),
-        column_type_to_sql(&col.column_type, driver)
+        column_type_to_sql(col.column_type, driver)
     );
 
     if col.primary_key && driver == DatabaseDriver::Sqlite {
@@ -468,7 +469,7 @@ fn generate_column_def(col: &ColumnConfig, driver: DatabaseDriver) -> String {
     }
 
     if let Some(ref default) = col.default {
-        col_def.push_str(&format!(" DEFAULT {default}"));
+        let _ = write!(col_def, " DEFAULT {default}");
     }
 
     col_def
@@ -502,7 +503,7 @@ fn add_pk_constraint(parts: &mut Vec<String>, columns: &[ColumnConfig], driver: 
 #[must_use]
 /// Generates a CREATE INDEX (or CREATE INDEX IF NOT EXISTS) SQL statement.
 fn generate_create_index(table_name: &str, column_name: &str, driver: DatabaseDriver) -> String {
-    let idx_name = format!("idx_{table_name}_{}", column_name);
+    let idx_name = format!("idx_{table_name}_{column_name}");
     match driver {
         DatabaseDriver::Mysql => format!(
             "CREATE INDEX {} ON {} ({})",
@@ -520,14 +521,13 @@ fn generate_create_index(table_name: &str, column_name: &str, driver: DatabaseDr
 }
 
 /// Map a `ColumnType` to its SQL type string for the given driver.
-fn column_type_to_sql(ct: &ColumnType, driver: DatabaseDriver) -> &'static str {
+const fn column_type_to_sql(ct: ColumnType, driver: DatabaseDriver) -> &'static str {
     match (ct, driver) {
         // Integer types
-        (ColumnType::Integer, DatabaseDriver::Sqlite) => "INTEGER",
-        (ColumnType::Integer, _) => "INTEGER",
+        (ColumnType::Integer, _)
+        | (ColumnType::Serial | ColumnType::Boolean, DatabaseDriver::Sqlite) => "INTEGER",
         (ColumnType::Bigint, _) => "BIGINT",
         (ColumnType::Smallint, _) => "SMALLINT",
-        (ColumnType::Serial, DatabaseDriver::Sqlite) => "INTEGER",
         (ColumnType::Serial, DatabaseDriver::Postgres) => "SERIAL",
         (ColumnType::Serial, DatabaseDriver::Mysql) => "INTEGER AUTO_INCREMENT",
         (ColumnType::Bigserial, DatabaseDriver::Sqlite) => "INTEGER PRIMARY KEY AUTOINCREMENT",
@@ -535,57 +535,52 @@ fn column_type_to_sql(ct: &ColumnType, driver: DatabaseDriver) -> &'static str {
         (ColumnType::Bigserial, DatabaseDriver::Mysql) => "BIGINT AUTO_INCREMENT",
 
         // Text types
-        (ColumnType::Text, _) => "TEXT",
-        (ColumnType::Varchar, DatabaseDriver::Sqlite) => "TEXT",
+        (ColumnType::Text, _)
+        | (
+            ColumnType::Varchar
+            | ColumnType::Char
+            | ColumnType::Date
+            | ColumnType::Timestamp
+            | ColumnType::Timestamptz
+            | ColumnType::Uuid,
+            DatabaseDriver::Sqlite,
+        ) => "TEXT",
         (ColumnType::Varchar, _) => "VARCHAR(255)",
-        (ColumnType::Char, DatabaseDriver::Sqlite) => "TEXT",
         (ColumnType::Char, _) => "CHAR(255)",
 
         // Boolean
-        (ColumnType::Boolean, DatabaseDriver::Sqlite) => "INTEGER",
         (ColumnType::Boolean, _) => "BOOLEAN",
 
         // Floating point
-        (ColumnType::Float, _) => "REAL",
-        (ColumnType::Double, DatabaseDriver::Sqlite) => "REAL",
+        (ColumnType::Float, _)
+        | (ColumnType::Double | ColumnType::Decimal, DatabaseDriver::Sqlite) => "REAL",
         (ColumnType::Double, _) => "DOUBLE PRECISION",
-        (ColumnType::Decimal, DatabaseDriver::Sqlite) => "REAL",
         (ColumnType::Decimal, _) => "DECIMAL(10,2)",
 
         // Date/Time
-        (ColumnType::Date, DatabaseDriver::Sqlite) => "TEXT",
-        (ColumnType::Date, _) => "DATE",
-        (ColumnType::Timestamp, DatabaseDriver::Sqlite) => "TEXT",
-        (ColumnType::Timestamp, DatabaseDriver::Mysql) => "DATETIME",
+        (ColumnType::Date, _)
+        | (ColumnType::Timestamp | ColumnType::Timestamptz, DatabaseDriver::Mysql) => "DATETIME",
         (ColumnType::Timestamp, DatabaseDriver::Postgres) => "TIMESTAMP",
-        (ColumnType::Timestamptz, DatabaseDriver::Sqlite) => "TEXT",
-        (ColumnType::Timestamptz, DatabaseDriver::Mysql) => "DATETIME",
         (ColumnType::Timestamptz, DatabaseDriver::Postgres) => "TIMESTAMPTZ",
 
         // UUID
-        (ColumnType::Uuid, DatabaseDriver::Sqlite) => "TEXT",
         (ColumnType::Uuid, DatabaseDriver::Postgres) => "UUID",
         (ColumnType::Uuid, DatabaseDriver::Mysql) => "CHAR(36)",
 
         // JSON
-        (ColumnType::Json, DatabaseDriver::Sqlite) => "TEXT",
-        (ColumnType::Json, _) => "JSON",
-        (ColumnType::Jsonb, DatabaseDriver::Sqlite) => "JSONB",
-        (ColumnType::Jsonb, DatabaseDriver::Postgres) => "JSONB",
-        (ColumnType::Jsonb, DatabaseDriver::Mysql) => "JSON",
+        (ColumnType::Json, _) | (ColumnType::Jsonb, DatabaseDriver::Mysql) => "JSON",
+        (ColumnType::Jsonb, DatabaseDriver::Sqlite | DatabaseDriver::Postgres) => "JSONB",
 
         // Binary
-        (ColumnType::Blob, DatabaseDriver::Sqlite) => "BLOB",
-        (ColumnType::Blob, DatabaseDriver::Postgres) => "BYTEA",
-        (ColumnType::Blob, DatabaseDriver::Mysql) => "BLOB",
-        (ColumnType::Bytea, DatabaseDriver::Sqlite) => "BLOB",
-        (ColumnType::Bytea, DatabaseDriver::Postgres) => "BYTEA",
-        (ColumnType::Bytea, DatabaseDriver::Mysql) => "BLOB",
+        (ColumnType::Blob | ColumnType::Bytea, DatabaseDriver::Mysql | DatabaseDriver::Sqlite) => {
+            "BLOB"
+        }
+        (ColumnType::Blob | ColumnType::Bytea, DatabaseDriver::Postgres) => "BYTEA",
     }
 }
 
 /// Map a `ForeignKeyAction` to its SQL fragment.
-fn fk_action_to_sql(action: &ForeignKeyAction) -> &'static str {
+const fn fk_action_to_sql(action: ForeignKeyAction) -> &'static str {
     match action {
         ForeignKeyAction::Cascade => "CASCADE",
         ForeignKeyAction::SetNull => "SET NULL",
@@ -599,8 +594,8 @@ fn fk_action_to_sql(action: &ForeignKeyAction) -> &'static str {
 /// This ensures foreign key constraints are valid when CREATE TABLE is executed,
 /// which is required by Postgres and `MySQL` (`SQLite` ignores FK constraints by default).
 ///
-/// Uses Kahn's algorithm with VecDeque for O(n) queue operations instead of
-/// Vec::remove(0) which is O(n) per dequeue, resulting in O(n^2) total.
+/// Uses Kahn's algorithm with `VecDeque` for O(n) queue operations instead of
+/// `Vec::remove(0)` which is O(n) per dequeue, resulting in O(n^2) total.
 ///
 /// # Errors
 ///
@@ -708,9 +703,9 @@ fn sort_tables_topologically(tables: &[TableConfig]) -> Result<Vec<TableConfig>,
 /// # Errors
 ///
 /// Returns `AppError::Database` if the ALTER TABLE statement fails.
-pub async fn ensure_media_columns(
+pub async fn ensure_media_columns<S: ::std::hash::BuildHasher + Sync>(
     endpoints: &[crate::config::types::EndpointConfig],
-    pools: &HashMap<String, DatabasePool>,
+    pools: &HashMap<String, DatabasePool, S>,
 ) -> Result<(), AppError> {
     // Collect unique (database, table) pairs from media endpoints.
     let mut media_tables: Vec<(String, String)> = Vec::new();
@@ -726,7 +721,7 @@ pub async fn ensure_media_columns(
     for (db_name, table_name) in &media_tables {
         let pool = pools
             .get(db_name)
-            .ok_or_else(|| AppError::Config(format!("Database '{}' not found", db_name)))?;
+            .ok_or_else(|| AppError::Config(format!("Database '{db_name}' not found")))?;
 
         let driver = pool.driver();
         let col_exists = match driver {
@@ -736,9 +731,8 @@ pub async fn ensure_media_columns(
                     quote_identifier(table_name, driver)
                 );
                 let row = pool.fetch_optional_json(&sql, &[]).await?;
-                row.and_then(|r| r.get("cnt").and_then(|v| v.as_i64()))
-                    .map(|c| c > 0)
-                    .unwrap_or(false)
+                row.and_then(|r| r.get("cnt").and_then(serde_json::Value::as_i64))
+                    .is_some_and(|c| c > 0)
             }
             DatabaseDriver::Postgres => {
                 let sql = "SELECT COUNT(*) as cnt FROM information_schema.columns \
@@ -746,9 +740,8 @@ pub async fn ensure_media_columns(
                 let row = pool
                     .fetch_optional_json(sql, &[serde_json::Value::String(table_name.to_owned())])
                     .await?;
-                row.and_then(|r| r.get("cnt").and_then(|v| v.as_i64()))
-                    .map(|c| c > 0)
-                    .unwrap_or(false)
+                row.and_then(|r| r.get("cnt").and_then(serde_json::Value::as_i64))
+                    .is_some_and(|c| c > 0)
             }
             DatabaseDriver::Mysql => {
                 let sql = "SELECT COUNT(*) as cnt FROM information_schema.columns \
@@ -756,9 +749,8 @@ pub async fn ensure_media_columns(
                 let row = pool
                     .fetch_optional_json(sql, &[serde_json::Value::String(table_name.to_owned())])
                     .await?;
-                row.and_then(|r| r.get("cnt").and_then(|v| v.as_i64()))
-                    .map(|c| c > 0)
-                    .unwrap_or(false)
+                row.and_then(|r| r.get("cnt").and_then(serde_json::Value::as_i64))
+                    .is_some_and(|c| c > 0)
             }
         };
 
@@ -857,19 +849,19 @@ mod tests {
     #[test]
     fn test_column_type_mapping() {
         assert_eq!(
-            column_type_to_sql(&ColumnType::Timestamptz, DatabaseDriver::Postgres),
+            column_type_to_sql(ColumnType::Timestamptz, DatabaseDriver::Postgres),
             "TIMESTAMPTZ"
         );
         assert_eq!(
-            column_type_to_sql(&ColumnType::Timestamptz, DatabaseDriver::Sqlite),
+            column_type_to_sql(ColumnType::Timestamptz, DatabaseDriver::Sqlite),
             "TEXT"
         );
         assert_eq!(
-            column_type_to_sql(&ColumnType::Boolean, DatabaseDriver::Sqlite),
+            column_type_to_sql(ColumnType::Boolean, DatabaseDriver::Sqlite),
             "INTEGER"
         );
         assert_eq!(
-            column_type_to_sql(&ColumnType::Jsonb, DatabaseDriver::Postgres),
+            column_type_to_sql(ColumnType::Jsonb, DatabaseDriver::Postgres),
             "JSONB"
         );
     }

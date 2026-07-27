@@ -30,9 +30,9 @@ pub enum SchemaSource {
 impl std::fmt::Display for SchemaSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SchemaSource::ExternalFile(path) => write!(f, "external file: {}", path.display()),
-            SchemaSource::Inline => write!(f, "inline"),
-            SchemaSource::GlobalRef(name) => write!(f, "global schema: {name}"),
+            Self::ExternalFile(path) => write!(f, "external file: {}", path.display()),
+            Self::Inline => write!(f, "inline"),
+            Self::GlobalRef(name) => write!(f, "global schema: {name}"),
         }
     }
 }
@@ -48,29 +48,34 @@ pub struct GlobalSchema {
 
 impl JsonSchema {
     /// Create a new `JsonSchema` from a compiled schema and source.
-    pub fn new(compiled: Validator, source: SchemaSource) -> Self {
+    #[must_use]
+    pub const fn new(compiled: Validator, source: SchemaSource) -> Self {
         Self { compiled, source }
     }
 
     /// Return a reference to the compiled validator.
-    pub fn compiled(&self) -> &Validator {
+    #[must_use]
+    pub const fn compiled(&self) -> &Validator {
         &self.compiled
     }
 
     /// Return the schema's source (where it was loaded from).
-    pub fn source(&self) -> &SchemaSource {
+    #[must_use]
+    pub const fn source(&self) -> &SchemaSource {
         &self.source
     }
 }
 
 impl GlobalSchema {
     /// Create a new `GlobalSchema` with the given name and compiled schema.
-    pub fn new(name: String, schema: JsonSchema) -> Self {
+    #[must_use]
+    pub const fn new(name: String, schema: JsonSchema) -> Self {
         Self { name, schema }
     }
 
     /// Return a reference to the compiled schema.
-    pub fn schema(&self) -> &JsonSchema {
+    #[must_use]
+    pub const fn schema(&self) -> &JsonSchema {
         &self.schema
     }
 }

@@ -16,7 +16,7 @@ use crate::error::AppError;
 ///
 /// The `body` may contain arbitrary keys (not just JSONB columns). Only the
 /// intersection of body keys and schema-validated JSONB columns is validated.
-pub(crate) fn validate_jsonb_body(
+pub fn validate_jsonb_body(
     body: &Value,
     table_name: &str,
     schema_registry: &SchemaRegistry,
@@ -137,7 +137,7 @@ mod tests {
     #[test]
     fn test_validate_jsonb_column_valid_data() {
         let schema: serde_yaml::Value = serde_yaml::from_str(
-            r#"
+            r"
 type: object
 required:
   - name
@@ -147,7 +147,7 @@ properties:
     type: string
   role:
     type: string
-"#,
+",
         )
         .unwrap();
 
@@ -161,7 +161,7 @@ properties:
     #[test]
     fn test_validate_jsonb_column_missing_required_field() {
         let schema: serde_yaml::Value = serde_yaml::from_str(
-            r#"
+            r"
 type: object
 required:
   - name
@@ -171,7 +171,7 @@ properties:
     type: string
   email:
     type: string
-"#,
+",
         )
         .unwrap();
 
@@ -190,14 +190,14 @@ properties:
     #[test]
     fn test_validate_jsonb_column_wrong_type() {
         let schema: serde_yaml::Value = serde_yaml::from_str(
-            r#"
+            r"
 type: object
 required:
   - title
 properties:
   title:
     type: string
-"#,
+",
         )
         .unwrap();
 
@@ -216,7 +216,7 @@ properties:
     #[test]
     fn test_validate_jsonb_column_additional_properties() {
         let schema: serde_yaml::Value = serde_yaml::from_str(
-            r#"
+            r"
 type: object
 required:
   - name
@@ -224,7 +224,7 @@ properties:
   name:
     type: string
 additionalProperties: false
-"#,
+",
         )
         .unwrap();
 
@@ -243,7 +243,7 @@ additionalProperties: false
     #[test]
     fn test_validate_jsonb_column_invalid_enum() {
         let schema: serde_yaml::Value = serde_yaml::from_str(
-            r#"
+            r"
 type: object
 required:
   - status
@@ -253,7 +253,7 @@ properties:
     enum:
       - active
       - inactive
-"#,
+",
         )
         .unwrap();
 
@@ -272,7 +272,7 @@ properties:
     #[test]
     fn test_validate_jsonb_column_nested_errors() {
         let schema: serde_yaml::Value = serde_yaml::from_str(
-            r#"
+            r"
 type: object
 required:
   - profile
@@ -287,7 +287,7 @@ properties:
         type: string
       age:
         type: integer
-"#,
+",
         )
         .unwrap();
 
@@ -322,14 +322,14 @@ properties:
         // The body contains a key that is not a JSONB column in the table.
         // Non-JSONB keys should be ignored entirely.
         let schema: serde_yaml::Value = serde_yaml::from_str(
-            r#"
+            r"
 type: object
 required:
   - name
 properties:
   name:
     type: string
-"#,
+",
         )
         .unwrap();
 
@@ -348,26 +348,26 @@ properties:
     fn test_validate_jsonb_body_multiple_columns_multiple_errors() {
         // Create a table with two JSONB columns, both with schemas, both failing
         let schema_a: serde_yaml::Value = serde_yaml::from_str(
-            r#"
+            r"
 type: object
 required:
   - x
 properties:
   x:
     type: string
-"#,
+",
         )
         .unwrap();
 
         let schema_b: serde_yaml::Value = serde_yaml::from_str(
-            r#"
+            r"
 type: object
 required:
   - y
 properties:
   y:
     type: string
-"#,
+",
         )
         .unwrap();
 

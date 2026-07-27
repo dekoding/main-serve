@@ -4,20 +4,25 @@ use crate::error::AppError;
 use crate::middleware::auth::extractor::RequestContext;
 use std::sync::LazyLock;
 
+/// Compile a static regex pattern.
+///
+/// SAFETY: The pattern is a compile-time constant. If invalid, the program
+/// panics on first access of the returned `LazyLock`, which is correct
+/// behavior for a programming error in a static pattern. Callers should
+/// wrap the result in `LazyLock::new(|| compile_regex("..."))`.
+#[allow(clippy::expect_used)]
+pub fn compile_regex(pattern: &'static str) -> regex::Regex {
+    regex::Regex::new(pattern).expect("static regex pattern must be valid")
+}
+
 /// Compiled regex for interpolating `${key}` patterns in filter values.
 ///
-/// SAFETY: This is a compile-time constant pattern. The regex literal
-/// `\$\{([^}]+)\}` is syntactically valid and has been tested in CI.
-/// If this regex were ever invalid, the program would fail at startup
-/// (first access of the LazyLock), which is the correct behavior for
-/// a programming error in a static pattern.
-#[allow(clippy::expect_used)]
-/// VALUE_INTERPOLATION_RE
+/// The pattern matches `${key}` where `key` may contain `:-default` syntax.
 pub static VALUE_INTERPOLATION_RE: LazyLock<regex::Regex> =
-    LazyLock::new(|| regex::Regex::new(r"\$\{([^}]+)\}").expect("valid interpolation regex"));
+    LazyLock::new(|| compile_regex(r"\$\{([^}]+)\}"));
 
 /// Helper to interpolate a string value.
-pub(crate) fn interpolate_value(
+pub fn interpolate_value(
     value: &str,
     context: &RequestContext,
 ) -> Result<serde_json::Value, AppError> {
@@ -45,17 +50,14 @@ pub(crate) fn interpolate_value(
         new_string.push_str(&value[last_match_end..full_match.start()]);
 
         // Check for default values: ${key:-default}
-        let resolved_value = if key.contains(":-") {
-            if let Some(idx) = key.find(":-") {
+        let resolved_value = key.find(":-").map_or_else(
+            || resolve_single_key(key, context),
+            |idx| {
                 let base_key = &key[..idx];
                 let default_val = &key[idx + 2..];
-                resolve_single_key(base_key, context).or(Some(default_val.to_string()))
-            } else {
-                None
-            }
-        } else {
-            resolve_single_key(key, context)
-        };
+                resolve_single_key(base_key, context).or_else(|| Some(default_val.to_string()))
+            },
+        );
 
         if let Some(val) = resolved_value {
             new_string.push_str(&val);
@@ -77,7 +79,7 @@ pub(crate) fn interpolate_value(
     }
 }
 
-/// Interpolate `${key}` patterns in a where_clause string, producing a parameterized
+/// Interpolate `${key}` patterns in a `where_clause` string, producing a parameterized
 /// SQL fragment. Static (non-interpolated) parts are appended to `sql_parts`, while
 /// resolved values are added as `placeholder()` references with their values pushed
 /// onto `params`. Returns the number of parameters consumed so the caller can track
@@ -88,7 +90,7 @@ pub(crate) fn interpolate_value(
 /// Where clauses are validated at config load time, so all keys must resolve at
 /// request time; leaving unresolved placeholders in the SQL would indicate a
 /// configuration or context bug.
-pub(crate) fn interpolate_where_clause(
+pub fn interpolate_where_clause(
     wc: &str,
     context: &RequestContext,
     driver: DatabaseDriver,
@@ -120,7 +122,7 @@ pub(crate) fn interpolate_where_clause(
             let base_key = &key[..idx];
             let default_val = &key[idx + 2..];
             resolved_value =
-                resolve_single_key(base_key, context).or(Some(default_val.to_string()));
+                resolve_single_key(base_key, context).or_else(|| Some(default_val.to_string()));
         }
 
         if let Some(val) = resolved_value {
@@ -162,9 +164,9 @@ fn resolve_single_key(key: &str, context: &RequestContext) -> Option<String> {
     }
 }
 
-/// Resolve writable fields: ["*"] -> all column names, otherwise as-is.
+/// Resolve writable fields: `` `["*"]` `` -> all column names, otherwise as-is.
 #[must_use]
-pub(crate) fn resolve_writable_fields(
+pub fn resolve_writable_fields(
     writable: &[String],
     table: &crate::config::types::TableConfig,
 ) -> std::collections::HashSet<String> {
@@ -175,12 +177,9 @@ pub(crate) fn resolve_writable_fields(
     }
 }
 
-/// Resolve field list: ["*"] -> all column names, otherwise as-is.
+/// Resolve field list: `` `["*"]` `` -> all column names, otherwise as-is.
 #[must_use]
-pub(crate) fn resolve_fields(
-    fields: &[String],
-    table: &crate::config::types::TableConfig,
-) -> Vec<String> {
+pub fn resolve_fields(fields: &[String], table: &crate::config::types::TableConfig) -> Vec<String> {
     if fields.len() == 1 && fields[0] == "*" {
         table.columns.iter().map(|c| c.name.clone()).collect()
     } else {
@@ -189,9 +188,7 @@ pub(crate) fn resolve_fields(
 }
 
 /// Find the primary key column name.
-pub(crate) fn find_pk_column(
-    table: &crate::config::types::TableConfig,
-) -> Result<String, AppError> {
+pub fn find_pk_column(table: &crate::config::types::TableConfig) -> Result<String, AppError> {
     table
         .columns
         .iter()
@@ -206,10 +203,7 @@ pub(crate) fn find_pk_column(
 /// `PostgreSQL` requires bind parameters to match the column type exactly;
 /// binding a string `"1"` against an integer column causes a type error.
 #[must_use]
-pub(crate) fn coerce_pk_value(
-    table: &crate::config::types::TableConfig,
-    raw: &str,
-) -> serde_json::Value {
+pub fn coerce_pk_value(table: &crate::config::types::TableConfig, raw: &str) -> serde_json::Value {
     let col_type = table
         .columns
         .iter()
@@ -256,9 +250,9 @@ pub(crate) fn coerce_pk_value(
 ///
 /// The value coerced to the appropriate `serde_json::Value` type based on both
 /// the value itself and the column type.
-pub(crate) fn coerce_filter_value_by_type(
+pub fn coerce_filter_value_by_type(
     value: &str,
-    column_type: &crate::config::types::ColumnType,
+    column_type: crate::config::types::ColumnType,
     driver: DatabaseDriver,
 ) -> serde_json::Value {
     match column_type {
@@ -345,9 +339,9 @@ pub(crate) fn coerce_filter_value_by_type(
 ///
 /// The value coerced to the appropriate `serde_json::Value` type.
 #[must_use]
-pub(crate) fn build_filter_param(
+pub fn build_filter_param(
     value: &str,
-    column_type: &crate::config::types::ColumnType,
+    column_type: crate::config::types::ColumnType,
     driver: DatabaseDriver,
 ) -> serde_json::Value {
     coerce_filter_value_by_type(value, column_type, driver)
@@ -543,7 +537,7 @@ mod tests {
         let table = float_table();
         let price_col = table.columns.iter().find(|c| c.name == "price").unwrap();
         let val =
-            coerce_filter_value_by_type("19.99", &price_col.column_type, DatabaseDriver::Sqlite);
+            coerce_filter_value_by_type("19.99", price_col.column_type, DatabaseDriver::Sqlite);
         assert_eq!(val.as_f64(), Some(19.99));
     }
 
@@ -552,7 +546,7 @@ mod tests {
         let table = float_table();
         let active_col = table.columns.iter().find(|c| c.name == "active").unwrap();
         let val =
-            coerce_filter_value_by_type("true", &active_col.column_type, DatabaseDriver::Sqlite);
+            coerce_filter_value_by_type("true", active_col.column_type, DatabaseDriver::Sqlite);
         assert_eq!(val, serde_json::json!(true));
     }
 
@@ -561,7 +555,7 @@ mod tests {
         let table = float_table();
         let active_col = table.columns.iter().find(|c| c.name == "active").unwrap();
         let val =
-            coerce_filter_value_by_type("yes", &active_col.column_type, DatabaseDriver::Sqlite);
+            coerce_filter_value_by_type("yes", active_col.column_type, DatabaseDriver::Sqlite);
         assert_eq!(val, serde_json::json!("yes"));
     }
 
@@ -570,7 +564,7 @@ mod tests {
         let table = sample_jsonb_table();
         let meta_col = table.columns.iter().find(|c| c.name == "metadata").unwrap();
         let val =
-            coerce_filter_value_by_type("hello", &meta_col.column_type, DatabaseDriver::Postgres);
+            coerce_filter_value_by_type("hello", meta_col.column_type, DatabaseDriver::Postgres);
         assert_eq!(val, serde_json::json!("hello"));
     }
 
@@ -578,8 +572,7 @@ mod tests {
     fn test_coerce_by_type_jsonb_sqlite_preserves_types() {
         let table = sample_jsonb_table();
         let meta_col = table.columns.iter().find(|c| c.name == "metadata").unwrap();
-        let val =
-            coerce_filter_value_by_type("true", &meta_col.column_type, DatabaseDriver::Sqlite);
+        let val = coerce_filter_value_by_type("true", meta_col.column_type, DatabaseDriver::Sqlite);
         assert_eq!(val, serde_json::json!(true));
     }
 
@@ -588,7 +581,7 @@ mod tests {
         let table = sample_jsonb_table();
         let meta_col = table.columns.iter().find(|c| c.name == "metadata").unwrap();
         let val =
-            coerce_filter_value_by_type("null", &meta_col.column_type, DatabaseDriver::Postgres);
+            coerce_filter_value_by_type("null", meta_col.column_type, DatabaseDriver::Postgres);
         assert!(matches!(val, serde_json::Value::Null));
     }
 
@@ -699,7 +692,7 @@ mod tests {
         let table = float_table();
         let price_col = table.columns.iter().find(|c| c.name == "price").unwrap();
         // With type info, float value coerces to number
-        let val = build_filter_param("19.99", &price_col.column_type, DatabaseDriver::Sqlite);
+        let val = build_filter_param("19.99", price_col.column_type, DatabaseDriver::Sqlite);
         assert_eq!(val.as_f64(), Some(19.99));
     }
 
@@ -707,7 +700,7 @@ mod tests {
     fn test_coerce_pipeline_boolean_column() {
         let table = float_table();
         let active_col = table.columns.iter().find(|c| c.name == "active").unwrap();
-        let val = build_filter_param("true", &active_col.column_type, DatabaseDriver::Sqlite);
+        let val = build_filter_param("true", active_col.column_type, DatabaseDriver::Sqlite);
         assert_eq!(val, serde_json::json!(true));
     }
 
@@ -715,7 +708,7 @@ mod tests {
     fn test_coerce_pipeline_null_handling() {
         let table = sample_table();
         let title_col = table.columns.iter().find(|c| c.name == "title").unwrap();
-        let val = build_filter_param("null", &title_col.column_type, DatabaseDriver::Sqlite);
+        let val = build_filter_param("null", title_col.column_type, DatabaseDriver::Sqlite);
         assert!(matches!(val, serde_json::Value::Null));
     }
 

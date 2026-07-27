@@ -1,7 +1,7 @@
 /// Sub-trait for equality operators (eq / ne).
 ///
 /// Default implementations use `=` for equality and `<>` for inequality,
-/// which works for PostgreSQL. MySQL and SQLite override `ne_op` to use `!=`.
+/// which works for `PostgreSQL`. `MySQL` and `SQLite` override `ne_op` to use `!=`.
 pub(crate) trait EqOps {
     /// Returns the SQL equality operator string (e.g. `=`).
     fn eq_op(&self) -> &'static str;
@@ -25,7 +25,7 @@ pub(crate) trait CmpOps {
 
 /// Sub-trait for LIKE operators.
 ///
-/// All drivers use `LIKE` for both `like_op` and `ilike_op` (PostgreSQL adds
+/// All drivers use `LIKE` for both `like_op` and `ilike_op` (`PostgreSQL` adds
 /// its own ILIKE support at the query level). `like_pattern_start` and
 /// `like_pattern_end` share the same implementation across all drivers.
 pub(crate) trait LikeOps {
@@ -50,7 +50,7 @@ pub(crate) trait FilterBehavior: EqOps + CmpOps + LikeOps + std::fmt::Debug {
     /// Generate JSON extraction for nested JSONB/JSON paths.
     fn json_extract_path(&self, column: &str, path: &str) -> String;
 
-    /// Check if driver uses JSONB-specific operators (PostgreSQL).
+    /// Check if driver uses JSONB-specific operators (`PostgreSQL`).
     fn uses_jsonb_ops(&self) -> bool;
 }
 
@@ -59,66 +59,66 @@ pub(crate) trait FilterBehavior: EqOps + CmpOps + LikeOps + std::fmt::Debug {
 pub(crate) struct PostgresFilter;
 
 impl FilterBehavior for PostgresFilter {
-    /// Generates the PostgreSQL `#>>` operator syntax for extracting values from JSONB paths.
+    /// Generates the `PostgreSQL` `#>>` operator syntax for extracting values from JSONB paths.
     fn json_extract_path(&self, column: &str, path: &str) -> String {
         let array_syntax: String = path.split('.').collect::<Vec<&str>>().join(",");
         format!("({column} #>> '{{{array_syntax}}}')")
     }
 
-    /// Returns true, indicating that PostgreSQL uses JSONB-specific operators.
+    /// Returns true, indicating that `PostgreSQL` uses JSONB-specific operators.
     fn uses_jsonb_ops(&self) -> bool {
         true
     }
 }
 
 impl EqOps for PostgresFilter {
-    /// Returns the SQL equality operator string `=` for PostgreSQL.
+    /// Returns the SQL equality operator string `=` for `PostgreSQL`.
     fn eq_op(&self) -> &'static str {
         "="
     }
-    /// Returns the SQL inequality operator string `<>` for PostgreSQL.
+    /// Returns the SQL inequality operator string `<>` for `PostgreSQL`.
     fn ne_op(&self) -> &'static str {
         "<>"
     }
 }
 
 impl CmpOps for PostgresFilter {
-    /// Returns the SQL greater-than operator string `>` for PostgreSQL.
+    /// Returns the SQL greater-than operator string `>` for `PostgreSQL`.
     fn gt_op(&self) -> &'static str {
         ">"
     }
-    /// Returns the SQL greater-than-or-equal operator string `>=` for PostgreSQL.
+    /// Returns the SQL greater-than-or-equal operator string `>=` for `PostgreSQL`.
     fn gte_op(&self) -> &'static str {
         ">="
     }
-    /// Returns the SQL less-than operator string `<` for PostgreSQL.
+    /// Returns the SQL less-than operator string `<` for `PostgreSQL`.
     fn lt_op(&self) -> &'static str {
         "<"
     }
-    /// Returns the SQL less-than-or-equal operator string `<=` for PostgreSQL.
+    /// Returns the SQL less-than-or-equal operator string `<=` for `PostgreSQL`.
     fn lte_op(&self) -> &'static str {
         "<="
     }
 }
 
 impl LikeOps for PostgresFilter {
-    /// Returns the SQL `LIKE` operator string for PostgreSQL.
+    /// Returns the SQL `LIKE` operator string for `PostgreSQL`.
     fn like_op(&self) -> &'static str {
         "LIKE"
     }
-    /// Returns the SQL `ILIKE` operator string for case-insensitive PostgreSQL matches.
+    /// Returns the SQL `ILIKE` operator string for case-insensitive `PostgreSQL` matches.
     fn ilike_op(&self) -> &'static str {
         "ILIKE"
     }
-    /// Returns the LIKE pattern parameter unchanged for PostgreSQL.
+    /// Returns the LIKE pattern parameter unchanged for `PostgreSQL`.
     fn like_pattern(&self, param: &str) -> String {
         param.to_string()
     }
-    /// Returns a PostgreSQL CONCAT expression prepending a wildcard to the pattern.
+    /// Returns a `PostgreSQL` CONCAT expression prepending a wildcard to the pattern.
     fn like_pattern_start(&self, param: &str) -> String {
         format!("CONCAT({param}, '%')")
     }
-    /// Returns a PostgreSQL CONCAT expression appending a wildcard to the pattern.
+    /// Returns a `PostgreSQL` CONCAT expression appending a wildcard to the pattern.
     fn like_pattern_end(&self, param: &str) -> String {
         format!("CONCAT('%', {param})")
     }
@@ -127,67 +127,67 @@ impl LikeOps for PostgresFilter {
 pub(crate) struct MysqlFilter;
 
 impl FilterBehavior for MysqlFilter {
-    /// Generates a MySQL JSON_UNQUOTE(JSON_EXTRACT(...)) expression for JSON path extraction.
+    /// Generates a `MySQL` `JSON_UNQUOTE(JSON_EXTRACT`(...)) expression for JSON path extraction.
     fn json_extract_path(&self, column: &str, path: &str) -> String {
         // JSON_EXTRACT returns JSON-encoded values (e.g., quoted strings).
         // JSON_UNQUOTE strips the quotes so comparisons work correctly.
         format!("JSON_UNQUOTE(JSON_EXTRACT({column}, '$.{path}'))")
     }
 
-    /// Returns false, indicating that MySQL does not use JSONB-specific operators.
+    /// Returns false, indicating that `MySQL` does not use JSONB-specific operators.
     fn uses_jsonb_ops(&self) -> bool {
         false
     }
 }
 
 impl EqOps for MysqlFilter {
-    /// Returns the SQL equality operator string `=` for MySQL.
+    /// Returns the SQL equality operator string `=` for `MySQL`.
     fn eq_op(&self) -> &'static str {
         "="
     }
-    /// Returns the SQL inequality operator string `!=` for MySQL.
+    /// Returns the SQL inequality operator string `!=` for `MySQL`.
     fn ne_op(&self) -> &'static str {
         "!="
     }
 }
 
 impl CmpOps for MysqlFilter {
-    /// Returns the SQL greater-than operator string `>` for MySQL.
+    /// Returns the SQL greater-than operator string `>` for `MySQL`.
     fn gt_op(&self) -> &'static str {
         ">"
     }
-    /// Returns the SQL greater-than-or-equal operator string `>=` for MySQL.
+    /// Returns the SQL greater-than-or-equal operator string `>=` for `MySQL`.
     fn gte_op(&self) -> &'static str {
         ">="
     }
-    /// Returns the SQL less-than operator string `<` for MySQL.
+    /// Returns the SQL less-than operator string `<` for `MySQL`.
     fn lt_op(&self) -> &'static str {
         "<"
     }
-    /// Returns the SQL less-than-or-equal operator string `<=` for MySQL.
+    /// Returns the SQL less-than-or-equal operator string `<=` for `MySQL`.
     fn lte_op(&self) -> &'static str {
         "<="
     }
 }
 
 impl LikeOps for MysqlFilter {
-    /// Returns the SQL `LIKE` operator string for MySQL.
+    /// Returns the SQL `LIKE` operator string for `MySQL`.
     fn like_op(&self) -> &'static str {
         "LIKE"
     }
-    /// Returns the SQL `LIKE` operator string for MySQL, since MySQL has no ILIKE.
+    /// Returns the SQL `LIKE` operator string for `MySQL`, since `MySQL` has no ILIKE.
     fn ilike_op(&self) -> &'static str {
         "LIKE"
     }
-    /// Returns the LIKE pattern parameter unchanged for MySQL.
+    /// Returns the LIKE pattern parameter unchanged for `MySQL`.
     fn like_pattern(&self, param: &str) -> String {
         param.to_string()
     }
-    /// Returns a MySQL CONCAT expression prepending a wildcard to the pattern.
+    /// Returns a `MySQL` CONCAT expression prepending a wildcard to the pattern.
     fn like_pattern_start(&self, param: &str) -> String {
         format!("CONCAT({param}, '%')")
     }
-    /// Returns a MySQL CONCAT expression appending a wildcard to the pattern.
+    /// Returns a `MySQL` CONCAT expression appending a wildcard to the pattern.
     fn like_pattern_end(&self, param: &str) -> String {
         format!("CONCAT('%', {param})")
     }
@@ -198,65 +198,65 @@ impl LikeOps for MysqlFilter {
 pub(crate) struct SqliteFilter;
 
 impl FilterBehavior for SqliteFilter {
-    /// Generates a SQLite `json_extract()` function call for JSON path extraction.
+    /// Generates a `SQLite` `json_extract()` function call for JSON path extraction.
     fn json_extract_path(&self, column: &str, path: &str) -> String {
         format!("json_extract({column}, '$.{path}')")
     }
 
-    /// Returns false, indicating that SQLite does not use JSONB-specific operators.
+    /// Returns false, indicating that `SQLite` does not use JSONB-specific operators.
     fn uses_jsonb_ops(&self) -> bool {
         false
     }
 }
 
 impl EqOps for SqliteFilter {
-    /// Returns the SQL equality operator string `=` for SQLite.
+    /// Returns the SQL equality operator string `=` for `SQLite`.
     fn eq_op(&self) -> &'static str {
         "="
     }
-    /// Returns the SQL inequality operator string `!=` for SQLite.
+    /// Returns the SQL inequality operator string `!=` for `SQLite`.
     fn ne_op(&self) -> &'static str {
         "!="
     }
 }
 
 impl CmpOps for SqliteFilter {
-    /// Returns the SQL greater-than operator string `>` for SQLite.
+    /// Returns the SQL greater-than operator string `>` for `SQLite`.
     fn gt_op(&self) -> &'static str {
         ">"
     }
-    /// Returns the SQL greater-than-or-equal operator string `>=` for SQLite.
+    /// Returns the SQL greater-than-or-equal operator string `>=` for `SQLite`.
     fn gte_op(&self) -> &'static str {
         ">="
     }
-    /// Returns the SQL less-than operator string `<` for SQLite.
+    /// Returns the SQL less-than operator string `<` for `SQLite`.
     fn lt_op(&self) -> &'static str {
         "<"
     }
-    /// Returns the SQL less-than-or-equal operator string `<=` for SQLite.
+    /// Returns the SQL less-than-or-equal operator string `<=` for `SQLite`.
     fn lte_op(&self) -> &'static str {
         "<="
     }
 }
 
 impl LikeOps for SqliteFilter {
-    /// Returns the SQL `LIKE` operator string for SQLite.
+    /// Returns the SQL `LIKE` operator string for `SQLite`.
     fn like_op(&self) -> &'static str {
         "LIKE"
     }
-    /// Returns the SQL `LIKE` operator string for SQLite, since SQLite has no ILIKE.
+    /// Returns the SQL `LIKE` operator string for `SQLite`, since `SQLite` has no ILIKE.
     fn ilike_op(&self) -> &'static str {
         "LIKE"
     }
-    /// Returns the LIKE pattern parameter unchanged for SQLite.
+    /// Returns the LIKE pattern parameter unchanged for `SQLite`.
     fn like_pattern(&self, param: &str) -> String {
         param.to_string()
     }
-    /// Returns a SQLite CONCAT expression prepending a wildcard to the pattern.
+    /// Returns a `SQLite` CONCAT expression prepending a wildcard to the pattern.
     fn like_pattern_start(&self, param: &str) -> String {
         format!("CONCAT({param}, '%')")
     }
-    /// Returns a SQLite CONCAT expression appending a wildcard to the pattern.
+    /// Returns a `SQLite` CONCAT expression appending a wildcard to the pattern.
     fn like_pattern_end(&self, param: &str) -> String {
         format!("CONCAT('%', {param})")
     }

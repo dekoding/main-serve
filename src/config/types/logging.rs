@@ -3,7 +3,7 @@ use serde::Deserialize;
 /// Logging level and output format configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// LoggingConfig
+/// `LoggingConfig`
 pub struct LoggingConfig {
     /// Log verbosity level.
     pub level: LogLevel,
@@ -19,12 +19,12 @@ pub struct LoggingConfig {
 }
 
 /// Returns the default maximum body size (16 KiB) that will be logged.
-fn default_max_body_log_size() -> usize {
+const fn default_max_body_log_size() -> usize {
     16 * 1024 // 16 KiB
 }
 
 impl Default for LoggingConfig {
-    /// Returns a LoggingConfig with safe default values for production use.
+    /// Returns a `LoggingConfig` with safe default values for production use.
     fn default() -> Self {
         Self {
             level: LogLevel::Info,
@@ -39,20 +39,27 @@ impl Default for LoggingConfig {
 /// Log verbosity level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
-/// LogLevel
+/// `LogLevel`
 pub enum LogLevel {
+    /// Trace-level logs (most verbose).
     Trace,
+    /// Debug-level logs.
     Debug,
+    /// Informational logs (default).
     Info,
+    /// Warning-level logs.
     Warn,
+    /// Error-level logs.
     Error,
 }
 
 /// Log output format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
-/// LogFormat
+/// `LogFormat`
 pub enum LogFormat {
+    /// Structured JSON output (suitable for log aggregators).
     Json,
+    /// Human-readable pretty-printed output.
     Pretty,
 }

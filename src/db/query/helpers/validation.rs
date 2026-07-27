@@ -34,7 +34,7 @@ static SQL_KEYWORDS_RE: LazyLock<Option<regex::Regex>> = LazyLock::new(|| {
 /// 2. Standard SQL/PostgreSQL JSONB operators (e.g., `->`, `->>`, `#>`, `#>>`).
 /// 3. Bracket notation for sorting (e.g., `metadata[role]`).
 #[must_use]
-pub(crate) fn is_valid_expression(s: &str) -> bool {
+pub fn is_valid_expression(s: &str) -> bool {
     if s.is_empty() {
         return false;
     }
@@ -103,7 +103,7 @@ pub(crate) fn is_valid_expression(s: &str) -> bool {
 /// Validate that a string is a safe SQL identifier (prevents injection).
 /// Allows alphanumeric, underscores, dots (for table.column), and hyphens.
 #[must_use]
-pub(crate) fn is_valid_identifier(s: &str) -> bool {
+pub fn is_valid_identifier(s: &str) -> bool {
     !s.is_empty()
         && s.chars()
             .all(|c| c.is_alphanumeric() || c == '_' || c == '.' || c == '-')

@@ -1,14 +1,17 @@
 /// Database connection and table schema configuration.
 use serde::{Deserialize, Serialize};
 
+/// Default pool acquire timeout in seconds.
 pub const DEFAULT_ACQUIRE_TIMEOUT: u64 = 5;
+/// Default maximum number of connections in the pool.
 pub const DEFAULT_MAX_CONNECTIONS: u32 = 10;
+/// Default minimum number of connections in the pool.
 pub const DEFAULT_MIN_CONNECTIONS: u32 = 1;
 
 /// A named database connection configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// DatabaseConfig
+/// `DatabaseConfig`
 pub struct DatabaseConfig {
     /// Database backend to use.
     pub driver: DatabaseDriver,
@@ -29,7 +32,7 @@ pub struct DatabaseConfig {
 }
 
 impl Default for DatabaseConfig {
-    /// Returns a DatabaseConfig with production-safe default values.
+    /// Returns a `DatabaseConfig` with production-safe default values.
     fn default() -> Self {
         Self {
             driver: DatabaseDriver::Sqlite,
@@ -46,17 +49,20 @@ impl Default for DatabaseConfig {
 /// Supported database backends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
-/// DatabaseDriver
+/// `DatabaseDriver`
 pub enum DatabaseDriver {
+    /// `PostgreSQL` database driver.
     Postgres,
+    /// `MySQL` database driver.
     Mysql,
+    /// `SQLite` database driver.
     Sqlite,
 }
 
 /// Schema for a single database table (used for migrations and query building).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-/// TableConfig
+/// `TableConfig`
 pub struct TableConfig {
     /// Name of the table as it appears in the database.
     pub name: String,
@@ -73,7 +79,9 @@ pub struct TableConfig {
 /// A column definition within a table.
 #[derive(Debug, Clone, Deserialize, serde::Serialize)]
 #[serde(default, rename_all = "snake_case", deny_unknown_fields)]
-/// ColumnConfig
+/// `ColumnConfig` maps directly to the YAML column config schema,
+/// hence the multiple boolean flags for primary key, nullable, unique, and indexed.
+#[allow(clippy::struct_excessive_bools)]
 pub struct ColumnConfig {
     /// Column name.
     pub name: String,
@@ -99,7 +107,7 @@ pub struct ColumnConfig {
 }
 
 impl Default for ColumnConfig {
-    /// Returns a ColumnConfig with permissive defaults (nullable, no validation).
+    /// Returns a `ColumnConfig` with permissive defaults (nullable, no validation).
     fn default() -> Self {
         Self {
             name: String::new(),
@@ -119,53 +127,73 @@ impl Default for ColumnConfig {
 /// Supported column data types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
-/// ColumnType
+/// `ColumnType`
 pub enum ColumnType {
+    /// 32-bit signed integer.
     Integer,
+    /// 64-bit signed integer.
     Bigint,
+    /// 16-bit signed integer.
     Smallint,
+    /// Auto-incrementing 32-bit integer (`PostgreSQL`).
     Serial,
+    /// Auto-incrementing 64-bit integer (`PostgreSQL`).
     Bigserial,
+    /// Variable-length text (no length limit).
     Text,
+    /// Fixed or variable-length character string.
     Varchar,
+    /// Fixed-length character string.
     Char,
+    /// Boolean value (true/false).
     Boolean,
+    /// Single-precision floating-point number.
     Float,
+    /// Double-precision floating-point number.
     Double,
+    /// Exact decimal number.
     Decimal,
+    /// Date value (year, month, day).
     Date,
+    /// Timestamp with no timezone.
     Timestamp,
+    /// Timestamp with timezone.
     Timestamptz,
+    /// Universally unique identifier (UUID).
     Uuid,
+    /// JSON text.
     Json,
+    /// Binary JSON (faster parsing).
     Jsonb,
+    /// Binary large object.
     Blob,
+    /// `Bytea` type (`PostgreSQL` binary data).
     Bytea,
 }
 
 impl std::fmt::Display for ColumnType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ColumnType::Integer => write!(f, "integer"),
-            ColumnType::Bigint => write!(f, "bigint"),
-            ColumnType::Smallint => write!(f, "smallint"),
-            ColumnType::Serial => write!(f, "serial"),
-            ColumnType::Bigserial => write!(f, "bigserial"),
-            ColumnType::Text => write!(f, "text"),
-            ColumnType::Varchar => write!(f, "varchar"),
-            ColumnType::Char => write!(f, "char"),
-            ColumnType::Boolean => write!(f, "boolean"),
-            ColumnType::Float => write!(f, "float"),
-            ColumnType::Double => write!(f, "double"),
-            ColumnType::Decimal => write!(f, "decimal"),
-            ColumnType::Date => write!(f, "date"),
-            ColumnType::Timestamp => write!(f, "timestamp"),
-            ColumnType::Timestamptz => write!(f, "timestamptz"),
-            ColumnType::Uuid => write!(f, "uuid"),
-            ColumnType::Json => write!(f, "json"),
-            ColumnType::Jsonb => write!(f, "jsonb"),
-            ColumnType::Blob => write!(f, "blob"),
-            ColumnType::Bytea => write!(f, "bytea"),
+            Self::Integer => write!(f, "integer"),
+            Self::Bigint => write!(f, "bigint"),
+            Self::Smallint => write!(f, "smallint"),
+            Self::Serial => write!(f, "serial"),
+            Self::Bigserial => write!(f, "bigserial"),
+            Self::Text => write!(f, "text"),
+            Self::Varchar => write!(f, "varchar"),
+            Self::Char => write!(f, "char"),
+            Self::Boolean => write!(f, "boolean"),
+            Self::Float => write!(f, "float"),
+            Self::Double => write!(f, "double"),
+            Self::Decimal => write!(f, "decimal"),
+            Self::Date => write!(f, "date"),
+            Self::Timestamp => write!(f, "timestamp"),
+            Self::Timestamptz => write!(f, "timestamptz"),
+            Self::Uuid => write!(f, "uuid"),
+            Self::Json => write!(f, "json"),
+            Self::Jsonb => write!(f, "jsonb"),
+            Self::Blob => write!(f, "blob"),
+            Self::Bytea => write!(f, "bytea"),
         }
     }
 }
@@ -176,14 +204,14 @@ impl ColumnType {
     /// JSON/JSONB columns are the only types that support JSON Schema validation.
     #[must_use]
     pub const fn is_json_type(&self) -> bool {
-        matches!(self, ColumnType::Json | ColumnType::Jsonb)
+        matches!(self, Self::Json | Self::Jsonb)
     }
 }
 
 /// A foreign key constraint on a table.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-/// ForeignKeyConfig
+/// `ForeignKeyConfig`
 pub struct ForeignKeyConfig {
     /// Column in this table that holds the foreign key.
     pub column: String,
@@ -199,19 +227,23 @@ pub struct ForeignKeyConfig {
     pub on_update: ForeignKeyAction,
 }
 
-/// Returns ForeignKeyAction::Restrict as the default referential action.
-fn default_fk_action() -> ForeignKeyAction {
+/// Returns `ForeignKeyAction::Restrict` as the default referential action.
+const fn default_fk_action() -> ForeignKeyAction {
     ForeignKeyAction::Restrict
 }
 
 /// Foreign key referential actions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
-/// ForeignKeyAction
+/// `ForeignKeyAction`
 pub enum ForeignKeyAction {
+    /// Delete or update the child rows automatically.
     Cascade,
+    /// Set the foreign key column to NULL when the parent is deleted or updated.
     SetNull,
+    /// Prevent delete or update of the parent row if child rows exist.
     Restrict,
+    /// Take no action (like RESTRICT but allows the transaction to proceed if no child rows exist).
     NoAction,
 }
 

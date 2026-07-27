@@ -6,7 +6,7 @@ use serde::Deserialize;
 /// Custom/static response configuration for an endpoint.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// CustomResponseConfig
+/// `CustomResponseConfig`
 pub struct CustomResponseConfig {
     /// HTTP status code.
     pub status: u16,

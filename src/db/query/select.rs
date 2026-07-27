@@ -19,7 +19,7 @@ use crate::db::query::types::{BuiltQuery, JoinType, QueryParams, SelectContext};
 use crate::error::AppError;
 use crate::middleware::auth::extractor::RequestContext;
 
-/// SelectBuilder accumulates the clauses of a SELECT statement so that both
+/// `SelectBuilder` accumulates the clauses of a SELECT statement so that both
 /// list and single-get queries share the same logic for fields, joins,
 /// computed fields, and WHERE conditions.
 pub struct SelectBuilder {
@@ -39,7 +39,6 @@ pub struct SelectBuilder {
 impl SelectBuilder {
     /// Start a new SELECT against `table` with the given main-table fields.
     #[must_use]
-    /// new
     pub fn new(table: &str, fields: Vec<String>, driver: DatabaseDriver) -> Self {
         let filter_behavior: Box<dyn FilterBehavior> = match driver {
             DatabaseDriver::Postgres => Box::new(PostgresFilter),
@@ -117,6 +116,10 @@ impl SelectBuilder {
     }
 
     /// Append the `where_clause` from config, resolving dynamic parameters if present.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the where clause cannot be interpolated.
     pub fn apply_where_clause(
         &mut self,
         ctx: &SelectContext,
@@ -140,6 +143,11 @@ impl SelectBuilder {
     }
 
     /// Append user-supplied filter conditions as parameterized WHERE terms.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a filter key cannot be parsed or references a column
+    /// that does not exist in the table config.
     pub fn apply_filters(
         &mut self,
         ctx: &SelectContext,
@@ -174,7 +182,7 @@ impl SelectBuilder {
             // Get the column type for proper value coercion
             let column_type = Self::get_column_type_for_filter(key, &table_config.columns)
                 .ok_or_else(|| AppError::Internal("column validated but type missing".into()))?;
-            self.apply_filter_expression(&expr, value, column_type)?;
+            self.apply_filter_expression(&expr, value, *column_type)?;
         }
         Ok(())
     }
@@ -203,7 +211,7 @@ impl SelectBuilder {
         &mut self,
         expr: &FilterExpression,
         value: &str,
-        column_type: &crate::config::types::ColumnType,
+        column_type: crate::config::types::ColumnType,
     ) -> Result<(), AppError> {
         let path_str = expr.path.join(".");
         let base_column = expr.path.first().cloned().unwrap_or_default();
@@ -591,6 +599,10 @@ impl SelectBuilder {
     }
 
     /// Set the ORDER BY clause from config + request params.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the sort field is not a valid column on the table.
     pub fn apply_sorting(
         &mut self,
         ctx: &SelectContext,
@@ -713,7 +725,6 @@ impl SelectBuilder {
     /// Render the final SQL string and return params.
     #[must_use]
     #[allow(clippy::unwrap_used)] // write! on String is infallible
-    /// build
     pub fn build(self) -> BuiltQuery {
         let mut select = self.select_fields;
         for c in &self.computed {

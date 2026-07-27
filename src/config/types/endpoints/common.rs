@@ -12,7 +12,6 @@ pub const DEFAULT_CACHE_MAX_AGE: u64 = 3600;
 
 /// Determine MIME type from file extension.
 #[must_use]
-/// mime_from_path
 pub fn mime_from_path(path: &Path) -> &'static str {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     match ext {
@@ -44,7 +43,6 @@ pub fn mime_from_path(path: &Path) -> &'static str {
 
 /// Minimal HTML escaping for safe inclusion in generated HTML.
 #[must_use]
-/// html_escape
 pub fn html_escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -55,7 +53,6 @@ pub fn html_escape(s: &str) -> String {
 /// A single endpoint definition - the core unit of Main Serve's behaviour.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-/// EndpointConfig
 pub struct EndpointConfig {
     /// URL path pattern (e.g. `/api/users` or `/api/users/{id}`).
     pub path: String,
@@ -114,45 +111,49 @@ pub(super) fn default_auth_none() -> String {
 /// Supported HTTP methods.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 #[serde(rename_all = "lowercase")]
-/// HttpMethod
 pub enum HttpMethod {
+    /// HTTP GET method.
     Get,
+    /// HTTP POST method.
     Post,
+    /// HTTP PUT method.
     Put,
+    /// HTTP PATCH method.
     Patch,
+    /// HTTP DELETE method.
     Delete,
+    /// HTTP OPTIONS method.
     Options,
+    /// HTTP HEAD method.
     Head,
 }
 
 impl HttpMethod {
     /// Check if this config method matches the given HTTP request method.
     #[must_use]
-    /// matches
     pub fn matches(&self, method: &axum::http::Method) -> bool {
         match self {
-            HttpMethod::Get => method == axum::http::Method::GET,
-            HttpMethod::Post => method == axum::http::Method::POST,
-            HttpMethod::Put => method == axum::http::Method::PUT,
-            HttpMethod::Patch => method == axum::http::Method::PATCH,
-            HttpMethod::Delete => method == axum::http::Method::DELETE,
-            HttpMethod::Head => method == axum::http::Method::HEAD,
-            HttpMethod::Options => method == axum::http::Method::OPTIONS,
+            Self::Get => method == axum::http::Method::GET,
+            Self::Post => method == axum::http::Method::POST,
+            Self::Put => method == axum::http::Method::PUT,
+            Self::Patch => method == axum::http::Method::PATCH,
+            Self::Delete => method == axum::http::Method::DELETE,
+            Self::Head => method == axum::http::Method::HEAD,
+            Self::Options => method == axum::http::Method::OPTIONS,
         }
     }
 
     /// Return the uppercase string representation of this HTTP method.
     #[must_use]
-    /// as_str
-    pub fn as_str(&self) -> &'static str {
+    pub const fn as_str(&self) -> &'static str {
         match self {
-            HttpMethod::Get => "GET",
-            HttpMethod::Post => "POST",
-            HttpMethod::Put => "PUT",
-            HttpMethod::Patch => "PATCH",
-            HttpMethod::Delete => "DELETE",
-            HttpMethod::Head => "HEAD",
-            HttpMethod::Options => "OPTIONS",
+            Self::Get => "GET",
+            Self::Post => "POST",
+            Self::Put => "PUT",
+            Self::Patch => "PATCH",
+            Self::Delete => "DELETE",
+            Self::Head => "HEAD",
+            Self::Options => "OPTIONS",
         }
     }
 }
@@ -163,7 +164,6 @@ impl HttpMethod {
 /// method-specific role assignments for fine-grained access control.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(untagged)]
-/// RolesConfig
 pub enum RolesConfig {
     /// Flat list of roles applied to all HTTP methods.
     Flat(Vec<String>),
@@ -185,7 +185,6 @@ impl Default for RolesConfig {
 /// `RolesConfig::Flat` is used when present.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// MethodSpecificRoles
 pub struct MethodSpecificRoles {
     /// Roles required for GET requests.
     #[serde(default, rename = "get")]
@@ -217,7 +216,6 @@ impl RolesConfig {
     /// otherwise falls back to the `Flat` variant. For `Flat`, always
     /// returns the flat list.
     #[must_use]
-    /// clone_for_method
     pub fn clone_for_method(&self, method: HttpMethod) -> Vec<String> {
         match self {
             Self::MethodSpecific(ms) => match method {
@@ -237,10 +235,11 @@ impl RolesConfig {
     ///
     /// The first role in the resolved roles list is considered the admin role.
     #[must_use]
-    /// is_admin
     pub fn is_admin(&self, user_role: &Option<String>) -> bool {
         match self {
-            Self::Flat(roles) => user_role.as_deref() == roles.first().map(|x| x.as_str()),
+            Self::Flat(roles) => {
+                user_role.as_deref() == roles.first().map(std::string::String::as_str)
+            }
             Self::MethodSpecific(ms) => {
                 let admin = ms
                     .get
@@ -252,7 +251,7 @@ impl RolesConfig {
                     .or(ms.head.as_ref())
                     .or(ms.options.as_ref())
                     .and_then(|r| r.first())
-                    .map(|x| x.as_str());
+                    .map(std::string::String::as_str);
                 user_role.as_deref() == admin
             }
         }
@@ -262,14 +261,20 @@ impl RolesConfig {
 /// The type of action an endpoint performs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
-/// EndpointAction
 pub enum EndpointAction {
+    /// CRUD database operations.
     Crud,
+    /// HTTP proxy to an upstream URL.
     Proxy,
+    /// Static file serving.
     StaticFiles,
+    /// SPA hosting with client-side routing fallback.
     SpaHost,
+    /// Media library operations.
     Media,
+    /// Database-backed file catalog.
     FileStore,
+    /// Return a custom static response.
     CustomResponse,
 }
 
@@ -291,11 +296,11 @@ where
     Ok(raw.into_iter().map(|s| normalize_extension(&s)).collect())
 }
 
-pub(super) fn default_true() -> bool {
+pub(super) const fn default_true() -> bool {
     true
 }
 
-pub(super) fn default_true_bool() -> bool {
+pub(super) const fn default_true_bool() -> bool {
     true
 }
 
@@ -303,31 +308,31 @@ pub(super) fn default_index() -> String {
     "index.html".to_string()
 }
 
-pub(super) fn default_cache_max_age() -> u64 {
+pub(super) const fn default_cache_max_age() -> u64 {
     3600
 }
 
-pub(super) fn default_fallback_status() -> u16 {
+pub(super) const fn default_fallback_status() -> u16 {
     200
 }
 
-pub(super) fn default_max_response_size() -> u64 {
+pub(super) const fn default_max_response_size() -> u64 {
     256 * 1024 * 1024 // 256 MiB
 }
 
-pub(super) fn default_media_max_size() -> u64 {
+pub(super) const fn default_media_max_size() -> u64 {
     100 * 1024 * 1024 // 100 MiB
 }
 
-pub(super) fn default_max_versions() -> u32 {
+pub(super) const fn default_max_versions() -> u32 {
     10
 }
 
-pub(super) fn default_quality() -> u8 {
+pub(super) const fn default_quality() -> u8 {
     85
 }
 
-pub(super) fn default_cover_fit() -> super::static_files::ImageResizeFit {
+pub(super) const fn default_cover_fit() -> super::static_files::ImageResizeFit {
     super::static_files::ImageResizeFit::Cover
 }
 
@@ -351,7 +356,7 @@ pub(super) fn default_order_col() -> String {
     "attachment_order".to_string()
 }
 
-pub(super) fn default_media_trash_retention() -> u32 {
+pub(super) const fn default_media_trash_retention() -> u32 {
     14
 }
 
@@ -363,15 +368,15 @@ pub(super) fn default_trash_admin_roles() -> Vec<String> {
     vec!["admin".to_string()]
 }
 
-pub(super) fn default_trash_retention() -> u32 {
+pub(super) const fn default_file_store_trash_retention() -> u32 {
     30
 }
 
-pub(super) fn default_share_ttl() -> u64 {
+pub(super) const fn default_share_ttl() -> u64 {
     86400
 }
 
-pub(super) fn default_share_max_ttl() -> u64 {
+pub(super) const fn default_share_max_ttl() -> u64 {
     604_800
 }
 
@@ -379,7 +384,7 @@ pub(super) fn default_shared_prefix() -> String {
     "shared".to_string()
 }
 
-pub(super) fn default_resize_dimension() -> usize {
+pub(super) const fn default_resize_dimension() -> usize {
     IMAGE_MAX_DIMENSION
 }
 

@@ -1,4 +1,3 @@
-/// Media create handler.
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
@@ -8,6 +7,16 @@ use crate::error::AppError;
 use crate::handlers::common::utils::{DatabaseContext, HandlerContext, filter_writable_body};
 use crate::middleware::auth::extractor::RequestContext;
 
+/// Handle `POST` for a media endpoint.
+///
+/// Filters the request body to writable columns, sets `` `uploader_id` `` and
+/// `` `created_at` `` timestamps, inserts the row into the database, and returns
+/// the inserted row (or `` `rows_affected` `` for databases without RETURNING).
+///
+/// # Errors
+///
+/// Returns `AppError::Auth` if authentication fails. Returns `AppError::Internal`
+/// on database errors.
 pub async fn handle_media_create(
     db_ctx: &DatabaseContext,
     handler_ctx: &HandlerContext<'_>,

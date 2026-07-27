@@ -5,6 +5,7 @@
 //! wildcard pattern does.
 
 use std::collections::HashMap;
+use std::hash::BuildHasher;
 
 use tokio::sync::RwLockReadGuard;
 
@@ -17,8 +18,8 @@ use crate::config::types::EndpointConfig;
 ///
 /// Returns the first endpoint whose path is a prefix of `path` and
 /// whose `endpoint_check` closure returns `true`.
-pub fn find_prefix_match(
-    configs: &RwLockReadGuard<'_, HashMap<String, EndpointConfig>>,
+pub fn find_prefix_match<S: BuildHasher>(
+    configs: &RwLockReadGuard<'_, HashMap<String, EndpointConfig, S>>,
     path: &str,
     endpoint_check: impl Fn(&EndpointConfig) -> bool,
 ) -> Option<EndpointConfig> {
@@ -43,8 +44,8 @@ pub fn find_prefix_match(
 /// For each stored path containing `{`, extracts the base path before `{` and
 /// checks if `path` starts with it. Returns the first matching endpoint
 /// whose `endpoint_check` closure returns `true`.
-pub fn find_wildcard_match(
-    configs: &HashMap<String, EndpointConfig>,
+pub fn find_wildcard_match<S: BuildHasher>(
+    configs: &HashMap<String, EndpointConfig, S>,
     path: &str,
     endpoint_check: impl Fn(&EndpointConfig) -> bool,
 ) -> Option<EndpointConfig> {

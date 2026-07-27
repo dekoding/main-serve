@@ -7,7 +7,7 @@ const DEFAULT_MAX_BODY_SIZE: usize = 10 * 1024 * 1024;
 /// Server bind address, port, TLS, and runtime settings.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// ServerConfig
+/// `ServerConfig`
 pub struct ServerConfig {
     /// Bind address (e.g. `"127.0.0.1"` or `"0.0.0.0"`).
     pub host: String,
@@ -43,7 +43,7 @@ impl Default for ServerConfig {
 /// TLS certificate and key paths.
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
-/// TlsConfig
+/// `TlsConfig`
 pub struct TlsConfig {
     /// Path to the PEM certificate chain file.
     pub cert: String,

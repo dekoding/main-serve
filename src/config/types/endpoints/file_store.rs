@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use serde::Deserialize;
 
-use super::common::{default_trash_prefix, default_trash_retention, default_true_bool};
+use super::common::{default_file_store_trash_retention, default_trash_prefix, default_true_bool};
 use super::media::MediaMetadataColumn;
 
 /// A metadata column definition for `file_store` endpoints.
@@ -13,9 +13,8 @@ pub type FileStoreMetadataColumn = MediaMetadataColumn;
 /// Field-level permissions for `file_store` endpoints.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// FileStoreFieldPermissions
 pub struct FileStoreFieldPermissions {
-    /// Roles allowed to read this field. Use ["*"] for all roles.
+    /// Roles allowed to read this field. Use `` `["*"]` `` for all roles.
     pub read: Vec<String>,
     /// Roles allowed to write this field.
     pub write: Vec<String>,
@@ -24,7 +23,6 @@ pub struct FileStoreFieldPermissions {
 /// Ownership configuration for `file_store` endpoints.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// FileStoreOwnershipConfig
 pub struct FileStoreOwnershipConfig {
     /// Column name that stores the owner ID.
     pub owner_column: String,
@@ -36,13 +34,12 @@ pub struct FileStoreOwnershipConfig {
 /// Trash configuration for `file_store` endpoints.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// FileStoreTrashConfig
 pub struct FileStoreTrashConfig {
     /// Whether trash is enabled.
     #[serde(default = "default_true_bool")]
     pub enabled: bool,
     /// Number of days to retain trashed entries.
-    #[serde(default = "default_trash_retention")]
+    #[serde(default = "default_file_store_trash_retention")]
     pub retention_days: u32,
     /// Storage prefix/path for trashed files.
     #[serde(default = "default_trash_prefix")]
@@ -52,7 +49,6 @@ pub struct FileStoreTrashConfig {
 /// Content references configuration for `file_store` endpoints.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// FileStoreContentReferencesConfig
 pub struct FileStoreContentReferencesConfig {
     /// Whether content references are enabled.
     #[serde(default = "default_true_bool")]
@@ -72,7 +68,6 @@ pub struct FileStoreContentReferencesConfig {
 /// File store (database-backed file catalog) endpoint configuration.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// FileStoreConfig
 pub struct FileStoreConfig {
     /// Named store to use.
     pub storage: String,

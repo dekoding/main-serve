@@ -15,6 +15,12 @@ use crate::handlers::common::utils::HandlerContext;
 use crate::middleware::auth::extractor::RequestContext;
 
 /// Handle media upload.
+///
+/// # Errors
+///
+/// Returns an error if media config is not found, upload is not enabled, the
+/// file exceeds max size, or authentication fails.
+#[allow(clippy::too_many_lines)]
 pub async fn handle_media_upload(
     handler_ctx: &HandlerContext<'_>,
     mut multipart: axum::extract::Multipart,
@@ -118,7 +124,7 @@ pub async fn handle_media_upload(
     );
     insert_map.insert(
         "uploader_id".to_string(),
-        serde_json::Value::String(user_id.to_string()),
+        serde_json::Value::String(user_id.clone()),
     );
     insert_map.insert(
         "file_path".to_string(),

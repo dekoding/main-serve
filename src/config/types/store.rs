@@ -7,7 +7,7 @@ use serde::Deserialize;
 /// Top-level store definition - references a named storage backend.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// StoreConfig
+/// `StoreConfig`
 pub struct StoreConfig {
     /// Storage backend type: "native" (local disk), "s3" (Amazon S3),
     /// "azure" (Azure Blob Storage), "gcs" (Google Cloud Storage),
@@ -30,12 +30,16 @@ pub struct StoreConfig {
 /// Storage backend type.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
-/// StoreBackend
+/// `StoreBackend`
 pub enum StoreBackend {
+    /// Local filesystem (native) storage.
     #[default]
     Native,
+    /// Amazon S3-compatible object storage.
     S3,
+    /// Azure Blob Storage.
     Azure,
+    /// Google Cloud Storage.
     Gcs,
     /// In-memory storage backend for testing.
     /// No configuration required - no backend-specific config section needed.
@@ -45,7 +49,7 @@ pub enum StoreBackend {
 /// S3 storage backend configuration.
 #[derive(Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// S3StoreConfig
+/// `S3StoreConfig`
 pub struct S3StoreConfig {
     /// AWS region (e.g. "us-east-1").
     pub region: String,
@@ -81,7 +85,7 @@ impl std::fmt::Debug for S3StoreConfig {
 /// Azure Blob Storage backend configuration.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// AzureStoreConfig
+/// `AzureStoreConfig`
 pub struct AzureStoreConfig {
     /// Azure storage account name.
     pub account_name: String,
@@ -95,7 +99,7 @@ pub struct AzureStoreConfig {
 /// Google Cloud Storage backend configuration.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// GcsStoreConfig
+/// `GcsStoreConfig`
 pub struct GcsStoreConfig {
     /// GCP project ID.
     pub project_id: String,

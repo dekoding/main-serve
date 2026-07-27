@@ -45,6 +45,10 @@ pub struct AzureStorage {
 
 impl AzureStorage {
     /// Create a new Azure storage backend from a store configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns `StorageError::InvalidBackend` if the `azure` config section is missing.
     pub fn new(config: &StoreConfig) -> Result<Self> {
         let azure = config
             .azure
@@ -86,26 +90,26 @@ impl AzureStorage {
     ///
     /// Strips the leading `/` if present. Azure blob names must not
     /// start with `/`.
-    fn path_to_blob_name(&self, path: &Path) -> String {
+    fn path_to_blob_name(path: &Path) -> String {
         let path_str = path.to_string_lossy();
         path_str.strip_prefix('/').unwrap_or(&path_str).to_string()
     }
 
     /// Generate an RFC 3339 timestamp for Azure headers.
-    fn rfc3339_timestamp(&self) -> String {
+    fn rfc3339_timestamp() -> String {
         Utc::now().to_rfc3339()
     }
 
     /// Build the canonicalized headers string for signing.
     ///
     /// Headers are lowercased, sorted alphabetically, and joined with `\n`.
-    fn build_canonicalized_headers(&self) -> String {
+    fn build_canonicalized_headers() -> String {
         let mut headers: HashMap<String, String> = HashMap::new();
         headers.insert(
             "x-ms-client-request-id".to_string(),
             uuid::Uuid::new_v4().to_string(),
         );
-        headers.insert("x-ms-date".to_string(), self.rfc3339_timestamp());
+        headers.insert("x-ms-date".to_string(), Self::rfc3339_timestamp());
         headers.insert(
             "x-ms-version".to_string(),
             AZURE_BLOB_API_VERSION.to_string(),
@@ -133,20 +137,21 @@ impl AzureStorage {
     fn compute_hmac_sha256(key: &[u8], message: &[u8]) -> Vec<u8> {
         let block_size = 64;
 
-        let mut k = vec![0u8; block_size];
-        if key.len() > block_size {
+        let k = if key.len() > block_size {
             let mut hasher = Sha256::new();
             hasher.update(key);
-            k = hasher.finalize().to_vec();
+            hasher.finalize().to_vec()
         } else {
+            let mut k = vec![0u8; block_size];
             k[..key.len()].copy_from_slice(key);
-        }
+            k
+        };
 
         let mut ipad = vec![0x36u8; block_size];
         let mut opad = vec![0x5cu8; block_size];
         for (i, (i_op, o_op)) in ipad.iter_mut().zip(opad.iter_mut()).enumerate() {
             if i < key.len() {
-                // SAFETY: k is padded/hashed to block_size and i iterates over block_size-sized vectors, so k[i] is a valid index.
+                // SAFETY: k has been padded/hashed to block_size bytes and i iterates over block_size-sized vectors, so k[i] is a valid index.
                 *i_op ^= k[i];
                 // SAFETY: Same invariant as above.
                 *o_op ^= k[i];
@@ -206,8 +211,8 @@ impl AzureStorage {
         body: Option<Vec<u8>>,
     ) -> Result<reqwest::Response> {
         let url = self.blob_url(blob_name, query);
-        let canonicalized_headers = self.build_canonicalized_headers();
-        let content_length = body.as_ref().map(|b| b.len() as u64).unwrap_or(0);
+        let canonicalized_headers = Self::build_canonicalized_headers();
+        let content_length = body.as_ref().map_or(0, |b| b.len() as u64);
         let auth = self.sign_request(
             method.as_str(),
             content_length,
@@ -235,11 +240,7 @@ impl AzureStorage {
     }
 
     /// Process an HTTP response, mapping status codes to errors.
-    async fn handle_response(
-        &self,
-        response: reqwest::Response,
-        blob_name: &str,
-    ) -> Result<reqwest::Response> {
+    fn handle_response(response: reqwest::Response, blob_name: &str) -> Result<reqwest::Response> {
         let status = response.status();
         match status {
             reqwest::StatusCode::OK
@@ -278,7 +279,7 @@ impl AzureStorage {
     /// Parse the XML response from a container list operation.
     ///
     /// Returns a tuple of (files with sizes, directory names).
-    fn parse_list_xml(&self, xml: &str, prefix: &str) -> Result<ListResult> {
+    fn parse_list_xml(xml: &str, prefix: &str) -> Result<ListResult> {
         let doc: ListResponse = quick_xml::de::from_str(xml).map_err(|e| {
             StorageError::Internal(format!("Failed to parse Azure list response: {e}"))
         })?;
@@ -395,15 +396,14 @@ fn base64_encode(data: &[u8]) -> String {
 #[async_trait::async_trait]
 impl Storage for AzureStorage {
     async fn exists(&self, path: &Path) -> bool {
-        let blob_name = self.path_to_blob_name(path);
-        let response = match self
+        let blob_name = Self::path_to_blob_name(path);
+        let Ok(response) = self
             .request(Method::HEAD, &blob_name, "comp=properties", None)
             .await
-        {
-            Ok(r) => r,
-            Err(_) => return false,
+        else {
+            return false;
         };
-        self.handle_response(response, &blob_name).await.is_ok()
+        Self::handle_response(response, &blob_name).is_ok()
     }
 
     async fn is_file(&self, path: &Path) -> bool {
@@ -411,41 +411,37 @@ impl Storage for AzureStorage {
     }
 
     async fn is_dir(&self, path: &Path) -> bool {
-        let blob_name = self.path_to_blob_name(path);
+        let blob_name = Self::path_to_blob_name(path);
         let prefix = if blob_name.is_empty() {
             String::new()
         } else {
             format!("{blob_name}/")
         };
         let query = format!("restype=container&comp=list&delimiter=/&prefix={prefix}");
-        let response = match self.request(Method::GET, "", &query, None).await {
-            Ok(r) => r,
-            Err(_) => return false,
+        let Ok(response) = self.request(Method::GET, "", &query, None).await else {
+            return false;
         };
-        let response = match self.handle_response(response, &blob_name).await {
-            Ok(r) => r,
-            Err(_) => return false,
+        let Ok(response) = Self::handle_response(response, &blob_name) else {
+            return false;
         };
 
-        let body = match response.text().await {
-            Ok(b) => b,
-            Err(_) => return false,
+        let Ok(body) = response.text().await else {
+            return false;
         };
 
-        let (files, dirs) = match self.parse_list_xml(&body, &prefix) {
-            Ok((f, d)) => (f, d),
-            Err(_) => return false,
+        let Ok((files, dirs)) = Self::parse_list_xml(&body, &prefix) else {
+            return false;
         };
 
         !files.is_empty() || !dirs.is_empty()
     }
 
     async fn read(&self, path: &Path) -> Result<Vec<u8>> {
-        let blob_name = self.path_to_blob_name(path);
+        let blob_name = Self::path_to_blob_name(path);
         let response = self
             .request(Method::GET, &blob_name, "comp=properties", None)
             .await?;
-        let response = self.handle_response(response, &blob_name).await?;
+        let response = Self::handle_response(response, &blob_name)?;
         let bytes = response
             .bytes()
             .await
@@ -454,11 +450,11 @@ impl Storage for AzureStorage {
     }
 
     async fn open(&self, path: &Path) -> Result<Box<dyn tokio::io::AsyncRead + Send + Unpin>> {
-        let blob_name = self.path_to_blob_name(path);
+        let blob_name = Self::path_to_blob_name(path);
         let response = self
             .request(Method::GET, &blob_name, "comp=properties", None)
             .await?;
-        let response = self.handle_response(response, &blob_name).await?;
+        let response = Self::handle_response(response, &blob_name)?;
 
         let bytes = response
             .bytes()
@@ -473,10 +469,10 @@ impl Storage for AzureStorage {
         path: &Path,
         offset: u64,
     ) -> Result<Box<dyn tokio::io::AsyncRead + Send + Unpin>> {
-        let blob_name = self.path_to_blob_name(path);
+        let blob_name = Self::path_to_blob_name(path);
 
         let url = self.blob_url(&blob_name, "comp=properties");
-        let canonicalized_headers = self.build_canonicalized_headers();
+        let canonicalized_headers = Self::build_canonicalized_headers();
         let auth = self.sign_request(
             "GET",
             0,
@@ -506,7 +502,7 @@ impl Storage for AzureStorage {
     }
 
     async fn write(&self, path: &Path, contents: &[u8]) -> Result<()> {
-        let blob_name = self.path_to_blob_name(path);
+        let blob_name = Self::path_to_blob_name(path);
         let response = self
             .request(
                 Method::PUT,
@@ -515,37 +511,35 @@ impl Storage for AzureStorage {
                 Some(contents.to_vec()),
             )
             .await?;
-        self.handle_response(response, &blob_name).await?;
+        Self::handle_response(response, &blob_name)?;
         Ok(())
     }
 
     async fn append(&self, path: &Path, contents: &[u8]) -> Result<()> {
-        let blob_name = self.path_to_blob_name(path);
+        let blob_name = Self::path_to_blob_name(path);
 
-        let head_response = match self
+        let Ok(head_response) = self
             .request(Method::HEAD, &blob_name, "comp=properties", None)
             .await
-        {
-            Ok(r) => r,
-            Err(_) => {
-                // If the HEAD request fails, treat as new file
-                return self.write(path, contents).await;
-            }
+        else {
+            // If the HEAD request fails, treat as new file
+            return self.write(path, contents).await;
         };
         let head_status = head_response.status();
 
-        let mut existing = Vec::new();
-        if head_status.is_success() {
+        let existing = if head_status.is_success() {
             let get_response = self
                 .request(Method::GET, &blob_name, "comp=properties", None)
                 .await?;
-            let get_resp = self.handle_response(get_response, &blob_name).await?;
-            existing = get_resp
+            let get_resp = Self::handle_response(get_response, &blob_name)?;
+            get_resp
                 .bytes()
                 .await
                 .map_err(|e| StorageError::Internal(format!("Failed to read existing blob: {e}")))?
-                .to_vec();
-        }
+                .to_vec()
+        } else {
+            Vec::new()
+        };
 
         let mut merged = existing;
         merged.extend_from_slice(contents);
@@ -554,18 +548,18 @@ impl Storage for AzureStorage {
     }
 
     async fn delete(&self, path: &Path) -> Result<()> {
-        let blob_name = self.path_to_blob_name(path);
+        let blob_name = Self::path_to_blob_name(path);
         let response = self.request(Method::DELETE, &blob_name, "", None).await?;
-        self.handle_response(response, &blob_name).await?;
+        Self::handle_response(response, &blob_name)?;
         Ok(())
     }
 
     async fn metadata(&self, path: &Path) -> Result<FileMetadata> {
-        let blob_name = self.path_to_blob_name(path);
+        let blob_name = Self::path_to_blob_name(path);
         let response = self
             .request(Method::HEAD, &blob_name, "comp=properties", None)
             .await?;
-        let response = self.handle_response(response, &blob_name).await?;
+        let response = Self::handle_response(response, &blob_name)?;
 
         let headers = response.headers();
 
@@ -575,10 +569,10 @@ impl Storage for AzureStorage {
             .unwrap_or("0");
         let size: u64 = size_str.parse().unwrap_or(0);
 
-        let name = path
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| path.to_string_lossy().to_string());
+        let name = path.file_name().map_or_else(
+            || path.to_string_lossy().to_string(),
+            |n| n.to_string_lossy().to_string(),
+        );
 
         let modified_str = headers
             .get("x-ms-last-modified")
@@ -599,7 +593,7 @@ impl Storage for AzureStorage {
     }
 
     async fn list(&self, dir: &Path) -> Result<Vec<DirEntry>> {
-        let blob_name = self.path_to_blob_name(dir);
+        let blob_name = Self::path_to_blob_name(dir);
         let prefix = if blob_name.is_empty() || blob_name == "/" {
             String::new()
         } else {
@@ -608,13 +602,13 @@ impl Storage for AzureStorage {
 
         let query = format!("restype=container&comp=list&delimiter=/&prefix={prefix}");
         let response = self.request(Method::GET, "", &query, None).await?;
-        let response = self.handle_response(response, "").await?;
+        let response = Self::handle_response(response, "")?;
 
         let body = response.text().await.map_err(|e| {
             StorageError::Internal(format!("Failed to read list response body: {e}"))
         })?;
 
-        let (files, dirs) = self.parse_list_xml(&body, &prefix)?;
+        let (files, dirs) = Self::parse_list_xml(&body, &prefix)?;
 
         let mut entries = Vec::new();
 
@@ -632,7 +626,7 @@ impl Storage for AzureStorage {
     }
 
     async fn create_dir(&self, path: &Path) -> Result<()> {
-        let mut blob_name = self.path_to_blob_name(path);
+        let mut blob_name = Self::path_to_blob_name(path);
         if !blob_name.is_empty() && !blob_name.ends_with('/') {
             blob_name.push('/');
         }
@@ -640,7 +634,7 @@ impl Storage for AzureStorage {
     }
 
     async fn create_dir_all(&self, path: &Path) -> Result<()> {
-        let blob_name = self.path_to_blob_name(path);
+        let blob_name = Self::path_to_blob_name(path);
         let prefix = if blob_name.is_empty() {
             String::new()
         } else {
@@ -648,9 +642,8 @@ impl Storage for AzureStorage {
         };
 
         let query = format!("restype=container&comp=list&delimiter=/&prefix={prefix}");
-        let response = match self.request(Method::GET, "", &query, None).await {
-            Ok(r) => r,
-            Err(_) => return self.create_dir(path).await,
+        let Ok(response) = self.request(Method::GET, "", &query, None).await else {
+            return self.create_dir(path).await;
         };
 
         if response.status().is_success() {
@@ -658,7 +651,7 @@ impl Storage for AzureStorage {
                 StorageError::Internal(format!("Failed to read list response: {e}"))
             })?;
 
-            let (files, dirs) = self.parse_list_xml(&body, &prefix)?;
+            let (files, dirs) = Self::parse_list_xml(&body, &prefix)?;
             if !files.is_empty() || !dirs.is_empty() {
                 return Ok(());
             }
@@ -668,7 +661,7 @@ impl Storage for AzureStorage {
     }
 
     async fn remove_dir(&self, path: &Path) -> Result<()> {
-        let blob_name = self.path_to_blob_name(path);
+        let blob_name = Self::path_to_blob_name(path);
         let prefix = if blob_name.is_empty() {
             String::new()
         } else {
@@ -677,14 +670,14 @@ impl Storage for AzureStorage {
 
         let query = format!("restype=container&comp=list&delimiter=/&prefix={prefix}");
         let response = self.request(Method::GET, "", &query, None).await?;
-        let response = self.handle_response(response, "").await?;
+        let response = Self::handle_response(response, "")?;
 
         if response.status().is_success() {
             let body = response.text().await.map_err(|e| {
                 StorageError::Internal(format!("Failed to read list response: {e}"))
             })?;
 
-            let (files, _) = self.parse_list_xml(&body, &prefix)?;
+            let (files, _) = Self::parse_list_xml(&body, &prefix)?;
             for (file, _size) in files {
                 let file_path = PathBuf::from(format!("{prefix}{file}"));
                 self.delete(&file_path).await?;
@@ -698,7 +691,7 @@ impl Storage for AzureStorage {
     }
 
     async fn remove_dir_all(&self, path: &Path) -> Result<()> {
-        let blob_name = self.path_to_blob_name(path);
+        let blob_name = Self::path_to_blob_name(path);
         let prefix = if blob_name.is_empty() {
             String::new()
         } else {
@@ -707,9 +700,8 @@ impl Storage for AzureStorage {
 
         loop {
             let query = format!("restype=container&comp=list&delimiter=/&prefix={prefix}");
-            let response = match self.request(Method::GET, "", &query, None).await {
-                Ok(r) => r,
-                Err(_) => break,
+            let Ok(response) = self.request(Method::GET, "", &query, None).await else {
+                break;
             };
 
             if !response.status().is_success() {
@@ -720,7 +712,7 @@ impl Storage for AzureStorage {
                 StorageError::Internal(format!("Failed to read list response: {e}"))
             })?;
 
-            let (files, sub_dirs) = self.parse_list_xml(&body, &prefix)?;
+            let (files, sub_dirs) = Self::parse_list_xml(&body, &prefix)?;
 
             for (file, _size) in files {
                 let file_path = PathBuf::from(format!("{prefix}{file}"));
@@ -737,9 +729,8 @@ impl Storage for AzureStorage {
             for new_prefix in new_prefixes {
                 let sub_query =
                     format!("restype=container&comp=list&delimiter=/&prefix={new_prefix}");
-                let sub_response = match self.request(Method::GET, "", &sub_query, None).await {
-                    Ok(r) => r,
-                    Err(_) => continue,
+                let Ok(sub_response) = self.request(Method::GET, "", &sub_query, None).await else {
+                    continue;
                 };
 
                 if sub_response.status().is_success() {
@@ -747,7 +738,7 @@ impl Storage for AzureStorage {
                         .text()
                         .await
                         .map_err(|e| StorageError::Internal(format!("Failed to read list: {e}")))?;
-                    let (sub_files, _) = self.parse_list_xml(&sub_body, &new_prefix)?;
+                    let (sub_files, _) = Self::parse_list_xml(&sub_body, &new_prefix)?;
                     for (f, _size) in sub_files {
                         let f_path = PathBuf::from(format!("{new_prefix}{f}"));
                         self.delete(&f_path).await?;
@@ -760,7 +751,7 @@ impl Storage for AzureStorage {
     }
 
     async fn rename(&self, from: &Path, to: &Path) -> Result<()> {
-        let to_blob = self.path_to_blob_name(to);
+        let to_blob = Self::path_to_blob_name(to);
 
         let response = self
             .request(Method::PUT, &to_blob, "comp=copy", None)
@@ -769,9 +760,9 @@ impl Storage for AzureStorage {
             .headers()
             .get("x-ms-copy-status")
             .and_then(|v| v.to_str().ok())
-            .map(|s| s.to_string())
+            .map(std::string::ToString::to_string)
             .unwrap_or_default();
-        self.handle_response(response, &to_blob).await?;
+        Self::handle_response(response, &to_blob)?;
 
         if copy_status == "pending" || copy_status == "success" {
             for _ in 0..60 {
@@ -800,9 +791,8 @@ impl Storage for AzureStorage {
         Ok(())
     }
 
-    async fn copy(&self, from: &Path, to: &Path) -> Result<()> {
-        let _from = from;
-        let to_blob = self.path_to_blob_name(to);
+    async fn copy(&self, _from: &Path, to: &Path) -> Result<()> {
+        let to_blob = Self::path_to_blob_name(to);
 
         let response = self
             .request(Method::PUT, &to_blob, "comp=copy", None)
@@ -811,9 +801,9 @@ impl Storage for AzureStorage {
             .headers()
             .get("x-ms-copy-status")
             .and_then(|v| v.to_str().ok())
-            .map(|s| s.to_string())
+            .map(std::string::ToString::to_string)
             .unwrap_or_default();
-        self.handle_response(response, &to_blob).await?;
+        Self::handle_response(response, &to_blob)?;
 
         if copy_status == "pending" || copy_status == "success" {
             for _ in 0..MAX_COPY_RETRIES {
@@ -840,7 +830,7 @@ impl Storage for AzureStorage {
     }
 
     async fn canonicalize(&self, path: &Path) -> Result<PathBuf> {
-        let blob_name = self.path_to_blob_name(path);
+        let blob_name = Self::path_to_blob_name(path);
         let url = format!(
             "{}/{}",
             self.base_url(),
@@ -850,11 +840,11 @@ impl Storage for AzureStorage {
     }
 
     async fn size(&self, path: &Path) -> Result<u64> {
-        let blob_name = self.path_to_blob_name(path);
+        let blob_name = Self::path_to_blob_name(path);
         let response = self
             .request(Method::HEAD, &blob_name, "comp=properties", None)
             .await?;
-        let response = self.handle_response(response, &blob_name).await?;
+        let response = Self::handle_response(response, &blob_name)?;
 
         let headers = response.headers();
         let size_str = headers
@@ -876,23 +866,19 @@ mod tests {
     #[test]
     /// Tests path-to-blob-name conversion for various input paths.
     fn test_path_to_blob_name() {
-        let storage = AzureStorage {
-            account_name: "test".to_string(),
-            account_key: "test".to_string(),
-            container: "test".to_string(),
-            client: reqwest::Client::new(),
-        };
-
         assert_eq!(
-            storage.path_to_blob_name(Path::new("/foo/bar.txt")),
+            AzureStorage::path_to_blob_name(Path::new("/foo/bar.txt")),
             "foo/bar.txt"
         );
         assert_eq!(
-            storage.path_to_blob_name(Path::new("relative/path.txt")),
+            AzureStorage::path_to_blob_name(Path::new("relative/path.txt")),
             "relative/path.txt"
         );
-        assert_eq!(storage.path_to_blob_name(Path::new("/")), "");
-        assert_eq!(storage.path_to_blob_name(Path::new("/a/b/c")), "a/b/c");
+        assert_eq!(AzureStorage::path_to_blob_name(Path::new("/")), "");
+        assert_eq!(
+            AzureStorage::path_to_blob_name(Path::new("/a/b/c")),
+            "a/b/c"
+        );
     }
 
     #[test]
@@ -913,7 +899,7 @@ mod tests {
     }
 
     #[test]
-    /// Tests that the shared key signature starts with the expected "SharedKey" prefix.
+    /// Tests that the shared key signature starts with the expected "`SharedKey`" prefix.
     fn test_sign_request_format() {
         let storage = AzureStorage {
             account_name: "myaccount".to_string(),
@@ -922,7 +908,7 @@ mod tests {
             client: reqwest::Client::new(),
         };
 
-        let headers = storage.build_canonicalized_headers();
+        let headers = AzureStorage::build_canonicalized_headers();
         let resource = storage.build_canonicalized_resource("file.txt", "");
 
         let result = storage.sign_request("GET", 0, &headers, &resource);

@@ -43,7 +43,11 @@ pub async fn handle_revoke(
             .ok_or_else(|| AppError::Auth("No token provided".to_string()))?
     };
     // Drain the request body to avoid connection issues
-    let _ = req.into_body().collect().await.map(|b| b.to_bytes());
+    let _ = req
+        .into_body()
+        .collect()
+        .await
+        .map(http_body_util::Collected::to_bytes);
 
     let (secret, algorithm, issuer, audience) = {
         let config = state.config.read().await;
@@ -52,12 +56,12 @@ pub async fn handle_revoke(
             .jwt
             .as_ref()
             .ok_or_else(|| AppError::Config("JWT is not configured".to_string()))?;
-        (
-            jwt_config.secret.clone(),
-            jwt_config.algorithm,
-            jwt_config.issuer.clone(),
-            jwt_config.audience.clone(),
-        )
+        let secret = jwt_config.secret.clone();
+        let algorithm = jwt_config.algorithm;
+        let issuer = jwt_config.issuer.clone();
+        let audience = jwt_config.audience.clone();
+        drop(config);
+        (secret, algorithm, issuer, audience)
     };
 
     let algorithm = match algorithm {
@@ -98,14 +102,14 @@ pub async fn handle_revoke(
 
     let exp = claims
         .get("exp")
-        .and_then(|v| v.as_u64())
+        .and_then(serde_json::Value::as_u64)
         .and_then(|v| usize::try_from(v).ok())
         .unwrap_or(0);
 
     if let Some(store) = state.revocation_store.get() {
         let expires_at = std::time::Instant::now()
             .checked_add(std::time::Duration::from_secs(exp as u64))
-            .unwrap_or_else(|| std::time::Instant::now() + std::time::Duration::from_secs(3600));
+            .unwrap_or_else(|| std::time::Instant::now() + std::time::Duration::from_hours(1));
         store.revoke(jti, expires_at).await;
     }
 
@@ -117,26 +121,32 @@ pub async fn handle_revoke(
 
 /// Request body for user registration.
 #[derive(Deserialize)]
-/// RegisterRequest
+/// `RegisterRequest`
 pub struct RegisterRequest {
+    /// User's email address.
     pub email: String,
+    /// User's plaintext password.
     pub password: String,
+    /// Optional role to assign to the new user.
     #[serde(default)]
     pub role: Option<String>,
 }
 
 /// Request body for user login.
 #[derive(Deserialize)]
-/// LoginRequest
+/// `LoginRequest`
 pub struct LoginRequest {
+    /// User's email address.
     pub email: String,
+    /// User's plaintext password.
     pub password: String,
 }
 
 /// Response body for auth endpoints.
 #[derive(serde::Serialize)]
-/// AuthResponse
+/// `AuthResponse`
 pub struct AuthResponse {
+    /// The minted JWT token.
     pub token: String,
 }
 
@@ -203,7 +213,7 @@ pub async fn handle_register(
                 .or_else(|| row.get("column_name"))
                 .or_else(|| row.get("COLUMN_NAME"))
                 .and_then(|v| v.as_str())
-                .map(|s| s.to_owned())
+                .map(std::borrow::ToOwned::to_owned)
         })
         .collect();
 
@@ -264,17 +274,18 @@ pub async fn handle_register(
 
     let user_id = user_row
         .get("id")
-        .and_then(|v| v.as_i64())
-        .map(|id| id.to_string())
-        .unwrap_or_else(|| {
-            // Fallback: use email as user_id if ID can't be determined
-            body.email.clone()
-        });
+        .and_then(serde_json::Value::as_i64)
+        .map_or_else(
+            || {
+                // Fallback: use email as user_id if ID can't be determined
+                body.email.clone()
+            },
+            |id| id.to_string(),
+        );
     let user_email = user_row
         .get("email")
         .and_then(|v| v.as_str())
-        .map(ToString::to_string)
-        .unwrap_or(body.email.clone());
+        .map_or_else(|| body.email.clone(), str::to_owned);
 
     let jwt_config = state.jwt_config().await?;
     let jti = uuid::Uuid::new_v4().to_string();
@@ -332,9 +343,8 @@ pub async fn handle_login(
                 .map(ToString::to_string);
             let uid = row
                 .get("id")
-                .and_then(|v| v.as_i64())
-                .map(|id| id.to_string())
-                .unwrap_or(email.clone());
+                .and_then(serde_json::Value::as_i64)
+                .map_or_else(|| email.clone(), |id| id.to_string());
             (email, password_hash, role, uid)
         }
         None => return Err(AppError::Auth("Invalid email or password".to_string())),

@@ -63,7 +63,7 @@ impl S3Storage {
     }
 
     /// Convert a storage path to an S3 object key.
-    fn path_to_key(&self, path: &Path) -> String {
+    fn path_to_key(path: &Path) -> String {
         let path_str = path.to_string_lossy();
         path_str.strip_prefix('/').unwrap_or(&path_str).to_string()
     }
@@ -101,7 +101,7 @@ impl S3Storage {
             .is_ok()
     }
 
-    /// Collect body from a successful GetObject response.
+    /// Collect body from a successful `GetObject` response.
     async fn collect_body(body: ByteStream) -> Result<Vec<u8>> {
         let mut bytes = Vec::new();
         let mut stream = body;
@@ -114,7 +114,7 @@ impl S3Storage {
         Ok(bytes)
     }
 
-    /// Convert a DateTime to SystemTime.
+    /// Convert a `DateTime` to `SystemTime`.
     fn dt_to_system_time(dt: &aws_smithy_types::DateTime) -> Option<std::time::SystemTime> {
         // DateTime::as_secs_since_epoch() may not be available in all smithy-types versions.
         // Fall back to parsing the ISO 8601 string representation.
@@ -128,37 +128,33 @@ impl S3Storage {
 #[async_trait::async_trait]
 impl Storage for S3Storage {
     async fn exists(&self, path: &Path) -> bool {
-        let key = self.path_to_key(path);
+        let key = Self::path_to_key(path);
         self.key_exists(&key).await
     }
 
     async fn is_file(&self, path: &Path) -> bool {
-        let key = self.path_to_key(path);
-        match self
-            .client
+        let key = Self::path_to_key(path);
+        self.client
             .head_object()
             .bucket(&self.bucket)
             .key(&key)
             .send()
             .await
-        {
-            Ok(response) => {
+            .is_ok_and(|response| {
                 let is_dir_marker =
                     response.content_length().unwrap_or(0) == 0 && key.ends_with('/');
                 !is_dir_marker
-            }
-            Err(_) => false,
-        }
+            })
     }
 
     async fn is_dir(&self, path: &Path) -> bool {
-        let key = self.path_to_key(path);
+        let key = Self::path_to_key(path);
         let marker_key = if key.is_empty() {
             String::new()
         } else if key.ends_with('/') {
             key.clone()
         } else {
-            format!("{}/", key)
+            format!("{key}/")
         };
 
         if self.key_exists(&marker_key).await {
@@ -190,7 +186,7 @@ impl Storage for S3Storage {
     }
 
     async fn read(&self, path: &Path) -> Result<Vec<u8>> {
-        let key = self.path_to_key(path);
+        let key = Self::path_to_key(path);
         let response = self
             .client
             .get_object()
@@ -204,7 +200,7 @@ impl Storage for S3Storage {
     }
 
     async fn open(&self, path: &Path) -> Result<Box<dyn tokio::io::AsyncRead + Send + Unpin>> {
-        let key = self.path_to_key(path);
+        let key = Self::path_to_key(path);
         let response = self
             .client
             .get_object()
@@ -224,7 +220,7 @@ impl Storage for S3Storage {
         path: &Path,
         offset: u64,
     ) -> Result<Box<dyn tokio::io::AsyncRead + Send + Unpin>> {
-        let key = self.path_to_key(path);
+        let key = Self::path_to_key(path);
         let range = format!("bytes={offset}-");
 
         let response = self
@@ -243,7 +239,7 @@ impl Storage for S3Storage {
     }
 
     async fn write(&self, path: &Path, contents: &[u8]) -> Result<()> {
-        let key = self.path_to_key(path);
+        let key = Self::path_to_key(path);
         let body: ByteStream = Bytes::from(contents.to_vec()).into();
 
         self.client
@@ -266,7 +262,7 @@ impl Storage for S3Storage {
     }
 
     async fn delete(&self, path: &Path) -> Result<()> {
-        let key = self.path_to_key(path);
+        let key = Self::path_to_key(path);
         self.client
             .delete_object()
             .bucket(&self.bucket)
@@ -279,7 +275,7 @@ impl Storage for S3Storage {
     }
 
     async fn metadata(&self, path: &Path) -> Result<FileMetadata> {
-        let key = self.path_to_key(path);
+        let key = Self::path_to_key(path);
         let response = self
             .client
             .head_object()
@@ -289,12 +285,12 @@ impl Storage for S3Storage {
             .await
             .map_err(|e| Self::map_error(e, &key))?;
 
-        let name = path
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| path.to_string_lossy().to_string());
+        let name = path.file_name().map_or_else(
+            || path.to_string_lossy().to_string(),
+            |n| n.to_string_lossy().to_string(),
+        );
 
-        let size = response.content_length().unwrap_or(0) as u64;
+        let size = response.content_length().unwrap_or(0).cast_unsigned();
 
         let modified = response.last_modified().and_then(Self::dt_to_system_time);
 
@@ -308,13 +304,13 @@ impl Storage for S3Storage {
     }
 
     async fn list(&self, dir: &Path) -> Result<Vec<DirEntry>> {
-        let prefix = self.path_to_key(dir);
+        let prefix = Self::path_to_key(dir);
         let marker_key = if prefix.is_empty() {
             String::new()
         } else if prefix.ends_with('/') {
             prefix.clone()
         } else {
-            format!("{}/", prefix)
+            format!("{prefix}/")
         };
 
         let list_response = self
@@ -347,16 +343,15 @@ impl Storage for S3Storage {
                     None => return None,
                 };
                 let entry_path = PathBuf::from(dir).join(relative);
-                let size = obj.size().unwrap_or(0) as u64;
+                let size = obj.size().unwrap_or(0).cast_unsigned();
 
                 Some(DirEntry::new(name, false, size).with_path(entry_path))
             })
             .collect();
 
         for prefix_item in list_response.common_prefixes() {
-            let full_prefix = match prefix_item.prefix() {
-                Some(p) => p,
-                None => continue,
+            let Some(full_prefix) = prefix_item.prefix() else {
+                continue;
             };
             let stripped = full_prefix
                 .strip_prefix(&marker_key)
@@ -373,11 +368,11 @@ impl Storage for S3Storage {
     }
 
     async fn create_dir(&self, path: &Path) -> Result<()> {
-        let key = self.path_to_key(path);
+        let key = Self::path_to_key(path);
         let dir_key = if key.ends_with('/') {
             key
         } else {
-            format!("{}/", key)
+            format!("{key}/")
         };
 
         self.client
@@ -394,11 +389,11 @@ impl Storage for S3Storage {
     }
 
     async fn create_dir_all(&self, path: &Path) -> Result<()> {
-        let key = self.path_to_key(path);
+        let key = Self::path_to_key(path);
         let dir_key = if key.ends_with('/') {
             key.clone()
         } else {
-            format!("{}/", key)
+            format!("{key}/")
         };
 
         let mut parts: Vec<String> = Vec::new();
@@ -411,7 +406,7 @@ impl Storage for S3Storage {
         for i in 0..=parts.len() {
             let partial = parts[..i].join("/");
             if !partial.is_empty() {
-                let dir_key = format!("{}/", partial);
+                let dir_key = format!("{partial}/");
                 let _ = self
                     .client
                     .put_object()
@@ -428,11 +423,11 @@ impl Storage for S3Storage {
     }
 
     async fn remove_dir(&self, path: &Path) -> Result<()> {
-        let key = self.path_to_key(path);
+        let key = Self::path_to_key(path);
         let prefix = if key.ends_with('/') {
             key.clone()
         } else {
-            format!("{}/", key)
+            format!("{key}/")
         };
 
         let result = self
@@ -460,11 +455,11 @@ impl Storage for S3Storage {
     }
 
     async fn remove_dir_all(&self, path: &Path) -> Result<()> {
-        let key = self.path_to_key(path);
+        let key = Self::path_to_key(path);
         let prefix = if key.ends_with('/') {
             key.clone()
         } else {
-            format!("{}/", key)
+            format!("{key}/")
         };
 
         let result = self
@@ -497,8 +492,8 @@ impl Storage for S3Storage {
     }
 
     async fn copy(&self, from: &Path, to: &Path) -> Result<()> {
-        let from_key = self.path_to_key(from);
-        let to_key = self.path_to_key(to);
+        let from_key = Self::path_to_key(from);
+        let to_key = Self::path_to_key(to);
 
         let response = self
             .client
@@ -511,8 +506,7 @@ impl Storage for S3Storage {
 
         let content_type = response
             .content_type()
-            .map(String::from)
-            .unwrap_or_else(|| "application/octet-stream".to_string());
+            .map_or_else(|| "application/octet-stream".to_string(), String::from);
 
         self.client
             .copy_object()
@@ -528,12 +522,12 @@ impl Storage for S3Storage {
     }
 
     async fn canonicalize(&self, path: &Path) -> Result<PathBuf> {
-        let key = self.path_to_key(path);
+        let key = Self::path_to_key(path);
         Ok(PathBuf::from(format!("s3://{}/{}", self.bucket, key)))
     }
 
     async fn size(&self, path: &Path) -> Result<u64> {
-        let key = self.path_to_key(path);
+        let key = Self::path_to_key(path);
         let response = self
             .client
             .head_object()
@@ -543,7 +537,7 @@ impl Storage for S3Storage {
             .await
             .map_err(|e| Self::map_error(e, &key))?;
 
-        Ok(response.content_length().unwrap_or(0) as u64)
+        Ok(response.content_length().unwrap_or(0).cast_unsigned())
     }
 }
 
@@ -552,38 +546,23 @@ impl Storage for S3Storage {
 mod tests {
     use super::*;
 
-    /// Creates an S3 storage instance using the AWS default credentials.
-    fn make_storage() -> S3Storage {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_time()
-            .enable_io()
-            .build()
-            .unwrap();
-        let config = rt.block_on(aws_config::load_from_env());
-        S3Storage {
-            client: S3Client::new(&config),
-            bucket: "test".to_string(),
-        }
-    }
-
     #[test]
     /// Tests path-to-key conversion for various input paths.
     fn test_path_to_key() {
-        let storage = make_storage();
         assert_eq!(
-            storage.path_to_key(Path::new("/foo/bar.txt")),
+            S3Storage::path_to_key(Path::new("/foo/bar.txt")),
             "foo/bar.txt"
         );
         assert_eq!(
-            storage.path_to_key(Path::new("relative/path.txt")),
+            S3Storage::path_to_key(Path::new("relative/path.txt")),
             "relative/path.txt"
         );
-        assert_eq!(storage.path_to_key(Path::new("/")), "");
-        assert_eq!(storage.path_to_key(Path::new("/a/b/c")), "a/b/c");
+        assert_eq!(S3Storage::path_to_key(Path::new("/")), "");
+        assert_eq!(S3Storage::path_to_key(Path::new("/a/b/c")), "a/b/c");
     }
 
     #[test]
-    /// Tests that 404-style errors map to StorageError::NotFound.
+    /// Tests that 404-style errors map to `StorageError::NotFound`.
     fn test_map_error_not_found() {
         assert!(matches!(
             S3Storage::map_error("NoSuchKey notfound 404", "test.txt"),
@@ -600,7 +579,7 @@ mod tests {
     }
 
     #[test]
-    /// Tests that 403/access-denied errors map to StorageError::Authentication.
+    /// Tests that 403/access-denied errors map to `StorageError::Authentication`.
     fn test_map_error_forbidden() {
         assert!(matches!(
             S3Storage::map_error("accessdenied", "test.txt"),
@@ -617,7 +596,7 @@ mod tests {
     }
 
     #[test]
-    /// Tests that 503 errors map to StorageError::ServiceUnavailable.
+    /// Tests that 503 errors map to `StorageError::ServiceUnavailable`.
     fn test_map_error_service_unavailable() {
         assert!(matches!(
             S3Storage::map_error("503 service unavailable", "test.txt"),
@@ -632,19 +611,18 @@ mod tests {
     #[test]
     /// Tests that directory keys are constructed with a trailing slash.
     fn test_create_dir_key_format() {
-        let storage = make_storage();
-        let key = storage.path_to_key(Path::new("mydir"));
+        let key = S3Storage::path_to_key(Path::new("mydir"));
         let dir_key = if key.ends_with('/') {
             key
         } else {
-            format!("{}/", key)
+            format!("{key}/")
         };
         assert_eq!(dir_key, "mydir/");
-        let key2 = storage.path_to_key(Path::new("/a/b/c"));
+        let key2 = S3Storage::path_to_key(Path::new("/a/b/c"));
         let dir_key2 = if key2.ends_with('/') {
             key2
         } else {
-            format!("{}/", key2)
+            format!("{key2}/")
         };
         assert_eq!(dir_key2, "a/b/c/");
     }

@@ -13,6 +13,10 @@ use crate::handlers::common::path::validate_path_within;
 use crate::storage::Storage;
 
 /// Handle media move (POST /:id/move).
+///
+/// # Errors
+///
+/// Returns an `AppError::MethodNotAllowed` if move is not configured.
 pub async fn handle_media_move(
     id: &str,
     config: &MediaConfig,
@@ -66,10 +70,10 @@ pub async fn handle_media_move(
         .await
         .map_err(|e| AppError::FileOperation(format!("Failed to move file: {e}")))?;
 
-    let new_relative = new_path
-        .strip_prefix(root)
-        .map(|p| format!("/{}", p.to_string_lossy()))
-        .unwrap_or_else(|_| format!("/{}", new_path.to_string_lossy()));
+    let new_relative = new_path.strip_prefix(root).map_or_else(
+        |_| format!("/{}", new_path.to_string_lossy()),
+        |p| format!("/{}", p.to_string_lossy()),
+    );
 
     let built = build_set_file_path(
         &config.table,
@@ -98,6 +102,10 @@ pub async fn handle_media_move(
 }
 
 /// Handle media rename (PATCH /:id/rename).
+///
+/// # Errors
+///
+/// Returns an `AppError::MethodNotAllowed` if rename is not configured.
 pub async fn handle_media_rename(
     id: &str,
     config: &MediaConfig,
@@ -142,10 +150,10 @@ pub async fn handle_media_rename(
         .await
         .map_err(|e| AppError::FileOperation(format!("Failed to rename file: {e}")))?;
 
-    let new_relative = new_path
-        .strip_prefix(root)
-        .map(|p| format!("/{}", p.to_string_lossy()))
-        .unwrap_or_else(|_| format!("/{}", new_path.to_string_lossy()));
+    let new_relative = new_path.strip_prefix(root).map_or_else(
+        |_| format!("/{}", new_path.to_string_lossy()),
+        |p| format!("/{}", p.to_string_lossy()),
+    );
 
     let built = build_set_file_path(
         &config.table,

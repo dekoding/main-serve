@@ -175,10 +175,10 @@ pub async fn authenticate<'a, S: RevocationStoreBackend>(
 ///
 /// Returns `AppError::Forbidden` if the user's role is not in the required list
 /// and does not inherit any of the required roles.
-pub fn check_roles(
+pub fn check_roles<S: std::hash::BuildHasher>(
     auth_info: &AuthInfo,
     required_roles: &[String],
-    role_inheritance: &HashMap<String, HashSet<String>>,
+    role_inheritance: &HashMap<String, HashSet<String, S>, S>,
 ) -> Result<(), AppError> {
     if required_roles.is_empty() {
         return Ok(());

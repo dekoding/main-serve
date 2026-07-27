@@ -9,6 +9,7 @@ use crate::db::query::types::BuiltQuery;
 use crate::error::AppError;
 
 /// Build `DELETE FROM {table} WHERE expires_at < {now}` for cleaning up expired revocations.
+#[must_use]
 pub fn build_revoke_cleanup(table_name: &str, driver: DatabaseDriver) -> BuiltQuery {
     let now = now_expr(driver);
     BuiltQuery {
@@ -24,6 +25,7 @@ pub fn build_revoke_cleanup(table_name: &str, driver: DatabaseDriver) -> BuiltQu
 /// Build `SELECT 1 FROM {table} WHERE jti = {param} LIMIT 1`.
 ///
 /// Used to check if a token has been revoked.
+#[must_use]
 pub fn build_revoke_check(
     table_name: &str,
     driver: DatabaseDriver,
@@ -42,9 +44,9 @@ pub fn build_revoke_check(
 /// Build a driver-specific upsert for token revocation.
 ///
 /// Generates the appropriate INSERT ... ON CONFLICT/REPLACE statement:
-/// - SQLite: `INSERT OR REPLACE INTO ...`
-/// - PostgreSQL: `INSERT INTO ... ON CONFLICT (jti) DO UPDATE SET expires_at = EXCLUDED.expires_at`
-/// - MySQL: `INSERT INTO ... ON DUPLICATE KEY UPDATE expires_at = VALUES(expires_at)`
+/// - `SQLite`: `INSERT OR REPLACE INTO ...`
+/// - `PostgreSQL`: `INSERT INTO ... ON CONFLICT (jti) DO UPDATE SET expires_at = EXCLUDED.expires_at`
+/// - `MySQL`: `INSERT INTO ... ON DUPLICATE KEY UPDATE expires_at = VALUES(expires_at)`
 ///
 /// # Errors
 ///
@@ -66,26 +68,23 @@ pub fn build_revoke_insert(
     let (sql, _param_count) = match driver {
         DatabaseDriver::Sqlite => (
             format!(
-                "INSERT OR REPLACE INTO {} (jti, revoked_at, expires_at) VALUES (?, ?, ?)",
-                table
+                "INSERT OR REPLACE INTO {table} (jti, revoked_at, expires_at) VALUES (?, ?, ?)"
             ),
             3,
         ),
         DatabaseDriver::Postgres => (
             format!(
-                "INSERT INTO {} (jti, revoked_at, expires_at) \
+                "INSERT INTO {table} (jti, revoked_at, expires_at) \
                  VALUES ($1, $2, $3) \
-                 ON CONFLICT (jti) DO UPDATE SET expires_at = EXCLUDED.expires_at",
-                table
+                 ON CONFLICT (jti) DO UPDATE SET expires_at = EXCLUDED.expires_at"
             ),
             3,
         ),
         DatabaseDriver::Mysql => (
             format!(
-                "INSERT INTO {} (jti, revoked_at, expires_at) \
+                "INSERT INTO {table} (jti, revoked_at, expires_at) \
                  VALUES (?, ?, ?) \
-                 ON DUPLICATE KEY UPDATE expires_at = VALUES(expires_at)",
-                table
+                 ON DUPLICATE KEY UPDATE expires_at = VALUES(expires_at)"
             ),
             3,
         ),

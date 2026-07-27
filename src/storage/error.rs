@@ -4,7 +4,7 @@ use thiserror::Error;
 
 /// Error type for storage operations.
 #[derive(Debug, Error)]
-/// StorageError
+/// `StorageError`
 pub enum StorageError {
     /// File or directory not found.
     #[error("Not found: {0:?}")]
@@ -52,31 +52,27 @@ impl From<StorageError> for crate::error::AppError {
     fn from(err: StorageError) -> Self {
         match err {
             StorageError::NotFound(path) => {
-                crate::error::AppError::NotFound(format!("File not found: {}", path.display()))
+                Self::NotFound(format!("File not found: {}", path.display()))
             }
-            StorageError::AlreadyExists(path) => crate::error::AppError::FileOperation(format!(
-                "File already exists: {}",
-                path.display()
-            )),
-            StorageError::DirectoryNotEmpty(path) => crate::error::AppError::FileOperation(
-                format!("Directory not empty: {}", path.display()),
-            ),
-            StorageError::Forbidden(msg) => crate::error::AppError::Forbidden(msg.clone()),
+            StorageError::AlreadyExists(path) => {
+                Self::FileOperation(format!("File already exists: {}", path.display()))
+            }
+            StorageError::DirectoryNotEmpty(path) => {
+                Self::FileOperation(format!("Directory not empty: {}", path.display()))
+            }
+            StorageError::Forbidden(msg) => Self::Forbidden(msg),
             StorageError::InvalidFilename(msg) => {
-                crate::error::AppError::BadRequest(format!("Invalid filename: {msg}"))
+                Self::BadRequest(format!("Invalid filename: {msg}"))
             }
-            StorageError::Io(path, err) => crate::error::AppError::FileOperation(format!(
-                "File operation failed: {}: {err}",
-                path.display()
-            )),
+            StorageError::Io(path, err) => {
+                Self::FileOperation(format!("File operation failed: {}: {err}", path.display()))
+            }
             StorageError::InvalidBackend(msg) => {
-                crate::error::AppError::Config(format!("Invalid storage backend: {msg}"))
+                Self::Config(format!("Invalid storage backend: {msg}"))
             }
-            StorageError::Internal(msg) => crate::error::AppError::Internal(msg.clone()),
-            StorageError::ServiceUnavailable(msg) => {
-                crate::error::AppError::ServiceUnavailable(msg.clone())
-            }
-            StorageError::Authentication(msg) => crate::error::AppError::Auth(msg.clone()),
+            StorageError::Internal(msg) => Self::Internal(msg),
+            StorageError::ServiceUnavailable(msg) => Self::ServiceUnavailable(msg),
+            StorageError::Authentication(msg) => Self::Auth(msg),
         }
     }
 }

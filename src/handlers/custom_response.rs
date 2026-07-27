@@ -13,7 +13,7 @@ use crate::handlers::common::utils::apply_content_type;
 ///
 /// # Errors
 ///
-/// Returns `AppError::Internal` if the custom_response config is missing.
+/// Returns `AppError::Internal` if the `custom_response` config is missing.
 pub async fn handle_custom_response(endpoint: EndpointConfig) -> Result<Response, AppError> {
     let Some(cr) = &endpoint.custom_response else {
         return Ok((

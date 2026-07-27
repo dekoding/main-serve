@@ -1,4 +1,4 @@
-/// api_key
+/// `api_key`
 pub mod api_key;
 /// basic
 pub mod basic;

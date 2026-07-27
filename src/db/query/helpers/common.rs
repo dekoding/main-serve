@@ -2,7 +2,7 @@ use crate::config::types::{ColumnConfig, DatabaseDriver};
 
 /// Check if a column in the table config is a JSON or JSONB type.
 #[must_use]
-pub(crate) fn is_jsonb_column(column_name: &str, columns: &[ColumnConfig]) -> bool {
+pub fn is_jsonb_column(column_name: &str, columns: &[ColumnConfig]) -> bool {
     columns.iter().any(|c| {
         c.name == column_name
             && matches!(
@@ -14,24 +14,24 @@ pub(crate) fn is_jsonb_column(column_name: &str, columns: &[ColumnConfig]) -> bo
 
 /// Check if a filter column exists in the table schema.
 #[must_use]
-pub(crate) fn column_exists(column_name: &str, columns: &[ColumnConfig]) -> bool {
+pub fn column_exists(column_name: &str, columns: &[ColumnConfig]) -> bool {
     columns.iter().any(|c| c.name == column_name)
 }
 
 /// Generate a driver-appropriate parameter placeholder.
 #[must_use]
-pub(crate) fn placeholder(driver: DatabaseDriver, index: usize) -> String {
+pub fn placeholder(driver: DatabaseDriver, index: usize) -> String {
     match driver {
         DatabaseDriver::Postgres => format!("${index}"),
         DatabaseDriver::Sqlite | DatabaseDriver::Mysql => "?".to_string(),
     }
 }
 
-/// Generate a driver-appropriate NOW() equivalent expression.
+/// Generate a driver-appropriate `NOW()` equivalent expression.
 ///
-/// SQLite uses `CURRENT_TIMESTAMP`, PostgreSQL and MySQL use `NOW()`.
+/// `SQLite` uses `CURRENT_TIMESTAMP`, `PostgreSQL` and `MySQL` use `NOW()`.
 #[must_use]
-pub(crate) fn now_expr(driver: DatabaseDriver) -> &'static str {
+pub const fn now_expr(driver: DatabaseDriver) -> &'static str {
     match driver {
         DatabaseDriver::Sqlite => "CURRENT_TIMESTAMP",
         _ => "NOW()",
@@ -41,13 +41,13 @@ pub(crate) fn now_expr(driver: DatabaseDriver) -> &'static str {
 /// Parse a sorting field that may use LHS bracket notation.
 ///
 /// Handles two syntaxes:
-/// - Dot notation: `metadata.role` -> base="metadata", path=["role"]
-/// - LHS brackets: `metadata[role]` -> base="metadata", path=["role"]
-/// - Nested: `metadata.user[profile].email` -> base="metadata", path=["user","profile","email"]
+/// - Dot notation: `metadata.role` -> base="metadata", path=`["role"]`
+/// - LHS brackets: `metadata[role]` -> base="metadata", path=`["role"]`
+/// - Nested: `metadata.user[profile].email` -> base="metadata", path=`["user","profile","email"]`
 ///
 /// Returns (`base_column`, `path_segments`) where `path_segments` are the nested field names.
 #[must_use]
-pub(crate) fn parse_sort_field(field: &str) -> (String, Vec<String>) {
+pub fn parse_sort_field(field: &str) -> (String, Vec<String>) {
     let mut parts = Vec::new();
     let mut current = String::new();
     let mut i = 0;
@@ -107,13 +107,13 @@ pub(crate) fn parse_sort_field(field: &str) -> (String, Vec<String>) {
 
 /// Check if a sort field uses bracket notation (e.g., `field[key]`).
 #[must_use]
-pub(crate) fn is_bracket_notation(field: &str) -> bool {
+pub fn is_bracket_notation(field: &str) -> bool {
     field.contains('[')
 }
 
 /// Check if a field path is a nested path (contains dots).
 #[must_use]
-pub(crate) fn is_dotted_path(field: &str) -> bool {
+pub fn is_dotted_path(field: &str) -> bool {
     field.contains('.')
 }
 

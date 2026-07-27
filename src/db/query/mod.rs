@@ -1,6 +1,6 @@
 /// builders
 pub mod builders;
-/// COUNT query builder for list pagination.
+/// count
 pub mod count;
 /// helpers
 pub mod helpers;
@@ -8,7 +8,7 @@ pub mod helpers;
 pub mod revocation;
 /// select
 pub mod select;
-/// select_one
+/// `select_one`
 pub mod select_one;
 /// traits
 pub mod traits;

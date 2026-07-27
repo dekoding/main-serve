@@ -35,6 +35,13 @@ use crate::middleware::cors::build_cors_layer;
 use crate::middleware::logging::{body_logging_middleware, build_trace_layer};
 use crate::middleware::rate_limit::rate_limit_middleware;
 
+/// Build the axum `Router` from the application config.
+///
+/// Registers health, reload, `` `OAuth2` ``, token revocation, registration, and login routes,
+/// then iterates over configured endpoints to register action-specific handlers with
+/// per-endpoint CORS layers and middleware (body limit, logging, auth, rate limiting,
+/// compression, request ID propagation).
+#[allow(clippy::too_many_lines)] // router assembly requires many sequential route registrations
 pub async fn build_router(config: &AppConfig, state: AppState) -> Router {
     let mut endpoint_configs = std::collections::HashMap::new();
     for endpoint in &config.endpoints {
@@ -86,7 +93,7 @@ pub async fn build_router(config: &AppConfig, state: AppState) -> Router {
             )
             .route(
                 "/_main-serve/oauth2/callback",
-                axum::routing::get(handle_oauth2_callback),
+                axum::routing::get(handle_oauth2_callback::<std::hash::RandomState>),
             );
     }
 
@@ -289,6 +296,7 @@ fn check_use_cors(
 }
 
 /// Registers a route handler for an endpoint based on its action type and HTTP method.
+#[allow(clippy::too_many_lines)] // handler registration covers all endpoint action types
 fn add_endpoint_route(
     mut app: Router<AppState>,
     path: &str,

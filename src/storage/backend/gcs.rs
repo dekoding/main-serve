@@ -1,7 +1,7 @@
 /// Google Cloud Storage backend implementation.
 ///
 /// Provides a full implementation of the `Storage` trait using the GCS REST API
-/// with OAuth2 service account authentication (RS256 JWT bearer token flow).
+/// with `OAuth2` service account authentication (RS256 JWT bearer token flow).
 use std::path::{Path, PathBuf};
 
 use futures_util::StreamExt;
@@ -15,18 +15,18 @@ use crate::storage::{DirEntry, FileMetadata, Result, Storage, StorageError};
 /// GCS JSON API base URL.
 const GCS_API_URL: &str = "https://storage.googleapis.com/storage/v1";
 
-/// Google OAuth2 token endpoint.
+/// Google `OAuth2` token endpoint.
 const OAUTH2_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 
 /// Safety margin subtracted from token expiry to avoid using near-expired tokens.
 const TOKEN_SAFETY_MARGIN_SECS: u64 = 60;
 
-/// Timeout for HTTP client requests to GCS and OAuth2 endpoints.
+/// Timeout for HTTP client requests to GCS and `OAuth2` endpoints.
 const HTTP_TIMEOUT_SECS: u64 = 30;
 
 /// Service account credentials parsed from JSON.
 #[derive(Clone, Deserialize)]
-/// Parsed GCS service account credentials for OAuth2 JWT bearer authentication.
+/// Parsed GCS service account credentials for `OAuth2` JWT bearer authentication.
 struct ServiceAccountCredentials {
     /// The client email address.
     client_email: String,
@@ -35,7 +35,7 @@ struct ServiceAccountCredentials {
 }
 
 impl std::fmt::Debug for ServiceAccountCredentials {
-    /// Formats the struct with the private_key field redacted.
+    /// Formats the struct with the `private_key` field redacted.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ServiceAccountCredentials")
             .field("client_email", &self.client_email)
@@ -44,9 +44,9 @@ impl std::fmt::Debug for ServiceAccountCredentials {
     }
 }
 
-/// Cached OAuth2 access token.
+/// Cached `OAuth2` access token.
 #[derive(Clone)]
-/// An OAuth2 access token with an associated expiry timestamp.
+/// An `OAuth2` access token with an associated expiry timestamp.
 struct AuthToken {
     /// The access token string.
     token: String,
@@ -82,7 +82,7 @@ struct AuthTokenCache {
     token: tokio::sync::Mutex<Option<AuthToken>>,
     /// Credentials used to obtain tokens.
     credentials: ServiceAccountCredentials,
-    /// reqwest client for OAuth2 token requests.
+    /// reqwest client for `OAuth2` token requests.
     client: reqwest::Client,
 }
 
@@ -116,7 +116,7 @@ impl AuthTokenCache {
             }
         }
 
-        let mut guard = self.token.lock().await;
+        let guard = self.token.lock().await;
 
         // Double-check: another caller may have refreshed while we waited for the lock.
         if let Some(ref token) = *guard
@@ -125,13 +125,23 @@ impl AuthTokenCache {
             return Ok(token.token.clone());
         }
 
-        let new_token = self.fetch_token().await?;
-        *guard = Some(new_token.clone());
+        let new_token = {
+            drop(guard);
+            self.fetch_token().await?
+        };
+        *self.token.lock().await = Some(new_token.clone());
         Ok(new_token.token)
     }
 
     async fn fetch_token(&self) -> std::result::Result<AuthToken, StorageError> {
-        let jwt = self.create_jwt().await?;
+        #[derive(Deserialize)]
+        /// JSON response from the GCS `OAuth2` token exchange endpoint.
+        struct TokenResponse {
+            access_token: String,
+            expires_in: u64,
+        }
+
+        let jwt = self.create_jwt()?;
 
         let resp = self
             .client
@@ -155,13 +165,6 @@ impl AuthTokenCache {
             )));
         }
 
-        #[derive(Deserialize)]
-        /// JSON response from the GCS OAuth2 token exchange endpoint.
-        struct TokenResponse {
-            access_token: String,
-            expires_in: u64,
-        }
-
         let token_resp: TokenResponse = serde_json::from_str(&body).map_err(|e| {
             StorageError::Authentication(format!("Failed to parse token response: {e}"))
         })?;
@@ -177,13 +180,14 @@ impl AuthTokenCache {
         })
     }
 
-    async fn create_jwt(&self) -> std::result::Result<String, StorageError> {
+    fn create_jwt(&self) -> std::result::Result<String, StorageError> {
+        use jsonwebtoken::Header;
+
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
-            .as_secs() as i64;
-
-        use jsonwebtoken::Header;
+            .as_secs()
+            .cast_signed();
 
         let claims = GcsJwtClaims {
             iss: self.credentials.client_email.clone(),
@@ -206,9 +210,9 @@ impl AuthTokenCache {
     }
 }
 
-/// JWT claims for GCS OAuth2 service account authentication.
+/// JWT claims for GCS `OAuth2` service account authentication.
 #[derive(Debug, serde::Serialize)]
-/// GCS OAuth2 JWT claims for service account authentication.
+/// GCS `OAuth2` JWT claims for service account authentication.
 struct GcsJwtClaims {
     iss: String,
     sub: String,
@@ -224,7 +228,7 @@ pub struct GcsStorage {
     bucket: String,
     /// reqwest client configured for GCS API calls.
     client: reqwest::Client,
-    /// OAuth2 token cache.
+    /// `OAuth2` token cache.
     auth: AuthTokenCache,
 }
 
@@ -250,9 +254,9 @@ impl GcsObjectMetadata {
         self.size.parse().unwrap_or(0)
     }
 
-    /// Parse an RFC 3339 timestamp to SystemTime.
-    fn parse_timestamp(&self, ts: &Option<String>) -> Option<std::time::SystemTime> {
-        ts.as_ref().and_then(|t| {
+    /// Parse an RFC 3339 timestamp to `SystemTime`.
+    fn parse_timestamp(ts: Option<&String>) -> Option<std::time::SystemTime> {
+        ts.and_then(|t| {
             chrono::DateTime::parse_from_rfc3339(t)
                 .ok()
                 .map(|dt| dt.with_timezone(&chrono::Utc).into())
@@ -276,6 +280,14 @@ impl GcsStorage {
     /// Create a new GCS storage backend from a store configuration.
     ///
     /// Authenticates immediately with GCS to verify credentials are valid.
+    ///
+    /// # Errors
+    ///
+    /// Returns `StorageError::InvalidBackend` if the `gcs` config section is missing.
+    /// Returns `StorageError::InvalidBackend` if credentials are empty.
+    /// Returns `StorageError::Authentication` if credentials JSON is invalid or the
+    /// credentials file cannot be read. Returns `StorageError::Internal` if the
+    /// HTTP client fails to build.
     pub fn new(config: &StoreConfig) -> Result<Self> {
         let gcs = config
             .gcs
@@ -345,7 +357,7 @@ impl GcsStorage {
         self.client.request(method, url)
     }
 
-    /// Map a GCS HTTP response status to a StorageError, if applicable.
+    /// Map a GCS HTTP response status to a `StorageError`, if applicable.
     fn map_http_error(status: reqwest::StatusCode, object_name: &str, body: &str) -> StorageError {
         match status {
             reqwest::StatusCode::NOT_FOUND => StorageError::NotFound(PathBuf::from(object_name)),
@@ -450,16 +462,15 @@ impl Storage for GcsStorage {
         let object_name = Self::path_to_object_name(path);
 
         // Build the directory marker object name.
-        let marker = if !object_name.ends_with('/') {
-            format!("{object_name}/")
-        } else {
+        let marker = if object_name.ends_with('/') {
             object_name.clone()
+        } else {
+            format!("{object_name}/")
         };
 
         // Check if the marker object exists.
-        let token = match self.auth.get_token().await {
-            Ok(t) => t,
-            Err(_) => return false,
+        let Ok(token) = self.auth.get_token().await else {
+            return false;
         };
 
         if self
@@ -476,10 +487,9 @@ impl Storage for GcsStorage {
         }
 
         // Fall back to listing - if there are sub-entries, it's a directory.
-        match self.list(path).await {
-            Ok(entries) => !entries.is_empty(),
-            Err(_) => false,
-        }
+        self.list(path)
+            .await
+            .is_ok_and(|entries| !entries.is_empty())
     }
 
     /// Read the entire contents of a file into bytes.
@@ -644,8 +654,8 @@ impl Storage for GcsStorage {
 
         let is_file = !metadata.name.ends_with('/');
         let size = metadata.parse_size();
-        let created = metadata.parse_timestamp(&metadata.time_created);
-        let modified = metadata.parse_timestamp(&metadata.updated);
+        let created = GcsObjectMetadata::parse_timestamp(metadata.time_created.as_ref());
+        let modified = GcsObjectMetadata::parse_timestamp(metadata.updated.as_ref());
 
         Ok(FileMetadata {
             name: metadata.name,
@@ -715,11 +725,7 @@ impl Storage for GcsStorage {
                 let dir_name = prefix.trim_end_matches('/');
 
                 // Split the prefix to get the immediate child directory name.
-                let name = if let Some(last) = dir_name.rsplit('/').next() {
-                    last.to_string()
-                } else {
-                    dir_name.to_string()
-                };
+                let name = dir_name.rsplit('/').next().unwrap_or(dir_name).to_string();
 
                 // Skip directory markers (our .dir/ convention).
                 if name.ends_with("/.dir") || name == ".dir" {
@@ -750,7 +756,7 @@ impl Storage for GcsStorage {
                 entries.push(
                     DirEntry::new(item_name, false, item.parse_size())
                         .with_path(full_path)
-                        .with_modified(item.parse_timestamp(&item.updated)),
+                        .with_modified(GcsObjectMetadata::parse_timestamp(item.updated.as_ref())),
                 );
             }
         }
@@ -925,7 +931,7 @@ mod tests {
     }
 
     #[test]
-    /// Tests that 404 status maps to StorageError::NotFound.
+    /// Tests that 404 status maps to `StorageError::NotFound`.
     fn test_map_http_error_not_found() {
         let err =
             GcsStorage::map_http_error(reqwest::StatusCode::NOT_FOUND, "test.txt", "Not Found");
@@ -933,7 +939,7 @@ mod tests {
     }
 
     #[test]
-    /// Tests that 403 status maps to StorageError::Authentication.
+    /// Tests that 403 status maps to `StorageError::Authentication`.
     fn test_map_http_error_forbidden() {
         let err =
             GcsStorage::map_http_error(reqwest::StatusCode::FORBIDDEN, "test.txt", "Access Denied");

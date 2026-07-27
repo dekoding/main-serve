@@ -5,21 +5,24 @@ use crate::config::types::{ComputedFieldConfig, CrudConfig, listing::SortOrder};
 /// SQL join type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
-/// JoinType
+/// `JoinType`
 pub enum JoinType {
+    /// INNER JOIN.
     Inner,
+    /// LEFT JOIN.
     Left,
+    /// RIGHT JOIN.
     Right,
 }
 
-/// Returns JoinType::Inner as the default SQL join type.
-fn default_join_type() -> JoinType {
+/// Returns `JoinType::Inner` as the default SQL join type.
+const fn default_join_type() -> JoinType {
     JoinType::Inner
 }
 
 /// Parameters extracted from an HTTP request for a CRUD operation.
 #[derive(Debug, Default)]
-/// QueryParams
+/// `QueryParams`
 pub struct QueryParams {
     /// Page number (1-indexed).
     pub page: Option<u64>,
@@ -35,38 +38,57 @@ pub struct QueryParams {
 
 /// A built query ready for execution.
 #[derive(Debug)]
-/// BuiltQuery
+/// `BuiltQuery`
 pub struct BuiltQuery {
+    /// The SQL query string.
     pub sql: String,
+    /// Query parameters for parameterized execution.
     pub params: Vec<serde_json::Value>,
 }
 
 /// Context needed by insert/update/delete builders.
 #[derive(Debug, Default)]
-/// MutationContext
+/// `MutationContext`
 pub struct MutationContext {
+    /// Fields the client is allowed to write.
     pub writable_fields: Vec<String>,
+    /// Column name to set on insert for ownership tracking.
     pub insert_owner: Option<String>,
+    /// WHERE clause for UPDATE queries.
     pub update_where_clause: Option<String>,
+    /// WHERE clause for DELETE queries.
     pub delete_where_clause: Option<String>,
 }
 
 /// Context needed by select builders.
 #[derive(Debug, Default)]
-/// SelectContext
+/// `SelectContext`
 pub struct SelectContext {
+    /// Fields to select (empty = all fields).
     pub fields: Vec<String>,
+    /// JOIN clauses to include in the query.
     pub joins: Vec<JoinConfig>,
+    /// Computed fields to include in the result.
     pub computed_fields: Vec<ComputedFieldConfig>,
+    /// WHERE clause for the query.
     pub where_clause: Option<String>,
+    /// Whether filtering by query parameters is enabled.
     pub filtering_enabled: bool,
+    /// Fields the client may filter on (empty = none).
     pub filtering_allowed_fields: Vec<String>,
+    /// Whether sorting by query parameters is enabled.
     pub sorting_enabled: bool,
+    /// Default sort field (empty = primary key).
     pub sorting_default_field: String,
+    /// Default sort direction.
     pub sorting_default_order: SortOrder,
+    /// Fields the client may sort by (empty = none).
     pub sorting_allowed_fields: Vec<String>,
+    /// Whether pagination is enabled.
     pub pagination_enabled: bool,
+    /// Default number of records per page.
     pub pagination_default_page_size: u64,
+    /// Maximum number of records per page.
     pub pagination_max_page_size: u64,
 }
 
@@ -97,7 +119,7 @@ impl SelectContext {
 impl From<&CrudConfig> for MutationContext {
     /// Constructs a mutation context from the CRUD configuration's writable fields and where clauses.
     fn from(crud: &CrudConfig) -> Self {
-        MutationContext {
+        Self {
             writable_fields: crud.writable_fields.clone(),
             insert_owner: crud.insert_owner.clone(),
             update_where_clause: crud.update_where_clause.clone(),
@@ -109,7 +131,7 @@ impl From<&CrudConfig> for MutationContext {
 impl From<&CrudConfig> for SelectContext {
     /// Constructs a select context from the CRUD configuration's field and filter settings.
     fn from(crud: &CrudConfig) -> Self {
-        SelectContext {
+        Self {
             fields: crud.fields.clone(),
             joins: crud.joins.clone(),
             computed_fields: crud.computed_fields.clone(),
@@ -128,9 +150,9 @@ impl From<&CrudConfig> for SelectContext {
 }
 
 /// Join configuration.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
-/// JoinConfig
+/// `JoinConfig`
 pub struct JoinConfig {
     /// Table to join.
     pub table: String,

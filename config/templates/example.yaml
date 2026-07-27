@@ -3,7 +3,7 @@
 # Main Serve - Example Configuration
 #
 # This is an example configuration demonstrating all available features.
-# For full documentation of every field and its behavior, see docs/spec.md.
+# For full documentation of every field and its behavior, see docs/SPEC.md.
 #
 # ENVIRONMENT VARIABLE INTERPOLATION:
 #   Any string value supports ${ENV_VAR} and ${ENV_VAR:-default} syntax.

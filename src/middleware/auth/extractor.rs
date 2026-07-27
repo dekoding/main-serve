@@ -9,7 +9,7 @@ use std::convert::Infallible;
 ///
 /// Extracted by the auth middleware from request credentials.
 #[derive(Debug, Clone, Default)]
-/// AuthInfo
+/// `AuthInfo`
 pub struct AuthInfo {
     /// The authenticated user's identifier (sub claim, username, key id, etc.).
     pub subject: String,
@@ -26,7 +26,7 @@ impl AuthInfo {
     /// Create an anonymous `AuthInfo` with an empty subject.
     #[must_use]
     /// anonymous
-    pub fn anonymous() -> Self {
+    pub const fn anonymous() -> Self {
         Self {
             subject: String::new(),
             email: None,
@@ -41,7 +41,7 @@ impl AuthInfo {
 /// Returns `AuthInfo` if the user is authenticated, or returns a 401 Unauthorized
 /// response if authentication is missing or invalid.
 #[derive(Debug)]
-/// AuthInfo
+/// `AuthInfo`
 pub struct RequireAuth(pub AuthInfo);
 
 /// Extractor for optional authentication.
@@ -61,13 +61,15 @@ where
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         let auth_info = parts.extensions.get::<AuthInfo>().cloned();
 
-        match auth_info {
-            Some(info) => Ok(RequireAuth(info)),
-            None => Err((
-                StatusCode::UNAUTHORIZED,
-                "Missing authentication".to_string(),
-            )),
-        }
+        auth_info.map_or_else(
+            || {
+                Err((
+                    StatusCode::UNAUTHORIZED,
+                    "Missing authentication".to_string(),
+                ))
+            },
+            |info| Ok(Self(info)),
+        )
     }
 }
 
@@ -79,7 +81,7 @@ where
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         let auth_info = parts.extensions.get::<AuthInfo>().cloned();
-        Ok(OptionalAuth(auth_info))
+        Ok(Self(auth_info))
     }
 }
 
@@ -87,7 +89,7 @@ where
 ///
 /// Populated by the auth middleware and made available to handlers.
 #[derive(Debug, Clone)]
-/// RequestContext
+/// `RequestContext`
 pub struct RequestContext {
     /// The unique identifier of the authenticated user, if any.
     pub user_id: Option<String>,
@@ -117,7 +119,7 @@ impl Default for RequestContext {
 /// This is a lightweight type used primarily in tests and internal helpers
 /// to populate the user-specific fields of a `RequestContext`.
 #[derive(Debug, Clone)]
-/// UserInfo
+/// `UserInfo`
 pub struct UserInfo {
     /// The unique identifier of the user.
     pub id: String,
@@ -128,7 +130,6 @@ pub struct UserInfo {
 impl RequestContext {
     /// Creates a new, empty `RequestContext`.
     #[must_use]
-    /// new
     pub fn new() -> Self {
         Self {
             user_id: None,
@@ -143,7 +144,6 @@ impl RequestContext {
 
     /// Creates a `RequestContext` pre-populated with the given user information.
     #[must_use]
-    /// new_with_user
     pub fn new_with_user(user: UserInfo) -> Self {
         Self {
             user_id: Some(user.id),

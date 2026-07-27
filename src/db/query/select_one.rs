@@ -51,8 +51,9 @@ pub fn build_select_by_field(
 
 /// Build `SELECT file_path FROM {table} WHERE id = {param}`.
 ///
-/// Used by media/delete.rs, media/resize.rs, media/move_rename.rs,
-/// and file_store.rs to retrieve the stored file path.
+/// Used by media/delete.rs, media/resize.rs, `media/move_rename.rs`,
+/// and `file_store.rs` to retrieve the stored file path.
+#[must_use]
 pub fn build_select_file_path(table_name: &str, driver: DatabaseDriver) -> BuiltQuery {
     BuiltQuery {
         sql: format!(
@@ -67,6 +68,7 @@ pub fn build_select_file_path(table_name: &str, driver: DatabaseDriver) -> Built
 /// Build `SELECT id, file_path FROM {table} WHERE id = {param} AND trashed_at IS NOT NULL`.
 ///
 /// Used by media/trash.rs to retrieve a trashed media item by ID.
+#[must_use]
 pub fn build_select_trashed_item(table_name: &str, driver: DatabaseDriver) -> BuiltQuery {
     BuiltQuery {
         sql: format!(
@@ -81,6 +83,7 @@ pub fn build_select_trashed_item(table_name: &str, driver: DatabaseDriver) -> Bu
 /// Build `SELECT * FROM {table} WHERE trashed_at IS NOT NULL`.
 ///
 /// Used by media/trash.rs to list all trashed media items with full metadata.
+#[must_use]
 pub fn build_select_trashed(table_name: &str, driver: DatabaseDriver) -> BuiltQuery {
     BuiltQuery {
         sql: format!(
@@ -94,6 +97,7 @@ pub fn build_select_trashed(table_name: &str, driver: DatabaseDriver) -> BuiltQu
 /// Build `SELECT id FROM {table} WHERE trashed_at IS NOT NULL`.
 ///
 /// Used by media/trash.rs to list all trashed item IDs for empty-trash operations.
+#[must_use]
 pub fn build_select_trashed_ids(table_name: &str, driver: DatabaseDriver) -> BuiltQuery {
     BuiltQuery {
         sql: format!(
@@ -131,12 +135,12 @@ pub fn build_select_user_for_login(
 
 /// Build a driver-specific INSERT for user registration.
 ///
-/// Inserts a new user with email, password_hash, and role. Optionally includes
-/// created_at and updated_at timestamp columns.
+/// Inserts a new user with email, `password_hash`, and role. Optionally includes
+/// `created_at` and `updated_at` timestamp columns.
 ///
-/// - SQLite: `INSERT INTO {table} (email, password_hash, role) VALUES (?, ?, ?)`
-/// - PostgreSQL: `INSERT INTO {table} (email, password_hash, role) VALUES ($1, $2, $3)`
-/// - MySQL: `INSERT INTO {table} (email, password_hash, role) VALUES (?, ?, ?)`
+/// - `SQLite`: `INSERT INTO {table} (email, password_hash, role) VALUES (?, ?, ?)`
+/// - `PostgreSQL`: `INSERT INTO {table} (email, password_hash, role) VALUES ($1, $2, $3)`
+/// - `MySQL`: `INSERT INTO {table} (email, password_hash, role) VALUES (?, ?, ?)`
 ///
 /// # Errors
 ///
@@ -229,9 +233,10 @@ pub fn build_select_by_id(
 /// Build schema introspection query for getting table columns.
 ///
 /// Returns a list of column names via the `name` or `column_name` field.
-/// Different SQL per driver (PRAGMA for SQLite, information_schema for PG/MySQL).
+/// Different SQL per driver (PRAGMA for `SQLite`, `information_schema` for PG/MySQL).
 ///
 /// Returns `BuiltQuery` with no parameters (identifiers are validated at config time).
+#[must_use]
 pub fn build_table_columns(table_name: &str, driver: DatabaseDriver) -> BuiltQuery {
     match driver {
         DatabaseDriver::Sqlite => BuiltQuery {

@@ -7,6 +7,7 @@
 /// - PUT / PATCH           -> update record by PK
 /// - DELETE                -> delete record by PK
 use std::collections::HashMap;
+use std::hash::BuildHasher;
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
@@ -35,11 +36,11 @@ use crate::server::state::AppState;
 /// Returns `AppError::Internal` if the table or database pool is missing.
 /// Returns `AppError::BadRequest` for invalid request bodies or unsupported methods.
 /// Returns `AppError::NotFound` if a targeted record does not exist.
-pub async fn handle_crud(
+pub async fn handle_crud<S: BuildHasher + Send + Sync>(
     State(state): State<AppState>,
     method: axum::http::Method,
-    path_params: Option<Path<HashMap<String, String>>>,
-    Query(query_string): Query<HashMap<String, String>>,
+    path_params: Option<Path<HashMap<String, String, S>>>,
+    Query(query_string): Query<HashMap<String, String, S>>,
     body: Option<Json<serde_json::Value>>,
     endpoint: EndpointConfig,
     context: RequestContext,
@@ -58,19 +59,27 @@ pub async fn handle_crud(
 
     match (method.as_str(), pk_value.as_deref()) {
         ("GET", None) => handle_list(&db_ctx, &select_ctx, crud, &query_string, &context).await,
-        ("GET", Some(_)) => handle_get_one(&db_ctx, &select_ctx, crud, &pk_value, &context).await,
+        ("GET", Some(_)) => {
+            handle_get_one(&db_ctx, &select_ctx, crud, pk_value.as_deref(), &context).await
+        }
         ("POST", _) => {
             let registry = state.schema_registry.read().await;
-            handle_create(&db_ctx, &mutate_ctx, &body, &context, &registry).await
+            handle_create(&db_ctx, &mutate_ctx, body.as_ref(), &context, &registry).await
         }
         ("PUT" | "PATCH", Some(_)) => {
             let registry = state.schema_registry.read().await;
             handle_update(
-                &db_ctx, mutate_ctx, crud, &pk_value, &body, &context, &registry,
+                &db_ctx,
+                mutate_ctx,
+                crud,
+                pk_value.as_deref(),
+                body.as_ref(),
+                &context,
+                &registry,
             )
             .await
         }
-        ("DELETE", Some(_)) => handle_delete(&db_ctx, crud, &pk_value, &context).await,
+        ("DELETE", Some(_)) => handle_delete(&db_ctx, crud, pk_value.as_deref(), &context).await,
         _ => Err(AppError::MethodNotAllowed(
             "Unsupported method for CRUD endpoint".to_string(),
         )),
@@ -82,11 +91,11 @@ pub async fn handle_crud(
 /// # Errors
 ///
 /// Returns `AppError::Internal` for database or query-building failures.
-async fn handle_list(
+async fn handle_list<S: BuildHasher + Send + Sync>(
     db_ctx: &DatabaseContext,
     select_ctx: &SelectContext,
     crud: &crate::config::types::CrudConfig,
-    query_string: &HashMap<String, String>,
+    query_string: &HashMap<String, String, S>,
     context: &RequestContext,
 ) -> Result<Response, AppError> {
     let qp = extract_query_params(query_string);
@@ -135,7 +144,10 @@ async fn handle_list(
             .fetch_optional_json(&count_build.sql, &count_build.params)
             .await
         {
-            Ok(Some(row)) => row.get("count").and_then(|v| v.as_u64()).unwrap_or(0),
+            Ok(Some(row)) => row
+                .get("count")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0),
             _ => 0,
         },
         Err(e) => {
@@ -174,24 +186,24 @@ async fn handle_get_one(
     db_ctx: &DatabaseContext,
     select_ctx: &SelectContext,
     crud: &crate::config::types::CrudConfig,
-    pk_value: &Option<String>,
+    pk_value: Option<&str>,
     context: &RequestContext,
 ) -> Result<Response, AppError> {
-    let pk = pk_value
-        .as_deref()
-        .ok_or_else(|| AppError::BadRequest("ID parameter required".to_string()))?;
+    let pk = pk_value.ok_or_else(|| AppError::BadRequest("ID parameter required".to_string()))?;
     let built = build_select_one(db_ctx, select_ctx, pk, context)?;
-    match db_ctx
+    db_ctx
         .pool
         .fetch_optional_json(&built.sql, &built.params)
         .await?
-    {
-        Some(row) => Ok((StatusCode::OK, Json(row)).into_response()),
-        None => Err(AppError::NotFound(format!(
-            "{} with id '{}' not found",
-            crud.table, pk
-        ))),
-    }
+        .map_or_else(
+            || {
+                Err(AppError::NotFound(format!(
+                    "{} with id '{}' not found",
+                    crud.table, pk
+                )))
+            },
+            |row| Ok((StatusCode::OK, Json(row)).into_response()),
+        )
 }
 
 /// Handle create new record (POST).
@@ -203,12 +215,12 @@ async fn handle_get_one(
 async fn handle_create(
     db_ctx: &DatabaseContext,
     mutate_ctx: &MutationContext,
-    body: &Option<Json<serde_json::Value>>,
+    body: Option<&Json<serde_json::Value>>,
     context: &RequestContext,
     schema_registry: &SchemaRegistry,
 ) -> Result<Response, AppError> {
     let body = body
-        .as_deref()
+        .map(|j| &**j)
         .ok_or_else(|| AppError::BadRequest("Request body required".to_string()))?;
 
     validate_jsonb_body(body, &db_ctx.table_config.name, schema_registry)?;
@@ -270,23 +282,21 @@ async fn handle_update(
     db_ctx: &DatabaseContext,
     mutate_ctx: MutationContext,
     crud: &crate::config::types::CrudConfig,
-    pk_value: &Option<String>,
-    body: &Option<Json<serde_json::Value>>,
+    pk_value: Option<&str>,
+    body: Option<&Json<serde_json::Value>>,
     context: &RequestContext,
     schema_registry: &SchemaRegistry,
 ) -> Result<Response, AppError> {
-    let pk = pk_value
-        .as_deref()
-        .ok_or_else(|| AppError::BadRequest("ID parameter required".to_string()))?;
+    let pk = pk_value.ok_or_else(|| AppError::BadRequest("ID parameter required".to_string()))?;
     let body = body
-        .as_deref()
+        .map(|j| &**j)
         .ok_or_else(|| AppError::BadRequest("Request body required".to_string()))?;
 
     validate_jsonb_body(body, &db_ctx.table_config.name, schema_registry)?;
 
     let built = build_update(
         db_ctx,
-        mutate_ctx,
+        &mutate_ctx,
         pk,
         body,
         context,
@@ -318,12 +328,10 @@ async fn handle_update(
 async fn handle_delete(
     db_ctx: &DatabaseContext,
     crud: &crate::config::types::CrudConfig,
-    pk_value: &Option<String>,
+    pk_value: Option<&str>,
     context: &RequestContext,
 ) -> Result<Response, AppError> {
-    let pk = pk_value
-        .as_deref()
-        .ok_or_else(|| AppError::BadRequest("ID parameter required".to_string()))?;
+    let pk = pk_value.ok_or_else(|| AppError::BadRequest("ID parameter required".to_string()))?;
 
     let built = build_delete(pk, db_ctx, context, &crud.delete_where_clause)?;
     let rows_affected = db_ctx

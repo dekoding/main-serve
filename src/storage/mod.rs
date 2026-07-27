@@ -117,6 +117,12 @@ pub trait Storage: Send + Sync {
 /// - `s3`: AWS S3
 /// - `azure`: Azure Blob Storage
 /// - `gcs`: Google Cloud Storage
+///
+/// # Errors
+///
+/// Returns `StorageError::InvalidBackend` if the required backend-specific config
+/// is missing (e.g. no `root` for native, no `azure` section for azure).
+/// Returns `StorageError::Internal` if a cloud feature is not compiled in (S3, Azure, GCS).
 pub async fn create_store(config: &StoreConfig) -> Result<Arc<dyn Storage>> {
     match config.backend {
         crate::config::types::StoreBackend::Memory => {

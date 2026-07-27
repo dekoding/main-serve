@@ -9,6 +9,10 @@ use crate::handlers::common::path::sanitize_filename;
 use crate::storage::Storage;
 
 /// Handle file deletion (DELETE).
+///
+/// # Errors
+///
+/// Returns an `AppError::MethodNotAllowed` if file management is not enabled.
 pub async fn handle_file_delete(
     storage: &dyn Storage,
     config: &StaticFilesConfig,

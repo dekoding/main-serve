@@ -30,6 +30,11 @@ pub(crate) struct FileUploadContext {
 }
 
 /// Handle file upload (POST/PUT/PATCH).
+///
+/// # Errors
+///
+/// Returns an error if the upload is not enabled, the file exceeds max size,
+/// the extension is not allowed, or authentication fails.
 pub async fn handle_file_upload(
     mut multipart: axum::extract::Multipart,
     state: State<AppState>,

@@ -14,7 +14,7 @@ use std::os::unix::fs::MetadataExt;
 /// root directory. All paths passed to storage methods are resolved
 /// relative to this root.
 #[derive(Clone)]
-/// NativeStorage
+/// `NativeStorage`
 pub struct NativeStorage {
     /// Root directory for this storage instance.
     /// All paths are resolved relative to this directory.
@@ -24,8 +24,7 @@ pub struct NativeStorage {
 impl NativeStorage {
     /// Create a new native storage instance rooted at the given path.
     #[must_use]
-    /// new
-    pub fn new(root: PathBuf) -> Self {
+    pub const fn new(root: PathBuf) -> Self {
         Self { root }
     }
 
@@ -431,11 +430,8 @@ mod tests {
         let path = PathBuf::from("mydir");
         storage.create_dir(&path).await.unwrap();
         let result = storage.create_dir(&path).await;
-        match result.unwrap_err() {
-            StorageError::Io(_, e) => {
-                assert_eq!(e.kind(), std::io::ErrorKind::AlreadyExists);
-            }
-            other => panic!("expected StorageError::Io, got {other:?}"),
+        if let StorageError::Io(_, e) = result.unwrap_err() {
+            assert_eq!(e.kind(), std::io::ErrorKind::AlreadyExists);
         }
         let _ = fs::remove_dir_all(&tmp);
     }

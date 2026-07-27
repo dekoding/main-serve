@@ -11,10 +11,7 @@ use crate::{
 /// Validate that a sort field exists in the table schema.
 /// Returns true if the field is valid (either a regular column or a JSONB nested path).
 #[must_use]
-pub(crate) fn is_valid_sort_field(
-    field: &str,
-    columns: &[crate::config::types::ColumnConfig],
-) -> bool {
+pub fn is_valid_sort_field(field: &str, columns: &[crate::config::types::ColumnConfig]) -> bool {
     let (base, _) = parse_sort_field(field);
     // Allow bracket notation (e.g., metadata[role])
     if is_bracket_notation(field) {
@@ -33,7 +30,9 @@ pub(crate) fn is_valid_sort_field(
 /// Reserved keys (`page`, `page_size`, `per_page`, `sort`, `order`) are treated
 /// as query parameters; all remaining keys are collected as filters.
 #[must_use]
-pub(crate) fn extract_query_params(qs: &std::collections::HashMap<String, String>) -> QueryParams {
+pub fn extract_query_params<S: std::hash::BuildHasher>(
+    qs: &std::collections::HashMap<String, String, S>,
+) -> QueryParams {
     let page = qs.get("page").and_then(|v| v.parse::<u64>().ok());
     let page_size = qs
         .get("page_size")

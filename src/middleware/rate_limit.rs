@@ -31,7 +31,7 @@ struct RateLimitEntry {
 
 /// Shared rate limiter state - a map of key -> (count, `window_start`).
 #[derive(Debug, Clone)]
-/// RateLimiter
+/// `RateLimiter`
 pub struct RateLimiter {
     entries: Arc<Mutex<HashMap<String, RateLimitEntry>>>,
 }
@@ -46,7 +46,6 @@ impl Default for RateLimiter {
 impl RateLimiter {
     /// Create a new empty rate limiter.
     #[must_use]
-    /// new
     pub fn new() -> Self {
         Self {
             entries: Arc::new(Mutex::new(HashMap::new())),
@@ -99,11 +98,13 @@ impl RateLimiter {
 
         entry.count += 1;
 
-        if entry.count > config.max_requests {
+        let result = if entry.count > config.max_requests {
             Err(AppError::RateLimited)
         } else {
             Ok(())
-        }
+        };
+        drop(entries);
+        result
     }
 }
 
@@ -136,6 +137,11 @@ fn extract_key(
 ///
 /// This version reads the endpoint config from the router's `endpoint_configs`
 /// to determine rate limit settings per-endpoint.
+///
+/// # Errors
+///
+/// Returns `AppError::RateLimitExceeded` if the client has exceeded the rate
+/// limit for the current window.
 pub async fn rate_limit_middleware(
     state: axum::extract::State<crate::server::state::AppState>,
     req: Request<Body>,
@@ -149,7 +155,7 @@ pub async fn rate_limit_middleware(
     let config = state.config.read().await;
     let rl_config = endpoint_config
         .and_then(|e| e.rate_limit)
-        .unwrap_or(config.rate_limit.clone());
+        .unwrap_or_else(|| config.rate_limit.clone());
     drop(config);
 
     let headers = req.headers().clone();

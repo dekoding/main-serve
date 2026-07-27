@@ -14,7 +14,7 @@ use serde::Serialize;
 /// or a system/internal error (typically 5xx). This distinction determines the HTTP
 /// status code and whether the error message should be returned to the client.
 #[derive(Debug, thiserror::Error)]
-/// AppError
+/// `AppError`
 pub enum AppError {
     /// Configuration error (internal / 500).
     ///
@@ -140,7 +140,7 @@ pub enum AppError {
     ///
     /// # Examples
     /// - A file upload exceeds the endpoint's max upload size
-    /// - A request body exceeds the server's max_body_size
+    /// - A request body exceeds the server's `max_body_size`
     #[error("Payload too large: {0}")]
     PayloadTooLarge(String),
 
@@ -243,30 +243,26 @@ impl IntoResponse for AppError {
     /// Converts the error into an HTTP response with appropriate status code and JSON body.
     fn into_response(self) -> Response {
         let (status, code) = match &self {
-            AppError::Config(_) => (StatusCode::INTERNAL_SERVER_ERROR, "config_error"),
-            AppError::Validation(_) => (StatusCode::INTERNAL_SERVER_ERROR, "validation_error"),
-            AppError::Database(e) => {
+            Self::Config(_) => (StatusCode::INTERNAL_SERVER_ERROR, "config_error"),
+            Self::Validation(_) => (StatusCode::INTERNAL_SERVER_ERROR, "validation_error"),
+            Self::Database(e) => {
                 tracing::error!("Database error: {e}");
                 (StatusCode::INTERNAL_SERVER_ERROR, "database_error")
             }
-            AppError::Auth(_) | AppError::AuthChallenge(_, _) => {
-                (StatusCode::UNAUTHORIZED, "auth_error")
-            }
-            AppError::Forbidden(_) => (StatusCode::FORBIDDEN, "forbidden"),
-            AppError::NotFound(_) => (StatusCode::NOT_FOUND, "not_found"),
-            AppError::RateLimited => (StatusCode::TOO_MANY_REQUESTS, "rate_limited"),
-            AppError::BadRequest(_) => (StatusCode::BAD_REQUEST, "bad_request"),
-            AppError::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "internal_error"),
-            AppError::Io(_) => (StatusCode::INTERNAL_SERVER_ERROR, "io_error"),
-            AppError::MethodNotAllowed(_) => (StatusCode::METHOD_NOT_ALLOWED, "method_not_allowed"),
-            AppError::PayloadTooLarge(_) => (StatusCode::PAYLOAD_TOO_LARGE, "payload_too_large"),
-            AppError::ServiceUnavailable(_) => {
-                (StatusCode::SERVICE_UNAVAILABLE, "service_unavailable")
-            }
-            AppError::FileOperation(_) => (StatusCode::INTERNAL_SERVER_ERROR, "file_operation"),
-            AppError::Body(_) => (StatusCode::PAYLOAD_TOO_LARGE, "request_body_error"),
-            AppError::ParseError(_) => (StatusCode::BAD_REQUEST, "json_parse_error"),
-            AppError::RequestedRangeNotSatisfiable(_) => {
+            Self::Auth(_) | Self::AuthChallenge(_, _) => (StatusCode::UNAUTHORIZED, "auth_error"),
+            Self::Forbidden(_) => (StatusCode::FORBIDDEN, "forbidden"),
+            Self::NotFound(_) => (StatusCode::NOT_FOUND, "not_found"),
+            Self::RateLimited => (StatusCode::TOO_MANY_REQUESTS, "rate_limited"),
+            Self::BadRequest(_) => (StatusCode::BAD_REQUEST, "bad_request"),
+            Self::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "internal_error"),
+            Self::Io(_) => (StatusCode::INTERNAL_SERVER_ERROR, "io_error"),
+            Self::MethodNotAllowed(_) => (StatusCode::METHOD_NOT_ALLOWED, "method_not_allowed"),
+            Self::PayloadTooLarge(_) => (StatusCode::PAYLOAD_TOO_LARGE, "payload_too_large"),
+            Self::ServiceUnavailable(_) => (StatusCode::SERVICE_UNAVAILABLE, "service_unavailable"),
+            Self::FileOperation(_) => (StatusCode::INTERNAL_SERVER_ERROR, "file_operation"),
+            Self::Body(_) => (StatusCode::PAYLOAD_TOO_LARGE, "request_body_error"),
+            Self::ParseError(_) => (StatusCode::BAD_REQUEST, "json_parse_error"),
+            Self::RequestedRangeNotSatisfiable(_) => {
                 (StatusCode::RANGE_NOT_SATISFIABLE, "range_not_satisfiable")
             }
         };
@@ -276,7 +272,7 @@ impl IntoResponse for AppError {
                 code: code.to_string(),
                 message: match &self {
                     // Sanitize database errors to avoid leaking connection strings or SQL.
-                    AppError::Database(_) => "A database error occurred".to_string(),
+                    Self::Database(_) => "A database error occurred".to_string(),
                     other => other.to_string(),
                 },
             },
@@ -285,7 +281,7 @@ impl IntoResponse for AppError {
         let mut response = (status, axum::Json(body)).into_response();
 
         // If this is a basic auth challenge, include the WWW-Authenticate header.
-        if let AppError::AuthChallenge(_, ref challenge) = self
+        if let Self::AuthChallenge(_, ref challenge) = self
             && let Ok(val) = http::HeaderValue::from_str(challenge)
         {
             response
