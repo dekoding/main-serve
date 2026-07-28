@@ -34,12 +34,16 @@ pub async fn handle_media_upload(
     let upload_config = config
         .upload
         .as_ref()
-        .ok_or_else(|| AppError::MethodNotAllowed("Media upload is not enabled".to_string()))?;
+        .ok_or_else(|| AppError::MethodNotAllowed {
+            message: "Media upload is not enabled".to_string(),
+            allowed: handler_ctx.endpoint.methods.clone(),
+        })?;
 
     if upload_config.max_size == 0 {
-        return Err(AppError::MethodNotAllowed(
-            "Media upload is not enabled".to_string(),
-        ));
+        return Err(AppError::MethodNotAllowed {
+            message: "Media upload is not enabled".to_string(),
+            allowed: handler_ctx.endpoint.methods.clone(),
+        });
     }
 
     let storage = handler_ctx

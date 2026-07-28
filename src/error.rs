@@ -8,6 +8,8 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 
+use crate::config::types::HttpMethod;
+
 /// Application-wide error type.
 ///
 /// Each variant documents whether it represents a user-facing error (typically 4xx)
@@ -111,8 +113,13 @@ pub enum AppError {
     ///
     /// # Examples
     /// - Sending a DELETE request to an endpoint that only supports GET and POST
-    #[error("Method not allowed: {0}")]
-    MethodNotAllowed(String),
+    #[error("Method not allowed: {message}")]
+    MethodNotAllowed {
+        /// Human-readable error message.
+        message: String,
+        /// Allowed HTTP methods for this endpoint, used to populate the `Allow` response header.
+        allowed: Vec<HttpMethod>,
+    },
 
     /// Rate limited (client / 429).
     ///
@@ -120,7 +127,7 @@ pub enum AppError {
     /// configured time window. The response should include a `Retry-After`
     /// header indicating when the client can retry.
     #[error("Rate limited")]
-    RateLimited,
+    RateLimited(Option<u64>),
 
     /// Bad request (client / 400).
     ///
@@ -166,6 +173,23 @@ pub enum AppError {
     /// - A file rename fails because the source does not exist
     #[error("File operation error: {0}")]
     FileOperation(String),
+
+    /// Conflict (client / 409).
+    ///
+    /// The request conflicts with the current state of the server. The client
+    /// can typically recover by modifying the request (e.g., deleting attached
+    /// entities first, or waiting for a resource to become available).
+    ///
+    /// # Examples
+    /// - Deleting media that is attached to content entities when `on_delete: error`
+    /// - Creating a resource that already exists
+    #[error("Conflict: {message}")]
+    Conflict {
+        /// Human-readable error message.
+        message: String,
+        /// Details about the conflict (e.g., list of attached entity references).
+        details: Vec<String>,
+    },
 
     /// Internal error (internal / 500).
     ///
@@ -222,8 +246,13 @@ pub enum AppError {
     ///
     /// # Examples
     /// - A GET with `Range: bytes=500-600` on a 100-byte file
-    #[error("Requested range not satisfiable: {0}")]
-    RequestedRangeNotSatisfiable(String),
+    #[error("Requested range not satisfiable: {message}")]
+    RequestedRangeNotSatisfiable {
+        /// Human-readable error message.
+        message: String,
+        /// Optional `Content-Range: bytes */{total}` header value to include in the response.
+        content_range: Option<String>,
+    },
 }
 
 #[derive(Serialize)]
@@ -237,6 +266,8 @@ struct ErrorBody {
 struct ErrorDetail {
     code: String,
     message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    details: Option<Vec<String>>,
 }
 
 impl IntoResponse for AppError {
@@ -252,29 +283,36 @@ impl IntoResponse for AppError {
             Self::Auth(_) | Self::AuthChallenge(_, _) => (StatusCode::UNAUTHORIZED, "auth_error"),
             Self::Forbidden(_) => (StatusCode::FORBIDDEN, "forbidden"),
             Self::NotFound(_) => (StatusCode::NOT_FOUND, "not_found"),
-            Self::RateLimited => (StatusCode::TOO_MANY_REQUESTS, "rate_limited"),
+            Self::RateLimited(_) => (StatusCode::TOO_MANY_REQUESTS, "rate_limited"),
             Self::BadRequest(_) => (StatusCode::BAD_REQUEST, "bad_request"),
             Self::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "internal_error"),
             Self::Io(_) => (StatusCode::INTERNAL_SERVER_ERROR, "io_error"),
-            Self::MethodNotAllowed(_) => (StatusCode::METHOD_NOT_ALLOWED, "method_not_allowed"),
+            Self::Conflict { .. } => (StatusCode::CONFLICT, "conflict"),
+            Self::MethodNotAllowed { .. } => (StatusCode::METHOD_NOT_ALLOWED, "method_not_allowed"),
             Self::PayloadTooLarge(_) => (StatusCode::PAYLOAD_TOO_LARGE, "payload_too_large"),
             Self::ServiceUnavailable(_) => (StatusCode::SERVICE_UNAVAILABLE, "service_unavailable"),
             Self::FileOperation(_) => (StatusCode::INTERNAL_SERVER_ERROR, "file_operation"),
             Self::Body(_) => (StatusCode::PAYLOAD_TOO_LARGE, "request_body_error"),
             Self::ParseError(_) => (StatusCode::BAD_REQUEST, "json_parse_error"),
-            Self::RequestedRangeNotSatisfiable(_) => {
+            Self::RequestedRangeNotSatisfiable { .. } => {
                 (StatusCode::RANGE_NOT_SATISFIABLE, "range_not_satisfiable")
             }
+        };
+
+        let (details, message) = match &self {
+            // Sanitize database errors to avoid leaking connection strings or SQL.
+            Self::Database(_) => (None, "A database error occurred".to_string()),
+            Self::Conflict {
+                details, message, ..
+            } => (Some(details.clone()), message.clone()),
+            other => (None, other.to_string()),
         };
 
         let body = ErrorBody {
             error: ErrorDetail {
                 code: code.to_string(),
-                message: match &self {
-                    // Sanitize database errors to avoid leaking connection strings or SQL.
-                    Self::Database(_) => "A database error occurred".to_string(),
-                    other => other.to_string(),
-                },
+                message,
+                details,
             },
         };
 
@@ -287,6 +325,42 @@ impl IntoResponse for AppError {
             response
                 .headers_mut()
                 .insert(http::header::WWW_AUTHENTICATE, val);
+        }
+
+        // If this is a rate limited response, include the Retry-After header.
+        if let Self::RateLimited(retry_secs) = self
+            && let Some(secs) = retry_secs
+            && let Ok(val) = http::HeaderValue::from_str(&secs.to_string())
+        {
+            response
+                .headers_mut()
+                .insert(http::header::RETRY_AFTER, val);
+        }
+
+        // If this is a method not allowed with allowed methods, include the Allow header.
+        if let Self::MethodNotAllowed { ref allowed, .. } = self
+            && !allowed.is_empty()
+        {
+            let allow_value = allowed
+                .iter()
+                .map(HttpMethod::as_str)
+                .collect::<Vec<&str>>()
+                .join(", ");
+            if let Ok(val) = http::HeaderValue::from_str(&allow_value) {
+                response.headers_mut().insert(http::header::ALLOW, val);
+            }
+        }
+
+        // If this is a range not satisfiable with a Content-Range value, include it.
+        if let Self::RequestedRangeNotSatisfiable {
+            ref content_range, ..
+        } = self
+            && let Some(cr) = content_range
+            && let Ok(val) = http::HeaderValue::from_str(cr)
+        {
+            response
+                .headers_mut()
+                .insert(http::header::CONTENT_RANGE, val);
         }
 
         response

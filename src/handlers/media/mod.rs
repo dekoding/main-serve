@@ -109,9 +109,10 @@ pub async fn handle_media_upload_route(
         && method != axum::http::Method::PUT
         && method != axum::http::Method::PATCH
     {
-        return Err(AppError::MethodNotAllowed(
-            "Method not allowed for media upload".to_string(),
-        ));
+        return Err(AppError::MethodNotAllowed {
+            message: "Method not allowed for media upload".to_string(),
+            allowed: endpoint.methods.clone(),
+        });
     }
 
     let config = endpoint
@@ -120,9 +121,10 @@ pub async fn handle_media_upload_route(
         .ok_or_else(|| AppError::NotFound("Media config not found".to_string()))?;
 
     if config.upload.as_ref().is_some_and(|u| u.max_size == 0) {
-        return Err(AppError::MethodNotAllowed(
-            "Media upload is not enabled".to_string(),
-        ));
+        return Err(AppError::MethodNotAllowed {
+            message: "Media upload is not enabled".to_string(),
+            allowed: endpoint.methods.clone(),
+        });
     }
 
     let handler_ctx = HandlerContext {
@@ -184,47 +186,66 @@ pub(crate) async fn handle_media(
     if path.starts_with("/shared/") {
         let token = path.strip_prefix("/shared/").unwrap_or("");
         let (storage, root) = resolve_store(state, &config.storage)?;
-        return handle_media_share_get(token, config, &*storage, &root).await;
+        return handle_media_share_get(token, endpoint, config, &*storage, &root).await;
     }
 
     if path.contains("/resize") {
         if let Some(id) = extract_id(&path) {
             let (storage, root) = resolve_store(state, &config.storage)?;
-            return handle_media_resize(&*storage, &root, &id, config, &query_params, &db_ctx.pool)
-                .await;
+            return handle_media_resize(
+                &*storage,
+                &root,
+                &id,
+                endpoint,
+                config,
+                &query_params,
+                &db_ctx.pool,
+            )
+            .await;
         }
     }
 
     if path.contains("/thumbnail") {
         if let Some(id) = extract_id(&path) {
             let (storage, root) = resolve_store(state, &config.storage)?;
-            return handle_media_thumbnail(&*storage, &root, &id, config, &db_ctx.pool).await;
+            return handle_media_thumbnail(&*storage, &root, &id, endpoint, config, &db_ctx.pool)
+                .await;
         }
     }
 
     if path.contains("/attach") {
         if let Some(id) = extract_id(&path) {
-            return handle_media_attach(&id, config, &db_ctx.pool, body).await;
+            return handle_media_attach(&id, endpoint, config, &db_ctx.pool, body).await;
         }
     }
 
     if path.contains("/detach") {
         if let Some(id) = extract_id(&path) {
-            return handle_media_detach(&id, config, &db_ctx.pool, body).await;
+            return handle_media_detach(&id, endpoint, config, &db_ctx.pool, body).await;
         }
     }
 
     if path.contains("/move") {
         if let Some(id) = extract_id(&path) {
             let (storage, root) = resolve_store(state, &config.storage)?;
-            return handle_media_move(&id, config, &db_ctx.pool, &*storage, &root, body).await;
+            return handle_media_move(&id, endpoint, config, &db_ctx.pool, &*storage, &root, body)
+                .await;
         }
     }
 
     if path.contains("/rename") {
         if let Some(id) = extract_id(&path) {
             let (storage, root) = resolve_store(state, &config.storage)?;
-            return handle_media_rename(&id, config, &db_ctx.pool, &*storage, &root, body).await;
+            return handle_media_rename(
+                &id,
+                endpoint,
+                config,
+                &db_ctx.pool,
+                &*storage,
+                &root,
+                body,
+            )
+            .await;
         }
     }
 
@@ -261,9 +282,10 @@ pub(crate) async fn handle_media(
             if path.is_empty() || path == "/" {
                 handle_media_create(&db_ctx, &handler_ctx, body).await
             } else {
-                Err(AppError::MethodNotAllowed(
-                    "POST not allowed on this path".to_string(),
-                ))
+                Err(AppError::MethodNotAllowed {
+                    message: "POST not allowed on this path".to_string(),
+                    allowed: endpoint.methods.clone(),
+                })
             }
         }
         axum::http::Method::PATCH => match extract_id(&path) {
@@ -276,8 +298,9 @@ pub(crate) async fn handle_media(
             }
             None => Err(AppError::BadRequest("Media ID required".to_string())),
         },
-        _ => Err(AppError::MethodNotAllowed(
-            "Method not allowed for media endpoint".to_string(),
-        )),
+        _ => Err(AppError::MethodNotAllowed {
+            message: "Method not allowed for media endpoint".to_string(),
+            allowed: endpoint.methods.clone(),
+        }),
     }
 }

@@ -2,6 +2,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
 use crate::db::query::builders::build_insert;
+use crate::db::query::helpers::validate_jsonb_body;
 use crate::db::query::types::MutationContext;
 use crate::error::AppError;
 use crate::handlers::common::utils::filter_writable_body;
@@ -46,6 +47,8 @@ pub async fn handle_file_store_create(ctx: &FileStoreContext<'_>) -> Result<Resp
         .body
         .cloned()
         .unwrap_or_else(|| serde_json::Value::Object(serde_json::Map::new()));
+    let registry = ctx.handler_ctx.state.schema_registry.read().await;
+    validate_jsonb_body(&body_value, &ctx.db_ctx.table_config.name, &registry)?;
     let mut body_map = filter_writable_body(&body_value, &writable_columns);
 
     if ctx.config.ownership.is_some() {

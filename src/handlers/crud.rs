@@ -80,9 +80,10 @@ pub async fn handle_crud<S: BuildHasher + Send + Sync>(
             .await
         }
         ("DELETE", Some(_)) => handle_delete(&db_ctx, crud, pk_value.as_deref(), &context).await,
-        _ => Err(AppError::MethodNotAllowed(
-            "Unsupported method for CRUD endpoint".to_string(),
-        )),
+        _ => Err(AppError::MethodNotAllowed {
+            message: "Unsupported method for CRUD endpoint".to_string(),
+            allowed: endpoint.methods,
+        }),
     }
 }
 

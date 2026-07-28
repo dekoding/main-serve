@@ -3,7 +3,7 @@ use std::path::Path;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use crate::config::types::FileStoreConfig;
+use crate::config::types::{EndpointConfig, FileStoreConfig};
 use crate::db::query::builders::build_delete;
 use crate::db::query::select_one::{
     build_select_file_path, build_select_trashed, build_select_trashed_ids,
@@ -24,6 +24,7 @@ use crate::storage::Storage;
 pub async fn handle_file_store_trash(
     method: axum::http::Method,
     path: &str,
+    endpoint: &EndpointConfig,
     config: &FileStoreConfig,
     storage: &dyn Storage,
     root: &Path,
@@ -32,12 +33,16 @@ pub async fn handle_file_store_trash(
     let trash_config = config
         .trash
         .as_ref()
-        .ok_or_else(|| AppError::MethodNotAllowed("Trash is not enabled".to_string()))?;
+        .ok_or_else(|| AppError::MethodNotAllowed {
+            message: "Trash is not enabled".to_string(),
+            allowed: endpoint.methods.clone(),
+        })?;
 
     if !trash_config.enabled {
-        return Err(AppError::MethodNotAllowed(
-            "Trash is not enabled".to_string(),
-        ));
+        return Err(AppError::MethodNotAllowed {
+            message: "Trash is not enabled".to_string(),
+            allowed: endpoint.methods.clone(),
+        });
     }
 
     match method {
@@ -69,9 +74,10 @@ pub async fn handle_file_store_trash(
                 ))
             }
         }
-        _ => Err(AppError::MethodNotAllowed(
-            "Method not allowed for trash endpoint".to_string(),
-        )),
+        _ => Err(AppError::MethodNotAllowed {
+            message: "Method not allowed for trash endpoint".to_string(),
+            allowed: endpoint.methods.clone(),
+        }),
     }
 }
 

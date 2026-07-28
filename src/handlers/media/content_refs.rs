@@ -2,7 +2,7 @@
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use crate::config::types::MediaConfig;
+use crate::config::types::{EndpointConfig, MediaConfig};
 use crate::db::query::builders::{
     build_file_ref_delete, build_file_ref_insert, build_file_ref_max_order, build_file_ref_select,
 };
@@ -15,19 +15,25 @@ use crate::error::AppError;
 /// Returns an `AppError::MethodNotAllowed` if content references are not enabled.
 pub async fn handle_media_attach(
     id: &str,
+    endpoint: &EndpointConfig,
     config: &MediaConfig,
     pool: &crate::db::pool::DatabasePool,
     body: &serde_json::Value,
 ) -> Result<Response, AppError> {
-    let content_refs = config
-        .content_references
-        .as_ref()
-        .ok_or_else(|| AppError::MethodNotAllowed("Content references not enabled".to_string()))?;
+    let content_refs =
+        config
+            .content_references
+            .as_ref()
+            .ok_or_else(|| AppError::MethodNotAllowed {
+                message: "Content references not enabled".to_string(),
+                allowed: endpoint.methods.clone(),
+            })?;
 
     if !content_refs.enabled {
-        return Err(AppError::MethodNotAllowed(
-            "Content references are disabled".to_string(),
-        ));
+        return Err(AppError::MethodNotAllowed {
+            message: "Content references are disabled".to_string(),
+            allowed: endpoint.methods.clone(),
+        });
     }
 
     let entity_id = body
@@ -118,19 +124,25 @@ pub async fn handle_media_attach(
 /// Returns an `AppError::MethodNotAllowed` if content references are not enabled.
 pub async fn handle_media_detach(
     id: &str,
+    endpoint: &EndpointConfig,
     config: &MediaConfig,
     pool: &crate::db::pool::DatabasePool,
     body: &serde_json::Value,
 ) -> Result<Response, AppError> {
-    let content_refs = config
-        .content_references
-        .as_ref()
-        .ok_or_else(|| AppError::MethodNotAllowed("Content references not enabled".to_string()))?;
+    let content_refs =
+        config
+            .content_references
+            .as_ref()
+            .ok_or_else(|| AppError::MethodNotAllowed {
+                message: "Content references not enabled".to_string(),
+                allowed: endpoint.methods.clone(),
+            })?;
 
     if !content_refs.enabled {
-        return Err(AppError::MethodNotAllowed(
-            "Content references are disabled".to_string(),
-        ));
+        return Err(AppError::MethodNotAllowed {
+            message: "Content references are disabled".to_string(),
+            allowed: endpoint.methods.clone(),
+        });
     }
 
     let entity_id = body

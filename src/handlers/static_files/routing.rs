@@ -99,7 +99,7 @@ pub async fn handle_static_files(
             .await
         }
         Method::DELETE => {
-            handle_file_delete(storage.as_ref(), static_config, &relative, &root).await
+            handle_file_delete(storage.as_ref(), &endpoint, static_config, &relative, &root).await
         }
         Method::OPTIONS => {
             let mut response = (StatusCode::OK).into_response();
@@ -113,9 +113,10 @@ pub async fn handle_static_files(
             }
             Ok(response)
         }
-        _ => Err(AppError::MethodNotAllowed(format!(
-            "Method {method} not allowed for this endpoint"
-        ))),
+        _ => Err(AppError::MethodNotAllowed {
+            message: format!("Method {method} not allowed for this endpoint"),
+            allowed: endpoint.methods.clone(),
+        }),
     }
 }
 
@@ -161,8 +162,9 @@ pub async fn handle_file_upload_route(
             )
             .await
         }
-        _ => Err(AppError::MethodNotAllowed(format!(
-            "Method {method} not allowed for this endpoint"
-        ))),
+        _ => Err(AppError::MethodNotAllowed {
+            message: format!("Method {method} not allowed for this endpoint"),
+            allowed: endpoint.methods.clone(),
+        }),
     }
 }

@@ -3,7 +3,7 @@ use std::path::Path;
 
 use axum::response::Response;
 
-use crate::config::types::MediaConfig;
+use crate::config::types::{EndpointConfig, MediaConfig};
 use crate::db::query::select_one::build_select_file_path;
 use crate::error::AppError;
 use crate::handlers::common::helpers::extract_file_path;
@@ -19,6 +19,7 @@ pub async fn handle_media_resize<S: std::hash::BuildHasher + Send + Sync>(
     storage: &dyn Storage,
     root: &Path,
     id: &str,
+    endpoint: &EndpointConfig,
     config: &MediaConfig,
     query_params: &std::collections::HashMap<String, String, S>,
     pool: &crate::db::pool::DatabasePool,
@@ -26,12 +27,16 @@ pub async fn handle_media_resize<S: std::hash::BuildHasher + Send + Sync>(
     let image_resize = config
         .image_resize
         .as_ref()
-        .ok_or_else(|| AppError::MethodNotAllowed("Image resize is not enabled".to_string()))?;
+        .ok_or_else(|| AppError::MethodNotAllowed {
+            message: "Image resize is not enabled".to_string(),
+            allowed: endpoint.methods.clone(),
+        })?;
 
     if !image_resize.enabled {
-        return Err(AppError::MethodNotAllowed(
-            "Image resize is not enabled".to_string(),
-        ));
+        return Err(AppError::MethodNotAllowed {
+            message: "Image resize is not enabled".to_string(),
+            allowed: endpoint.methods.clone(),
+        });
     }
 
     // Look up file_path from DB
@@ -81,13 +86,17 @@ pub async fn handle_media_thumbnail(
     storage: &dyn Storage,
     root: &Path,
     id: &str,
+    endpoint: &EndpointConfig,
     config: &MediaConfig,
     pool: &crate::db::pool::DatabasePool,
 ) -> Result<Response, AppError> {
     let image_resize = config
         .image_resize
         .as_ref()
-        .ok_or_else(|| AppError::MethodNotAllowed("Image resize is not enabled".to_string()))?;
+        .ok_or_else(|| AppError::MethodNotAllowed {
+            message: "Image resize is not enabled".to_string(),
+            allowed: endpoint.methods.clone(),
+        })?;
 
     let default_size = image_resize
         .styles
@@ -99,5 +108,5 @@ pub async fn handle_media_thumbnail(
     params.insert("w".to_string(), default_size.to_string());
     params.insert("h".to_string(), default_size.to_string());
 
-    handle_media_resize(storage, root, id, config, &params, pool).await
+    handle_media_resize(storage, root, id, endpoint, config, &params, pool).await
 }

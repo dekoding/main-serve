@@ -4,7 +4,7 @@ use std::path::Path;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use crate::config::types::MediaConfig;
+use crate::config::types::{EndpointConfig, MediaConfig};
 use crate::db::query::select_one::build_select_file_path;
 use crate::db::query::update::build_set_file_path;
 use crate::error::AppError;
@@ -19,6 +19,7 @@ use crate::storage::Storage;
 /// Returns an `AppError::MethodNotAllowed` if move is not configured.
 pub async fn handle_media_move(
     id: &str,
+    endpoint: &EndpointConfig,
     config: &MediaConfig,
     pool: &crate::db::pool::DatabasePool,
     storage: &dyn Storage,
@@ -28,12 +29,16 @@ pub async fn handle_media_move(
     let move_config = config
         .move_config
         .as_ref()
-        .ok_or_else(|| AppError::MethodNotAllowed("Media move is not configured".to_string()))?;
+        .ok_or_else(|| AppError::MethodNotAllowed {
+            message: "Media move is not configured".to_string(),
+            allowed: endpoint.methods.clone(),
+        })?;
 
     if !move_config.enabled {
-        return Err(AppError::MethodNotAllowed(
-            "Media move is disabled".to_string(),
-        ));
+        return Err(AppError::MethodNotAllowed {
+            message: "Media move is disabled".to_string(),
+            allowed: endpoint.methods.clone(),
+        });
     }
 
     let destination_path = body
@@ -108,6 +113,7 @@ pub async fn handle_media_move(
 /// Returns an `AppError::MethodNotAllowed` if rename is not configured.
 pub async fn handle_media_rename(
     id: &str,
+    endpoint: &EndpointConfig,
     config: &MediaConfig,
     pool: &crate::db::pool::DatabasePool,
     storage: &dyn Storage,
@@ -117,12 +123,16 @@ pub async fn handle_media_rename(
     let rename_config = config
         .rename
         .as_ref()
-        .ok_or_else(|| AppError::MethodNotAllowed("Media rename is not configured".to_string()))?;
+        .ok_or_else(|| AppError::MethodNotAllowed {
+            message: "Media rename is not configured".to_string(),
+            allowed: endpoint.methods.clone(),
+        })?;
 
     if !rename_config.enabled {
-        return Err(AppError::MethodNotAllowed(
-            "Media rename is disabled".to_string(),
-        ));
+        return Err(AppError::MethodNotAllowed {
+            message: "Media rename is disabled".to_string(),
+            allowed: endpoint.methods.clone(),
+        });
     }
 
     let new_name = body

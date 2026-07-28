@@ -19,6 +19,30 @@ pub fn build_file_ref_max_order(
     }
 }
 
+/// Build `SELECT {entity_id_col}, {content_type_col} FROM {table} WHERE {file_id_col} = ?`.
+///
+/// Used to retrieve all content references for a specific file/media ID.
+#[must_use]
+pub fn build_file_ref_select_by_file_id(
+    table_name: &str,
+    file_id_col: &str,
+    entity_id_col: &str,
+    content_type_col: &str,
+    driver: DatabaseDriver,
+) -> BuiltQuery {
+    let table = quote_identifier(table_name, driver);
+    let fid = quote_identifier(file_id_col, driver);
+    let eid = quote_identifier(entity_id_col, driver);
+    let ctc = quote_identifier(content_type_col, driver);
+    BuiltQuery {
+        sql: format!(
+            "SELECT {eid}, {ctc} FROM {table} WHERE {fid} = {}",
+            placeholder(driver, 1)
+        ),
+        params: Vec::new(),
+    }
+}
+
 /// Build `INSERT INTO {table} ({columns}) VALUES ({placeholders})`.
 ///
 /// Used for attaching file store entries to content entities.
