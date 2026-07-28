@@ -994,7 +994,7 @@
                     "type": "string",
                     "description": "Response body (inline string).",
                     "examples": [
-                        "{\"name\": \"Main Serve\", \"version\": \"0.3.0\"}"
+                        "{\"name\": \"Main Serve\", \"version\": \"0.3.1\"}"
                     ]
                 },
                 "headers": {

@@ -807,7 +807,7 @@ endpoints:
 
       content_type: "application/json"
 
-      body: '{"name": "Main Serve", "version": "0.3.0"}'
+      body: '{"name": "Main Serve", "version": "0.3.1"}'
 
       headers:
         X-Custom-A: "hello"
