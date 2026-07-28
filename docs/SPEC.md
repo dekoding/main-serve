@@ -1227,6 +1227,8 @@ The `details` field is omitted when no additional information is available. Each
 
 **Database error sanitization:** `AppError::Database` returns the hardcoded message `"A database error occurred"` to avoid leaking SQL/connection details.
 
+**Internal error sanitization:** `AppError::Config`, `AppError::Validation`, `AppError::FileOperation`, `AppError::Internal`, and `AppError::Io` all return the hardcoded message `"An internal error occurred"` to clients. The actual error message is always logged via `tracing::error!` for debugging but never exposed in the HTTP response. This prevents leaking internal paths, connection strings, or implementation details.
+
 ### 14.1 Config Load Errors
 
 | Error | Cause |
