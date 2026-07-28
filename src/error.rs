@@ -274,8 +274,14 @@ impl IntoResponse for AppError {
     /// Converts the error into an HTTP response with appropriate status code and JSON body.
     fn into_response(self) -> Response {
         let (status, code) = match &self {
-            Self::Config(_) => (StatusCode::INTERNAL_SERVER_ERROR, "config_error"),
-            Self::Validation(_) => (StatusCode::INTERNAL_SERVER_ERROR, "validation_error"),
+            Self::Config(e) => {
+                tracing::error!("Configuration error: {e}");
+                (StatusCode::INTERNAL_SERVER_ERROR, "config_error")
+            }
+            Self::Validation(e) => {
+                tracing::error!("Validation error: {e}");
+                (StatusCode::INTERNAL_SERVER_ERROR, "validation_error")
+            }
             Self::Database(e) => {
                 tracing::error!("Database error: {e}");
                 (StatusCode::INTERNAL_SERVER_ERROR, "database_error")
@@ -285,13 +291,22 @@ impl IntoResponse for AppError {
             Self::NotFound(_) => (StatusCode::NOT_FOUND, "not_found"),
             Self::RateLimited(_) => (StatusCode::TOO_MANY_REQUESTS, "rate_limited"),
             Self::BadRequest(_) => (StatusCode::BAD_REQUEST, "bad_request"),
-            Self::Internal(_) => (StatusCode::INTERNAL_SERVER_ERROR, "internal_error"),
-            Self::Io(_) => (StatusCode::INTERNAL_SERVER_ERROR, "io_error"),
+            Self::Internal(e) => {
+                tracing::error!("Internal error: {e}");
+                (StatusCode::INTERNAL_SERVER_ERROR, "internal_error")
+            }
+            Self::Io(e) => {
+                tracing::error!("IO error: {e}");
+                (StatusCode::INTERNAL_SERVER_ERROR, "io_error")
+            }
             Self::Conflict { .. } => (StatusCode::CONFLICT, "conflict"),
             Self::MethodNotAllowed { .. } => (StatusCode::METHOD_NOT_ALLOWED, "method_not_allowed"),
             Self::PayloadTooLarge(_) => (StatusCode::PAYLOAD_TOO_LARGE, "payload_too_large"),
             Self::ServiceUnavailable(_) => (StatusCode::SERVICE_UNAVAILABLE, "service_unavailable"),
-            Self::FileOperation(_) => (StatusCode::INTERNAL_SERVER_ERROR, "file_operation"),
+            Self::FileOperation(e) => {
+                tracing::error!("File operation error: {e}");
+                (StatusCode::INTERNAL_SERVER_ERROR, "file_operation")
+            }
             Self::Body(_) => (StatusCode::PAYLOAD_TOO_LARGE, "request_body_error"),
             Self::ParseError(_) => (StatusCode::BAD_REQUEST, "json_parse_error"),
             Self::RequestedRangeNotSatisfiable { .. } => {
@@ -302,6 +317,12 @@ impl IntoResponse for AppError {
         let (details, message) = match &self {
             // Sanitize database errors to avoid leaking connection strings or SQL.
             Self::Database(_) => (None, "A database error occurred".to_string()),
+            // Sanitize other internal errors to avoid leaking paths, connection strings, or internals.
+            Self::Config(_)
+            | Self::Validation(_)
+            | Self::FileOperation(_)
+            | Self::Internal(_)
+            | Self::Io(_) => (None, "An internal error occurred".to_string()),
             Self::Conflict {
                 details, message, ..
             } => (Some(details.clone()), message.clone()),
