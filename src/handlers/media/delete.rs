@@ -29,30 +29,8 @@ pub async fn handle_media_delete(
     root: &Path,
     db_ctx: &DatabaseContext,
 ) -> Result<Response, AppError> {
-    let trash_enabled = config.trash.as_ref().is_some_and(|t| t.enabled);
-
-    if trash_enabled {
-        handle_media_trash_delete(handler_ctx, id, config, storage, root, db_ctx).await
-    } else {
-        delete_media_permanently(id, config, storage, root, db_ctx).await
-    }
-}
-
-// collapsible_if suppressed: early return pattern would obscure the delete logic.
-/// Permanently delete a media item by ID: removes the file from storage and the row from the database.
-///
-/// # Errors
-///
-/// Returns `AppError::NotFound` if the item does not exist. Returns `AppError::FileOperation`
-/// if storage deletion fails. Returns `AppError::Internal` on database errors.
-pub async fn delete_media_permanently(
-    id: &str,
-    config: &MediaConfig,
-    storage: &dyn Storage,
-    root: &Path,
-    db_ctx: &DatabaseContext,
-) -> Result<Response, AppError> {
-    // Check for content references if on_delete is Error.
+    // Check for content references regardless of trash status, since both
+    // trash and permanent delete are "delete" operations from the API's perspective.
     if let Some(content_refs) = &config.content_references
         && content_refs.on_delete == crate::config::types::MediaOnDeleteBehavior::Error
     {
@@ -92,6 +70,28 @@ pub async fn delete_media_permanently(
         }
     }
 
+    let trash_enabled = config.trash.as_ref().is_some_and(|t| t.enabled);
+
+    if trash_enabled {
+        handle_media_trash_delete(handler_ctx, id, config, storage, root, db_ctx).await
+    } else {
+        delete_media_permanently(id, config, storage, root, db_ctx).await
+    }
+}
+
+/// Permanently delete a media item by ID: removes the file from storage and the row from the database.
+///
+/// # Errors
+///
+/// Returns `AppError::NotFound` if the item does not exist. Returns `AppError::FileOperation`
+/// if storage deletion fails. Returns `AppError::Internal` on database errors.
+pub async fn delete_media_permanently(
+    id: &str,
+    config: &MediaConfig,
+    storage: &dyn Storage,
+    root: &Path,
+    db_ctx: &DatabaseContext,
+) -> Result<Response, AppError> {
     let driver = db_ctx.pool.driver();
     let built = build_select_file_path(&config.table, driver);
     let row = db_ctx
