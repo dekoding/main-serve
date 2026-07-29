@@ -34,7 +34,7 @@ pub use crate::middleware::auth::extractor::AuthInfo;
 /// `query_params` to `validate_api_key` which calls `HashMap::get()`,
 /// invoking the default `DefaultHasher`. An explicit `RandomState` type
 /// parameter would be verbose without practical benefit for string keys.
-#[allow(clippy::implicit_hasher)] // passes &HashMap to validate_api_key which uses .get()
+#[allow(clippy::implicit_hasher, clippy::too_many_lines)] // passes &HashMap to validate_api_key which uses .get()
 pub async fn authenticate<'a, S: RevocationStoreBackend>(
     auth_type: &'a str,
     auth_config: &'a AuthConfig,
