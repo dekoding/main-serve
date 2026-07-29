@@ -41,7 +41,7 @@ pub fn validate_jsonb_body(
     if errors.is_empty() {
         Ok(())
     } else {
-        let summary = format!("JSONB validation failed: {}", &errors[0]);
+        let summary = format!("JSONB validation failed: {}", errors[0]);
         let details = if errors.len() > 1 {
             errors[1..].to_vec()
         } else {
