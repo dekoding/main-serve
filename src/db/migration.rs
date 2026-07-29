@@ -64,7 +64,7 @@ pub async fn create_revocation_tables<S: ::std::hash::BuildHasher + Sync>(
         tracing::debug!("Ensuring revocation table exists in database '{name}'");
         tracing::debug!("Revocation table DDL: {sql}");
         pool.execute_raw(sql).await.map_err(|e| {
-            AppError::Config(format!(
+            AppError::ConfigurationError(format!(
                 "Failed to create revocation table in database '{name}': {e}"
             ))
         })?;
@@ -118,7 +118,7 @@ pub async fn run_migrations(
         }
 
         let pool = pools.get(db_name).ok_or_else(|| {
-            AppError::Config(format!(
+            AppError::ConfigurationError(format!(
                 "Table '{table_name}' references database '{db_name}' which has no pool"
             ))
         })?;
@@ -135,7 +135,9 @@ pub async fn run_migrations(
             tracing::debug!("DDL: {sql}");
 
             pool.execute_raw(&sql).await.map_err(|e| {
-                AppError::Config(format!("Migration failed for table '{table_name}': {e}"))
+                AppError::ConfigurationError(format!(
+                    "Migration failed for table '{table_name}': {e}"
+                ))
             })?;
         } else {
             // Table exists - compute diff and apply ALTER TABLE statements.
@@ -163,7 +165,7 @@ pub async fn run_migrations(
                 let idx_sql = generate_create_index(table_name, &col.name, driver);
                 tracing::debug!("Index DDL: {idx_sql}");
                 pool.execute_raw(&idx_sql).await.map_err(|e| {
-                    AppError::Config(format!(
+                    AppError::ConfigurationError(format!(
                         "Failed to create index on '{table_name}.{}': {e}",
                         col.name
                     ))
@@ -327,7 +329,7 @@ async fn alter_existing_table(
         tracing::debug!("DDL: {sql}");
 
         pool.execute_raw(&sql).await.map_err(|e| {
-            AppError::Config(format!(
+            AppError::ConfigurationError(format!(
                 "Failed to add column '{}' to table '{table_name}': {e}",
                 col.name
             ))
@@ -349,7 +351,7 @@ async fn alter_existing_table(
             tracing::debug!("DDL: {sql}");
 
             pool.execute_raw(&sql).await.map_err(|e| {
-                AppError::Config(format!(
+                AppError::ConfigurationError(format!(
                     "Failed to drop column '{}' from table '{table_name}': {e}",
                     existing.name
                 ))
@@ -719,9 +721,9 @@ pub async fn ensure_media_columns<S: ::std::hash::BuildHasher + Sync>(
     }
 
     for (db_name, table_name) in &media_tables {
-        let pool = pools
-            .get(db_name)
-            .ok_or_else(|| AppError::Config(format!("Database '{db_name}' not found")))?;
+        let pool = pools.get(db_name).ok_or_else(|| {
+            AppError::ConfigurationError(format!("Database '{db_name}' not found"))
+        })?;
 
         let driver = pool.driver();
         let col_exists = match driver {
@@ -764,7 +766,7 @@ pub async fn ensure_media_columns<S: ::std::hash::BuildHasher + Sync>(
             );
             tracing::debug!("DDL: {add_col_sql}");
             pool.execute_raw(&add_col_sql).await.map_err(|e| {
-                AppError::Config(format!(
+                AppError::ConfigurationError(format!(
                     "Failed to add file_path column to '{table_name}': {e}"
                 ))
             })?;

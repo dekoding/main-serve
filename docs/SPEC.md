@@ -96,7 +96,7 @@ The full config load pipeline is:
 5. **Deserialize** into strongly-typed `AppConfig` structs.
 6. **Validate** semantics (cross-references, required fields, safe SQL fragments, etc.).
 
-Steps 2-4 may fail with `AppError::Config`. Step 6 may fail with `AppError::Validation`. The complete validation error is combined into a single message:
+Steps 2-4 may fail with `AppError::ConfigurationError`. Step 6 may fail with `AppError::Validation`. The complete validation error is combined into a single message:
 
 ```
 Configuration validation failed:
@@ -365,16 +365,19 @@ The `SchemaRegistry` builds validators once at config load time:
 
 ### 9.4 Error Format
 
-On validation failure, the endpoint returns **HTTP 400 Bad Request** with a JSON body listing each column and its violations:
+On validation failure, the endpoint returns **HTTP 400 Bad Request** with the standard error response body:
 
 ```json
 {
-  "error": "Validation failed",
-  "details": {
-    "metadata": ["must contain required property 'title'", "must NOT be null"]
+  "error": {
+    "code": "bad_request",
+    "message": "JSONB validation failed: metadata: must contain required property 'title'",
+    "details": ["metadata: must NOT be null"]
   }
 }
 ```
+
+The `details` array contains per-column violation messages when available. The standard error response format applies to all `AppError` variants throughout the application.
 
 ### 9.5 Non-JSONB Body Keys
 
@@ -1181,6 +1184,51 @@ endpoints[0] (/api/info): custom_response.status must be a valid HTTP status cod
 
 ## 14. Error Handling
 
+All `AppError` variants produce a consistent JSON response with the standard error body:
+
+```json
+{
+  "error": {
+    "code": "<error_code>",
+    "message": "<human-readable message>",
+    "details": ["<additional details>"]
+  }
+}
+```
+
+The `details` field is omitted when no additional information is available. Each variant has a machine-readable `code`:
+
+| Variant | Error Code |
+|---------|------------|
+| `AppError::ConfigurationError(_)` | `config_error` |
+| `AppError::Validation(_)` | `validation_error` |
+| `AppError::Database(_)` | `database_error` |
+| `AppError::Auth(_)` / `AuthChallenge(_, _)` | `auth_error` |
+| `AppError::Forbidden(_)` | `forbidden` |
+| `AppError::NotFound(_)` | `not_found` |
+| `AppError::MethodNotAllowed(_)` | `method_not_allowed` |
+| `AppError::RateLimited` | `rate_limited` |
+| `AppError::BadRequest(_)` | `bad_request` |
+| `AppError::PayloadTooLarge(_)` | `payload_too_large` |
+| `AppError::ServiceUnavailable(_)` | `service_unavailable` |
+| `AppError::FileOperation(_)` | `file_operation` |
+| `AppError::Conflict { .. }` | `conflict` |
+| `AppError::Internal(_)` | `internal_error` |
+| `AppError::Io(_)` | `io_error` |
+| `AppError::Body(_)` | `request_body_error` |
+| `AppError::ParseError(_)` | `json_parse_error` |
+| `AppError::RequestedRangeNotSatisfiable(_)` | `range_not_satisfiable` |
+
+**Special headers:**
+- `AuthChallenge(_, _)` adds a `WWW-Authenticate` header to the response.
+- `RateLimited(Some(secs))` adds a `Retry-After` header with the number of seconds until the rate limit window resets.
+- `MethodNotAllowed { allowed, .. }` adds an `Allow` header with the comma-separated list of allowed methods when non-empty.
+- `RequestedRangeNotSatisfiable { content_range, .. }` adds a `Content-Range` header when specified.
+
+**Database error sanitization:** `AppError::Database` returns the hardcoded message `"A database error occurred"` to avoid leaking SQL/connection details.
+
+**Internal error sanitization:** `AppError::ConfigurationError`, `AppError::Validation`, `AppError::FileOperation`, `AppError::Internal`, and `AppError::Io` all return the hardcoded message `"An internal error occurred"` to clients. The actual error message is always logged via `tracing::error!` for debugging but never exposed in the HTTP response. This prevents leaking internal paths, connection strings, or implementation details.
+
 ### 14.1 Config Load Errors
 
 | Error | Cause |
@@ -1200,13 +1248,17 @@ endpoints[0] (/api/info): custom_response.status must be a valid HTTP status cod
 
 | Status | Trigger | Description |
 |--------|---------|-------------|
-| **400** | JSONB validation failure | Body returned with per-column violation details. |
-| **401** | Authentication failure | Invalid or missing credentials. |
+| **400** | Bad request | Malformed request body or parameters. Includes JSONB validation failures, parse errors, and missing required fields. |
+| **401** | Authentication failure | Invalid or missing credentials. `AuthChallenge` variants include a `WWW-Authenticate` header. |
 | **403** | Role mismatch | Authenticated user lacks required role. |
 | **404** | Not found | Resource or endpoint not found. |
-| **409** | Conflict (media with attached entities) | Attempting to delete media that is attached to content entities when `on_delete: error`. Response body lists attached entity references. |
-| **413** | Body too large | Request body exceeds `server.max_body_size`. Not applied to file uploads or proxied requests. |
-| **429** | Rate limited | Exceeded rate limit threshold. |
+| **405** | Method not allowed | HTTP method not permitted for the resource. Response includes an `Allow` header listing permitted methods. |
+| **409** | Conflict | Request conflicts with current server state (e.g., deleting media attached to content entities when `on_delete: error`). Response `details` array lists the conflicting resources. |
+| **413** | Payload too large | Request body or file upload exceeds configured size limit. |
+| **416** | Range not satisfiable | Requested byte range exceeds file size. Response may include a `Content-Range` header. |
+| **429** | Rate limited | Client exceeded rate limit threshold. Response includes a `Retry-After` header. |
+| **500** | Internal error | Unexpected server error. Includes config errors, validation errors, database errors (sanitized), file operation errors, and other internal failures. |
+| **503** | Service unavailable | Server temporarily unable to handle request (e.g., upstream dependency down, resource exhausted). |
 
 ## 15. Hot Reload
 

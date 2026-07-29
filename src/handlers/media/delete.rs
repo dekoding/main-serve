@@ -5,7 +5,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
 use crate::config::types::MediaConfig;
-use crate::db::query::builders::build_delete;
+use crate::db::query::builders::{build_delete, build_file_ref_select_by_file_id};
 use crate::db::query::select_one::build_select_file_path;
 use crate::error::AppError;
 use crate::handlers::common::utils::{DatabaseContext, HandlerContext};
@@ -29,6 +29,47 @@ pub async fn handle_media_delete(
     root: &Path,
     db_ctx: &DatabaseContext,
 ) -> Result<Response, AppError> {
+    // Check for content references regardless of trash status, since both
+    // trash and permanent delete are "delete" operations from the API's perspective.
+    if let Some(content_refs) = &config.content_references
+        && content_refs.on_delete == crate::config::types::MediaOnDeleteBehavior::Error
+    {
+        let built = build_file_ref_select_by_file_id(
+            &content_refs.table,
+            &content_refs.media_id_column,
+            &content_refs.entity_id_column,
+            &content_refs.content_type_column,
+            db_ctx.pool.driver(),
+        );
+        let rows = db_ctx.pool.fetch_all_json(&built.sql, &[id.into()]).await?;
+
+        if !rows.is_empty() {
+            let count = rows.len();
+            let details: Vec<String> = rows
+                .iter()
+                .map(|row| {
+                    let entity_id = row
+                        .get(&content_refs.entity_id_column)
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("?");
+                    let content_type = row
+                        .get(&content_refs.content_type_column)
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("?");
+                    format!("{content_type}:{entity_id}")
+                })
+                .collect();
+
+            return Err(AppError::Conflict {
+                message: format!(
+                    "Media item '{id}' is attached to {count} content entity(ies). \
+                     Use on_delete: detach or delete the references first.",
+                ),
+                details,
+            });
+        }
+    }
+
     let trash_enabled = config.trash.as_ref().is_some_and(|t| t.enabled);
 
     if trash_enabled {
@@ -38,7 +79,6 @@ pub async fn handle_media_delete(
     }
 }
 
-// collapsible_if suppressed: early return pattern would obscure the delete logic.
 /// Permanently delete a media item by ID: removes the file from storage and the row from the database.
 ///
 /// # Errors

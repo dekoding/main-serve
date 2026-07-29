@@ -229,12 +229,12 @@ async fn handle_range_streaming(
 
     // Validate range
     if start >= file_size || start > end {
-        return Ok(build_range_not_satisfiable_response(
-            file_size,
-            config.cache_max_age,
-            path,
-            &config.cache_rules,
-        ));
+        return Err(AppError::RequestedRangeNotSatisfiable {
+            message: format!(
+                "Range bytes={start}-{end} is not satisfiable for file size {file_size}"
+            ),
+            content_range: Some(format!("bytes */{file_size}")),
+        });
     }
 
     let content_length = end.saturating_add(1).saturating_sub(start);
@@ -301,25 +301,6 @@ async fn handle_streaming(
     apply_cache_control(&mut response, cache_max_age, Some(path), cache_rules);
 
     Ok(response)
-}
-
-/// Build response for range not satisfiable (416).
-#[must_use]
-/// Builds a 416 Range Not Satisfiable response with appropriate Content-Range header.
-fn build_range_not_satisfiable_response(
-    file_size: u64,
-    cache_max_age: u64,
-    path: &Path,
-    cache_rules: &[CacheRuleConfig],
-) -> Response {
-    let mut response = Response::new(Body::empty());
-    *response.status_mut() = StatusCode::RANGE_NOT_SATISFIABLE;
-
-    apply_content_type(&mut response, "application/octet-stream");
-    apply_cache_control(&mut response, cache_max_age, Some(path), cache_rules);
-    apply_content_range(&mut response, &format!("bytes */{file_size}"));
-
-    response
 }
 
 /// Handle image resize if parameters are present.
@@ -397,9 +378,12 @@ fn handle_range_small_file(
     };
 
     if start >= file_size {
-        return Err(AppError::RequestedRangeNotSatisfiable(format!(
-            "Range bytes={start}-{end} is not satisfiable for file size {file_size}"
-        )));
+        return Err(AppError::RequestedRangeNotSatisfiable {
+            message: format!(
+                "Range bytes={start}-{end} is not satisfiable for file size {file_size}"
+            ),
+            content_range: Some(format!("bytes */{file_size}")),
+        });
     }
 
     let actual_end = end.min(file_size - 1);

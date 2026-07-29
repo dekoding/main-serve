@@ -63,15 +63,7 @@ pub async fn handle_file_store_delete(ctx: &FileStoreContext<'_>) -> Result<Resp
             )));
         }
 
-        Ok((
-            StatusCode::OK,
-            axum::Json(serde_json::json!({
-                "success": true,
-                "message": "File entry soft-deleted (trashed)",
-                "rows_affected": rows_affected,
-            })),
-        )
-            .into_response())
+        Ok((StatusCode::NO_CONTENT,).into_response())
     } else {
         if ctx.config.ownership.is_some() {
             let auth_info = ctx.handler_ctx.extract_auth_info().await?;
@@ -106,10 +98,6 @@ pub async fn handle_file_store_delete(ctx: &FileStoreContext<'_>) -> Result<Resp
             )));
         }
 
-        Ok((
-            StatusCode::OK,
-            axum::Json(serde_json::json!({ "rows_affected": rows_affected })),
-        )
-            .into_response())
+        Ok((StatusCode::NO_CONTENT,).into_response())
     }
 }

@@ -18,7 +18,7 @@ use crate::error::AppError;
 ///
 /// # Errors
 ///
-/// Returns `AppError::Config` if the cert or key files cannot be read or
+/// Returns `AppError::ConfigurationError` if the cert or key files cannot be read or
 /// contain no valid PEM items.
 pub fn build_tls_acceptor(tls_config: &TlsConfig) -> Result<TlsAcceptor, AppError> {
     let server_config = build_rustls_config(tls_config)?;
@@ -32,7 +32,7 @@ fn build_rustls_config(tls_config: &TlsConfig) -> Result<ServerConfig, AppError>
 
     // Read certificate chain.
     let cert_file = std::fs::File::open(cert_path).map_err(|e| {
-        AppError::Config(format!(
+        AppError::ConfigurationError(format!(
             "Failed to open TLS cert file '{}': {e}",
             tls_config.cert
         ))
@@ -41,36 +41,42 @@ fn build_rustls_config(tls_config: &TlsConfig) -> Result<ServerConfig, AppError>
     let certs: Vec<rustls::pki_types::CertificateDer<'static>> =
         rustls_pemfile::certs(&mut cert_reader)
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| AppError::Config(format!("Failed to parse TLS certificates: {e}")))?;
+            .map_err(|e| {
+                AppError::ConfigurationError(format!("Failed to parse TLS certificates: {e}"))
+            })?;
 
     if certs.is_empty() {
-        return Err(AppError::Config(
+        return Err(AppError::ConfigurationError(
             "TLS cert file contains no valid certificates".to_string(),
         ));
     }
 
     // Read private key.
     let key_file = std::fs::File::open(key_path).map_err(|e| {
-        AppError::Config(format!(
+        AppError::ConfigurationError(format!(
             "Failed to open TLS key file '{}': {e}",
             tls_config.key
         ))
     })?;
     let mut key_reader = std::io::BufReader::new(key_file);
     let key = rustls_pemfile::private_key(&mut key_reader)
-        .map_err(|e| AppError::Config(format!("Failed to parse TLS private key: {e}")))?
+        .map_err(|e| AppError::ConfigurationError(format!("Failed to parse TLS private key: {e}")))?
         .ok_or_else(|| {
-            AppError::Config("TLS key file contains no valid private key".to_string())
+            AppError::ConfigurationError("TLS key file contains no valid private key".to_string())
         })?;
 
     // Build server config with explicit ring crypto provider.
     let config =
         ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
             .with_safe_default_protocol_versions()
-            .map_err(|e| AppError::Config(format!("Failed to set TLS protocol versions: {e}")))?
+            .map_err(|e| {
+                AppError::ConfigurationError(format!("Failed to set TLS protocol versions: {e}"))
+            })?
             .with_no_client_auth()
             .with_single_cert(certs, key)
-            .map_err(|e| AppError::Config(format!("Failed to build TLS config: {e}")))?;
+            .map_err(|e| {
+                AppError::ConfigurationError(format!("Failed to build TLS config: {e}"))
+            })?;
 
     Ok(config)
 }

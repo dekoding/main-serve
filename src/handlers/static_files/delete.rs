@@ -3,7 +3,7 @@ use std::path::Path;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
-use crate::config::types::StaticFilesConfig;
+use crate::config::types::{EndpointConfig, StaticFilesConfig};
 use crate::error::AppError;
 use crate::handlers::common::path::sanitize_filename;
 use crate::storage::Storage;
@@ -15,6 +15,7 @@ use crate::storage::Storage;
 /// Returns an `AppError::MethodNotAllowed` if file management is not enabled.
 pub async fn handle_file_delete(
     storage: &dyn Storage,
+    endpoint: &EndpointConfig,
     config: &StaticFilesConfig,
     relative: &str,
     root: &Path,
@@ -22,12 +23,16 @@ pub async fn handle_file_delete(
     let upload_config = config
         .upload
         .as_ref()
-        .ok_or_else(|| AppError::MethodNotAllowed("File management is not enabled".to_string()))?;
+        .ok_or_else(|| AppError::MethodNotAllowed {
+            message: "File management is not enabled".to_string(),
+            allowed: endpoint.methods.clone(),
+        })?;
 
     if !upload_config.enabled {
-        return Err(AppError::MethodNotAllowed(
-            "File management is not enabled".to_string(),
-        ));
+        return Err(AppError::MethodNotAllowed {
+            message: "File management is not enabled".to_string(),
+            allowed: endpoint.methods.clone(),
+        });
     }
 
     let sanitized_filename = sanitize_filename(relative, false)?;

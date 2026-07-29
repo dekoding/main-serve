@@ -197,7 +197,7 @@ endpoints:
     custom_response:
       status: 200
       content_type: "application/json"
-      body: '{"name": "Main Serve Blog", "version": "0.3.0"}'
+      body: '{"name": "Main Serve Blog", "version": "0.3.1"}'
 "#;
 
 #[tokio::test]
@@ -214,7 +214,7 @@ async fn test_health_endpoint() {
         resp.get("name").and_then(|v| v.as_str()),
         Some("Main Serve Blog")
     );
-    assert_eq!(resp.get("version").and_then(|v| v.as_str()), Some("0.3.0"));
+    assert_eq!(resp.get("version").and_then(|v| v.as_str()), Some("0.3.1"));
 
     server.shutdown().await.expect("server shutdown");
 }

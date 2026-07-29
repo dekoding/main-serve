@@ -38,12 +38,16 @@ pub async fn handle_media_trash(
     let trash_config = config
         .trash
         .as_ref()
-        .ok_or_else(|| AppError::MethodNotAllowed("Trash is not enabled".to_string()))?;
+        .ok_or_else(|| AppError::MethodNotAllowed {
+            message: "Trash is not enabled".to_string(),
+            allowed: handler_ctx.endpoint.methods.clone(),
+        })?;
 
     if !trash_config.enabled {
-        return Err(AppError::MethodNotAllowed(
-            "Trash is not enabled".to_string(),
-        ));
+        return Err(AppError::MethodNotAllowed {
+            message: "Trash is not enabled".to_string(),
+            allowed: handler_ctx.endpoint.methods.clone(),
+        });
     }
 
     match method {
@@ -75,9 +79,10 @@ pub async fn handle_media_trash(
                 ))
             }
         }
-        _ => Err(AppError::MethodNotAllowed(
-            "Method not allowed for trash endpoint".to_string(),
-        )),
+        _ => Err(AppError::MethodNotAllowed {
+            message: "Method not allowed for trash endpoint".to_string(),
+            allowed: handler_ctx.endpoint.methods.clone(),
+        }),
     }
 }
 

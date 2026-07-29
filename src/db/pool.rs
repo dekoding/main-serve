@@ -48,7 +48,7 @@ impl DatabasePool {
     ///
     /// # Errors
     ///
-    /// Returns `AppError::Config` if the connection URL is invalid or the
+    /// Returns `AppError::ConfigurationError` if the connection URL is invalid or the
     /// database cannot be reached.
     pub async fn connect(config: &DatabaseConfig) -> Result<Self, AppError> {
         match config.driver {
@@ -56,7 +56,7 @@ impl DatabasePool {
                 let options: SqliteConnectOptions = config
                     .url
                     .parse::<SqliteConnectOptions>()
-                    .map_err(|e| AppError::Config(format!("Invalid SQLite URL: {e}")))?
+                    .map_err(|e| AppError::ConfigurationError(format!("Invalid SQLite URL: {e}")))?
                     .create_if_missing(true);
                 let pool = SqlitePoolOptions::new()
                     .min_connections(config.min_connections)
@@ -64,7 +64,9 @@ impl DatabasePool {
                     .acquire_timeout(Duration::from_secs(config.acquire_timeout))
                     .connect_with(options)
                     .await
-                    .map_err(|e| AppError::Config(format!("Failed to connect to SQLite: {e}")))?;
+                    .map_err(|e| {
+                        AppError::ConfigurationError(format!("Failed to connect to SQLite: {e}"))
+                    })?;
                 Ok(Self::Sqlite(pool))
             }
             DatabaseDriver::Postgres => {
@@ -74,7 +76,9 @@ impl DatabasePool {
                     .acquire_timeout(Duration::from_secs(config.acquire_timeout))
                     .connect(&config.url)
                     .await
-                    .map_err(|e| AppError::Config(format!("Failed to connect to Postgres: {e}")))?;
+                    .map_err(|e| {
+                        AppError::ConfigurationError(format!("Failed to connect to Postgres: {e}"))
+                    })?;
                 Ok(Self::Postgres(pool))
             }
             DatabaseDriver::Mysql => {
@@ -84,7 +88,9 @@ impl DatabasePool {
                     .acquire_timeout(Duration::from_secs(config.acquire_timeout))
                     .connect(&config.url)
                     .await
-                    .map_err(|e| AppError::Config(format!("Failed to connect to MySQL: {e}")))?;
+                    .map_err(|e| {
+                        AppError::ConfigurationError(format!("Failed to connect to MySQL: {e}"))
+                    })?;
                 Ok(Self::Mysql(pool))
             }
         }
@@ -205,7 +211,7 @@ impl DatabasePool {
 ///
 /// # Errors
 ///
-/// Returns `AppError::Config` if any pool fails to connect.
+/// Returns `AppError::ConfigurationError` if any pool fails to connect.
 pub async fn create_pools<S: std::hash::BuildHasher + Sync + Send + Default>(
     databases: &HashMap<String, DatabaseConfig, S>,
 ) -> Result<HashMap<String, DatabasePool, S>, AppError> {

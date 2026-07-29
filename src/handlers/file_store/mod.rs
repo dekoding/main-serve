@@ -125,8 +125,16 @@ async fn dispatch_file_store(
         let db_ctx = state
             .get_db_context(&config.database, &config.table)
             .await?;
-        return trash::handle_file_store_trash(method, &path, config, &*storage, &root, &db_ctx)
-            .await;
+        return trash::handle_file_store_trash(
+            method,
+            &path,
+            handler_ctx.endpoint,
+            config,
+            &*storage,
+            &root,
+            &db_ctx,
+        )
+        .await;
     }
 
     let (storage, _) = resolve_store(state, &config.storage)?;
@@ -173,6 +181,7 @@ async fn dispatch_file_store(
                         return content_refs::handle_file_store_detach(
                             &id,
                             entity_id,
+                            handler_ctx.endpoint,
                             config,
                             &db_ctx.pool,
                         )
@@ -196,9 +205,10 @@ async fn dispatch_file_store(
                 None => Err(AppError::BadRequest("File ID required".to_string())),
             }
         }
-        _ => Err(AppError::MethodNotAllowed(
-            "Method not allowed for file store endpoint".to_string(),
-        )),
+        _ => Err(AppError::MethodNotAllowed {
+            message: "Method not allowed for file store endpoint".to_string(),
+            allowed: handler_ctx.endpoint.methods.clone(),
+        }),
     }
 }
 
@@ -261,7 +271,14 @@ async fn dispatch_file_store_post(
             .or_else(|| path.strip_suffix("/refs/"))
             .unwrap_or("");
         if let Some(id) = extract_id(path_without_refs) {
-            return content_refs::handle_file_store_attach(&id, config, &db_ctx.pool, body).await;
+            return content_refs::handle_file_store_attach(
+                &id,
+                handler_ctx.endpoint,
+                config,
+                &db_ctx.pool,
+                body,
+            )
+            .await;
         }
     }
 
@@ -276,9 +293,10 @@ async fn dispatch_file_store_post(
         })
         .await
     } else {
-        Err(AppError::MethodNotAllowed(
-            "POST not allowed on this path".to_string(),
-        ))
+        Err(AppError::MethodNotAllowed {
+            message: "POST not allowed on this path".to_string(),
+            allowed: handler_ctx.endpoint.methods.clone(),
+        })
     }
 }
 

@@ -40,11 +40,11 @@ static ENV_VAR_RE: LazyLock<Regex> =
 ///
 /// # Errors
 ///
-/// Returns `AppError::Config` if the file cannot be read, parsed, or contains
+/// Returns `AppError::ConfigurationError` if the file cannot be read, parsed, or contains
 /// invalid YAML. Returns `AppError::Validation` if semantic validation fails.
 pub fn load_config(path: &Path) -> Result<AppConfig, AppError> {
     let canonical = path.canonicalize().map_err(|e| {
-        AppError::Config(format!(
+        AppError::ConfigurationError(format!(
             "Failed to resolve config path {}: {e}",
             path.display()
         ))
@@ -54,7 +54,7 @@ pub fn load_config(path: &Path) -> Result<AppConfig, AppError> {
     let value = load_yaml_with_includes(&canonical, &mut visited)?;
 
     let config: AppConfig = serde_yaml::from_value(value)
-        .map_err(|e| AppError::Config(format!("Failed to parse YAML config: {e}")))?;
+        .map_err(|e| AppError::ConfigurationError(format!("Failed to parse YAML config: {e}")))?;
 
     validate_config(&config)?;
 
@@ -65,14 +65,14 @@ pub fn load_config(path: &Path) -> Result<AppConfig, AppError> {
 fn load_yaml_with_includes(path: &Path, visited: &mut HashSet<PathBuf>) -> Result<Value, AppError> {
     // Circular include detection.
     if !visited.insert(path.to_path_buf()) {
-        return Err(AppError::Config(format!(
+        return Err(AppError::ConfigurationError(format!(
             "Circular $include detected: {} was already included",
             path.display()
         )));
     }
 
     let raw = std::fs::read_to_string(path).map_err(|e| {
-        AppError::Config(format!(
+        AppError::ConfigurationError(format!(
             "Failed to read config file {}: {e}",
             path.display()
         ))
@@ -81,7 +81,7 @@ fn load_yaml_with_includes(path: &Path, visited: &mut HashSet<PathBuf>) -> Resul
     let interpolated = interpolate_env_vars(&raw)?;
 
     let value: Value = serde_yaml::from_str(&interpolated).map_err(|e| {
-        AppError::Config(format!("Failed to parse YAML in {}: {e}", path.display()))
+        AppError::ConfigurationError(format!("Failed to parse YAML in {}: {e}", path.display()))
     })?;
 
     let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
@@ -130,14 +130,14 @@ fn resolve_mapping_includes(
                 Value::String(_) => "string",
                 Value::Tagged(_) => "tagged",
             };
-            AppError::Config(format!(
+            AppError::ConfigurationError(format!(
                 "$include value must be a string, got {actual_type}"
             ))
         })?;
 
         // A mapping-level $include should be the only key.
         if map.len() > 1 {
-            return Err(AppError::Config(
+            return Err(AppError::ConfigurationError(
                 "$include in a mapping must be the only key (cannot mix with other keys)"
                     .to_string(),
             ));
@@ -145,7 +145,7 @@ fn resolve_mapping_includes(
 
         let files = resolve_glob(pattern, base_dir)?;
         if files.is_empty() {
-            return Err(AppError::Config(format!(
+            return Err(AppError::ConfigurationError(format!(
                 "$include pattern '{}' matched no files (resolved from {})",
                 pattern,
                 base_dir.display()
@@ -168,7 +168,7 @@ fn resolve_mapping_includes(
                     }
                 }
                 _ => {
-                    return Err(AppError::Config(format!(
+                    return Err(AppError::ConfigurationError(format!(
                         "$include in a mapping context requires YAML files that produce mappings, \
                          but {} produced a non-mapping value",
                         file.display()
@@ -216,20 +216,20 @@ fn resolve_sequence_includes(
                     Value::String(_) => "string",
                     Value::Tagged(_) => "tagged",
                 };
-                AppError::Config(format!(
+                AppError::ConfigurationError(format!(
                     "$include value must be a string, got {actual_type}"
                 ))
             })?;
 
             if map.len() > 1 {
-                return Err(AppError::Config(
+                return Err(AppError::ConfigurationError(
                     "$include in a sequence item must be the only key".to_string(),
                 ));
             }
 
             let files = resolve_glob(pattern, base_dir)?;
             if files.is_empty() {
-                return Err(AppError::Config(format!(
+                return Err(AppError::ConfigurationError(format!(
                     "$include pattern '{}' matched no files (resolved from {})",
                     pattern,
                     base_dir.display()
@@ -257,16 +257,20 @@ fn resolve_sequence_includes(
 fn resolve_glob(pattern: &str, base_dir: &Path) -> Result<Vec<PathBuf>, AppError> {
     let full_pattern = base_dir.join(pattern);
     let pattern_str = full_pattern.to_str().ok_or_else(|| {
-        AppError::Config(format!(
+        AppError::ConfigurationError(format!(
             "Include path is not valid UTF-8: {}",
             full_pattern.display()
         ))
     })?;
 
     let mut paths: Vec<PathBuf> = glob::glob(pattern_str)
-        .map_err(|e| AppError::Config(format!("Invalid $include glob pattern '{pattern}': {e}")))?
+        .map_err(|e| {
+            AppError::ConfigurationError(format!("Invalid $include glob pattern '{pattern}': {e}"))
+        })?
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| AppError::Config(format!("Error reading $include glob '{pattern}': {e}")))?;
+        .map_err(|e| {
+            AppError::ConfigurationError(format!("Error reading $include glob '{pattern}': {e}"))
+        })?;
 
     // Sort for deterministic ordering.
     paths.sort();
@@ -276,7 +280,7 @@ fn resolve_glob(pattern: &str, base_dir: &Path) -> Result<Vec<PathBuf>, AppError
         .into_iter()
         .map(|p| {
             p.canonicalize().map_err(|e| {
-                AppError::Config(format!(
+                AppError::ConfigurationError(format!(
                     "Failed to resolve include path {}: {e}",
                     p.display()
                 ))
@@ -310,7 +314,7 @@ fn interpolate_env_vars(input: &str) -> Result<String, AppError> {
     });
 
     if !errors.is_empty() {
-        return Err(AppError::Config(format!(
+        return Err(AppError::ConfigurationError(format!(
             "Environment variable interpolation failed:\n  - {}",
             errors.join("\n  - ")
         )));

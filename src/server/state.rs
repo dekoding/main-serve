@@ -273,7 +273,7 @@ impl AppState {
     ///
     /// # Errors
     ///
-    /// Returns `AppError::Config` if any store fails to create from config.
+    /// Returns `AppError::ConfigurationError` if any store fails to create from config.
     pub async fn new(
         config: AppConfig,
         config_path: PathBuf,
@@ -436,14 +436,14 @@ impl AppState {
     ///
     /// # Errors
     ///
-    /// Returns an `AppError::Config` if registration is not enabled, or an
+    /// Returns an `AppError::ConfigurationError` if registration is not enabled, or an
     /// `AppError::Internal` if the database pool is not found.
     pub async fn registration_pool(&self) -> Result<(DatabasePool, RegisterConfig), AppError> {
         let (pool, register_config) = {
             let register_config = {
                 let config = self.config.read().await;
                 config.auth.register.clone().ok_or_else(|| {
-                    AppError::Config("User registration is not enabled".to_string())
+                    AppError::ConfigurationError("User registration is not enabled".to_string())
                 })?
             };
 
@@ -457,14 +457,14 @@ impl AppState {
     ///
     /// # Errors
     ///
-    /// Returns `AppError::Config` if JWT is not configured.
+    /// Returns `AppError::ConfigurationError` if JWT is not configured.
     pub async fn jwt_config(&self) -> Result<JwtConfig, AppError> {
         let config = self.config.read().await;
         let jwt_config = config
             .auth
             .jwt
             .as_ref()
-            .ok_or_else(|| AppError::Config("JWT is not configured".to_string()))?
+            .ok_or_else(|| AppError::ConfigurationError("JWT is not configured".to_string()))?
             .clone();
         drop(config);
         Ok(jwt_config)
@@ -518,7 +518,7 @@ pub fn compute_role_inheritance(
 ///
 /// # Errors
 ///
-/// Returns `AppError::Config` if any store fails to create. Store creation
+/// Returns `AppError::ConfigurationError` if any store fails to create. Store creation
 /// can only fail if validation was bypassed or there is a programming error --
 /// validation should have caught all configuration errors before `AppState`
 /// construction.
@@ -534,7 +534,7 @@ pub async fn build_stores_from_config(
             ..Default::default()
         };
         let store = create_store(&default_config).await.map_err(|e| {
-            AppError::Config(format!(
+            AppError::ConfigurationError(format!(
                 "Failed to create default native store: {e}. \
                  This should not happen - validation runs before AppState construction"
             ))
@@ -543,7 +543,7 @@ pub async fn build_stores_from_config(
     } else {
         for (name, store_config) in &config.stores {
             let store = create_store(store_config).await.map_err(|e| {
-                AppError::Config(format!(
+                AppError::ConfigurationError(format!(
                     "Failed to create storage store '{name}': {e}. \
                      This should not happen - validation runs before AppState construction"
                 ))

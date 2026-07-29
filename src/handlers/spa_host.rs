@@ -8,6 +8,7 @@ use axum::http::{HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use http::header;
 
+use crate::config::types::HttpMethod;
 use crate::config::types::mime_from_path;
 use crate::config::types::{EndpointConfig, SpaHostConfig};
 use crate::error::AppError;
@@ -57,9 +58,16 @@ pub(crate) async fn handle_spa_host(
     // HEAD support check
     if method == axum::http::Method::HEAD {
         if !config.head_support {
-            return Err(AppError::MethodNotAllowed(
-                "HEAD requests are not supported for this endpoint".to_string(),
-            ));
+            let allowed: Vec<HttpMethod> = endpoint
+                .methods
+                .iter()
+                .copied()
+                .filter(|m| *m != HttpMethod::Head)
+                .collect();
+            return Err(AppError::MethodNotAllowed {
+                message: "HEAD requests are not supported for this endpoint".to_string(),
+                allowed,
+            });
         }
         return handle_spa_head(state, uri, config, &headers).await;
     }
@@ -170,7 +178,10 @@ pub(crate) async fn handle_spa_head(
                 apply_content_length(&mut response, &meta.size.to_string());
                 Ok(response)
             }
-            Err(_) => Ok((StatusCode::NOT_FOUND, "").into_response()),
+            Err(_) => Err(AppError::NotFound(format!(
+                "Index file '{}' not found for SPA HEAD fallback",
+                config.index
+            ))),
         }
     }
 }
@@ -280,6 +291,43 @@ async fn serve_spa_fallback(
 }
 
 /// Return 405 Method Not Allowed for SPA host (read-only endpoints).
-pub async fn handle_spa_host_method_not_allowed() -> impl IntoResponse {
-    axum::http::StatusCode::METHOD_NOT_ALLOWED
+///
+/// Registered as the route handler for POST/PUT/PATCH/DELETE methods when the
+/// SPA host only supports GET, HEAD, and OPTIONS.
+///
+/// # Errors
+///
+/// Always returns an `AppError::MethodNotAllowed` with the SPA host's allowed
+/// methods (filtered from the configured methods to only include GET, HEAD, OPTIONS).
+pub async fn handle_spa_host_method_not_allowed(
+    state: axum::extract::State<AppState>,
+    matched_path: axum::extract::MatchedPath,
+) -> Result<axum::response::Response, AppError> {
+    let path_str = matched_path.as_str();
+    let endpoint = state
+        .endpoint_configs
+        .read()
+        .await
+        .values()
+        .find(|e| e.path == path_str)
+        .cloned();
+
+    let allowed: Vec<HttpMethod> = match endpoint {
+        Some(ep) => ep
+            .methods
+            .into_iter()
+            .filter(|m| {
+                !matches!(
+                    m,
+                    HttpMethod::Post | HttpMethod::Put | HttpMethod::Patch | HttpMethod::Delete
+                )
+            })
+            .collect(),
+        None => vec![HttpMethod::Get, HttpMethod::Head, HttpMethod::Options],
+    };
+
+    Err(AppError::MethodNotAllowed {
+        message: "Method Not Allowed for SPA host endpoint".to_string(),
+        allowed,
+    })
 }

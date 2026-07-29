@@ -54,14 +54,16 @@ impl RateLimiter {
 
     /// Check if a request is allowed under the given rate limit config.
     ///
-    /// Returns `Ok(())` if allowed, `Err(AppError::RateLimited)` if not.
+    /// Returns `Ok(())` if allowed, `Err(AppError::RateLimited(retry_after))` if not.
+    /// The `retry_after` value is the number of seconds until the rate limit window resets.
     /// Also prunes stale entries (older than twice the window duration)
     /// when the entry count exceeds the configured cleanup threshold.
     ///
     /// # Errors
     ///
-    /// Returns `AppError::RateLimited` when the request exceeds the configured
-    /// maximum requests within the time window.
+    /// Returns `AppError::RateLimited(retry_after)` when the request exceeds the configured
+    /// maximum requests within the time window. The `retry_after` value is the number of
+    /// seconds until the window resets.
     pub async fn check_rate_limit(
         &self,
         config: &RateLimitConfig,
@@ -98,13 +100,15 @@ impl RateLimiter {
 
         entry.count += 1;
 
-        let result = if entry.count > config.max_requests {
-            Err(AppError::RateLimited)
-        } else {
-            Ok(())
-        };
+        if entry.count > config.max_requests {
+            let elapsed = now.duration_since(entry.window_start);
+            let retry_after = window.saturating_sub(elapsed).as_secs();
+            drop(entries);
+            return Err(AppError::RateLimited(Some(retry_after)));
+        }
+
         drop(entries);
-        result
+        Ok(())
     }
 }
 
@@ -140,8 +144,9 @@ fn extract_key(
 ///
 /// # Errors
 ///
-/// Returns `AppError::RateLimitExceeded` if the client has exceeded the rate
-/// limit for the current window.
+/// Returns `AppError::RateLimited(retry_after)` if the client has exceeded the rate
+/// limit for the current window. The `retry_after` value is included in the response
+/// as a `Retry-After` header.
 pub async fn rate_limit_middleware(
     state: axum::extract::State<crate::server::state::AppState>,
     req: Request<Body>,

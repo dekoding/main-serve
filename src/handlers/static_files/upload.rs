@@ -110,12 +110,16 @@ async fn validate_input(
     let upload_config = config
         .upload
         .as_ref()
-        .ok_or_else(|| AppError::MethodNotAllowed("File management is not enabled".to_string()))?;
+        .ok_or_else(|| AppError::MethodNotAllowed {
+            message: "File management is not enabled".to_string(),
+            allowed: endpoint.methods.clone(),
+        })?;
 
     if !upload_config.enabled {
-        return Err(AppError::MethodNotAllowed(
-            "File management is not enabled".to_string(),
-        ));
+        return Err(AppError::MethodNotAllowed {
+            message: "File management is not enabled".to_string(),
+            allowed: endpoint.methods.clone(),
+        });
     }
 
     let query_params: HashMap<String, String> = endpoint

@@ -55,7 +55,7 @@ pub async fn handle_revoke(
             .auth
             .jwt
             .as_ref()
-            .ok_or_else(|| AppError::Config("JWT is not configured".to_string()))?;
+            .ok_or_else(|| AppError::ConfigurationError("JWT is not configured".to_string()))?;
         let secret = jwt_config.secret.clone();
         let algorithm = jwt_config.algorithm;
         let issuer = jwt_config.issuer.clone();
@@ -172,7 +172,7 @@ fn create_jwt_token(
 ///
 /// # Errors
 ///
-/// Returns `AppError::Config` if registration is not configured or enabled.
+/// Returns `AppError::ConfigurationError` if registration is not configured or enabled.
 /// Returns `AppError::BadRequest` if the email is already registered
 /// or the password is too short. Returns `AppError::Internal` for
 /// database or hashing failures.
@@ -183,7 +183,7 @@ pub async fn handle_register(
     let (pool, register_config) = state.registration_pool().await?;
 
     if !register_config.enabled {
-        return Err(AppError::Config(
+        return Err(AppError::ConfigurationError(
             "User registration is not enabled".to_string(),
         ));
     }

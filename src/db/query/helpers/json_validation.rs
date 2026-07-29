@@ -10,9 +10,9 @@ use crate::error::AppError;
 
 /// Validate JSONB column values in a request body against their configured schemas.
 ///
-/// Returns `Ok(())` if all validated columns pass, or `AppError::BadRequest` with
-/// a list of all validation errors if any column fails. Non-JSONB columns and
-/// columns without a schema are silently skipped.
+/// Returns `Ok(())` if all validated columns pass, or `AppError::JsonValidationError`
+/// with a summary message and per-column violation details if any column fails.
+/// Non-JSONB columns and columns without a schema are silently skipped.
 ///
 /// The `body` may contain arbitrary keys (not just JSONB columns). Only the
 /// intersection of body keys and schema-validated JSONB columns is validated.
@@ -41,8 +41,16 @@ pub fn validate_jsonb_body(
     if errors.is_empty() {
         Ok(())
     } else {
-        let message = format!("JSON Schema validation failed: {}", errors.join("; "));
-        Err(AppError::BadRequest(message))
+        let summary = format!("JSONB validation failed: {}", errors[0]);
+        let details = if errors.len() > 1 {
+            errors[1..].to_vec()
+        } else {
+            Vec::new()
+        };
+        Err(AppError::JsonValidationError {
+            message: summary,
+            details,
+        })
     }
 }
 
@@ -54,6 +62,7 @@ mod tests {
 
     use super::*;
     use crate::config::types::{ColumnType, DatabaseConfig, DatabaseDriver, TableConfig};
+    use crate::error::AppError;
 
     fn make_registry_with_inline_schema(schema_json: &serde_yaml::Value) -> SchemaRegistry {
         let inline = serde_yaml::to_value(schema_json).unwrap();
@@ -430,10 +439,26 @@ properties:
         let body = json!({"col_a": {}, "col_b": {}});
         let result = validate_jsonb_body(&body, "test_table", &registry);
         assert!(result.is_err(), "both columns should fail");
-        let err_msg = result.unwrap_err().to_string();
+        let err = result.unwrap_err();
+        let AppError::JsonValidationError { message, details } = err else {
+            panic!("expected JsonValidationError");
+        };
+        // The first error goes into message; remaining errors go into details.
+        // Since HashMap iteration order is non-deterministic, check that col_a and col_b
+        // are present across message + details.
+        let all_messages: Vec<&str> = std::iter::once(message.as_str())
+            .chain(details.iter().map(String::as_str))
+            .collect();
         assert!(
-            err_msg.contains("col_a") && err_msg.contains("col_b"),
-            "Error should mention both columns, got: {err_msg}"
+            all_messages.iter().any(|m| m.contains("col_a"))
+                && all_messages.iter().any(|m| m.contains("col_b")),
+            "both columns should appear across message + details: message={message}, details={details:?}"
+        );
+        // Exactly one column is in message, the rest in details.
+        assert_eq!(
+            details.len(),
+            1,
+            "expected exactly one detail for two failing columns"
         );
     }
 }

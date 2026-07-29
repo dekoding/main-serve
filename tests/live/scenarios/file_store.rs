@@ -72,6 +72,10 @@ tables:
       - name: "tags"
         type: "jsonb"
         nullable: true
+        validation:
+          type: array
+          items:
+            type: string
       - name: "description"
         type: "text"
         nullable: true
@@ -132,6 +136,30 @@ stores:
     root: "./files"
 
 endpoints:
+  # CRUD endpoint for testing JSONB validation on the files table.
+  # This validates the `tags` JSONB column via the CRUD handler.
+  - path: "/api/files-validate"
+    methods: ["get", "post"]
+    action: "crud"
+    auth: "jwt"
+    roles: ["admin", "editor", "author", "user"]
+    crud:
+      table: "files"
+      database: "main"
+      fields: ["id", "original_name", "mime_type", "size", "tags"]
+      writable_fields: ["original_name", "mime_type", "size", "tags"]
+
+  - path: "/api/files-validate/{id}"
+    methods: ["get", "put", "patch", "delete"]
+    action: "crud"
+    auth: "jwt"
+    roles: ["admin", "editor", "author", "user"]
+    crud:
+      table: "files"
+      database: "main"
+      fields: ["id", "original_name", "mime_type", "size", "tags"]
+      writable_fields: ["original_name", "mime_type", "size", "tags"]
+
   - path: "/api/files"
     methods: ["get", "post"]
     action: "file_store"
@@ -1448,6 +1476,236 @@ async fn test_file_store_trash_empty() {
         trash_results.len(),
         0,
         "trash should be empty after emptying"
+    );
+
+    server.shutdown().await.expect("server shutdown");
+}
+
+// =============================================================================
+// JSONB validation tests
+// =============================================================================
+
+#[tokio::test]
+async fn test_jsonb_validation_valid_via_crud() {
+    let (server, _temp_dir) = setup_file_store_server().await;
+    let client = server.client();
+
+    let token = register_and_login(&client, "admin_jsonb_valid@example.com", "adminpass123").await;
+    let authed = LiveClient::new(server.base_url()).with_bearer_token(&token);
+
+    // POST valid tags (array of strings) via CRUD endpoint
+    let resp = authed
+        .post_json(
+            "/api/files-validate",
+            &serde_json::json!({
+                "original_name": "jsonb_valid.txt",
+                "mime_type": "text/plain",
+                "size": 100,
+                "tags": ["rust", "jsonb", "validated"]
+            }),
+        )
+        .await
+        .expect("create valid jsonb");
+
+    assert!(
+        resp.status().is_success() || resp.status() == StatusCode::CREATED,
+        "valid JSONB data should succeed via CRUD, got: {}, body: {}",
+        resp.status(),
+        resp.text().await.unwrap_or_default()
+    );
+
+    server.shutdown().await.expect("server shutdown");
+}
+
+#[tokio::test]
+async fn test_jsonb_validation_invalid_via_crud() {
+    let (server, _temp_dir) = setup_file_store_server().await;
+    let client = server.client();
+
+    let token =
+        register_and_login(&client, "admin_jsonb_invalid@example.com", "adminpass123").await;
+    let authed = LiveClient::new(server.base_url()).with_bearer_token(&token);
+
+    // POST invalid tags (array containing non-string) via CRUD endpoint
+    // The schema requires all items to be strings, but we provide an integer
+    let resp = authed
+        .post_json(
+            "/api/files-validate",
+            &serde_json::json!({
+                "original_name": "jsonb_invalid.txt",
+                "mime_type": "text/plain",
+                "size": 100,
+                "tags": ["valid", 123, "also_valid"]
+            }),
+        )
+        .await
+        .expect("create invalid jsonb");
+
+    assert_eq!(
+        resp.status(),
+        StatusCode::BAD_REQUEST,
+        "invalid JSONB data (non-string in array) should fail with 400, got: {}, body: {}",
+        resp.status(),
+        resp.text().await.unwrap_or_default()
+    );
+
+    // Verify the error body contains validation details
+    let body = resp
+        .json::<serde_json::Value>()
+        .await
+        .expect("parse error body");
+    let message = body
+        .get("error")
+        .and_then(|e| e.get("message"))
+        .and_then(|m| m.as_str())
+        .unwrap_or("");
+    assert!(
+        message.contains("JSON Schema validation failed") || message.contains("tags"),
+        "error message should mention JSON Schema validation or the column name, got: {message}"
+    );
+
+    server.shutdown().await.expect("server shutdown");
+}
+
+#[tokio::test]
+async fn test_jsonb_validation_crud_put_update() {
+    let (server, _temp_dir) = setup_file_store_server().await;
+    let client = server.client();
+
+    let token = register_and_login(&client, "admin_jsonb_put@example.com", "adminpass123").await;
+    let authed = LiveClient::new(server.base_url()).with_bearer_token(&token);
+
+    // Create a record with valid tags
+    let create_resp = authed
+        .post_json(
+            "/api/files-validate",
+            &serde_json::json!({
+                "original_name": "jsonb_put_test.txt",
+                "mime_type": "text/plain",
+                "size": 100,
+                "tags": ["initial"]
+            }),
+        )
+        .await
+        .expect("create");
+    assert!(
+        create_resp.status().is_success() || create_resp.status() == StatusCode::CREATED,
+        "create should succeed, got: {}, body: {}",
+        create_resp.status(),
+        create_resp.text().await.unwrap_or_default()
+    );
+
+    let created = create_resp
+        .json::<serde_json::Value>()
+        .await
+        .expect("parse create");
+    let file_id = created
+        .get("id")
+        .or_else(|| created.get("data").and_then(|d| d.get("id")))
+        .and_then(|v| {
+            v.as_str()
+                .map(String::from)
+                .or(v.as_i64().map(|i| i.to_string()))
+        })
+        .expect("id");
+
+    // PUT with valid tags update - should succeed
+    let update_resp = authed
+        .put_json(
+            &format!("/api/files-validate/{file_id}"),
+            &serde_json::json!({
+                "tags": ["updated", "valid"]
+            }),
+        )
+        .await
+        .expect("update valid");
+
+    assert!(
+        update_resp.status().is_success(),
+        "valid PUT update should succeed, got: {}, body: {}",
+        update_resp.status(),
+        update_resp.text().await.unwrap_or_default()
+    );
+
+    // PUT with invalid tags - should fail
+    let invalid_update_resp = authed
+        .put_json(
+            &format!("/api/files-validate/{file_id}"),
+            &serde_json::json!({
+                "tags": ["ok", true, "bad"]
+            }),
+        )
+        .await
+        .expect("update invalid");
+
+    assert_eq!(
+        invalid_update_resp.status(),
+        StatusCode::BAD_REQUEST,
+        "invalid PUT update should fail with 400, got: {}, body: {}",
+        invalid_update_resp.status(),
+        invalid_update_resp.text().await.unwrap_or_default()
+    );
+
+    server.shutdown().await.expect("server shutdown");
+}
+
+#[tokio::test]
+async fn test_jsonb_validation_partial_update_skips_unchanged() {
+    let (server, _temp_dir) = setup_file_store_server().await;
+    let client = server.client();
+
+    let token =
+        register_and_login(&client, "admin_jsonb_partial@example.com", "adminpass123").await;
+    let authed = LiveClient::new(server.base_url()).with_bearer_token(&token);
+
+    // Create a record with valid tags
+    let create_resp = authed
+        .post_json(
+            "/api/files-validate",
+            &serde_json::json!({
+                "original_name": "jsonb_partial_test.txt",
+                "mime_type": "text/plain",
+                "size": 100,
+                "tags": ["a", "b"]
+            }),
+        )
+        .await
+        .expect("create");
+    assert!(
+        create_resp.status().is_success() || create_resp.status() == StatusCode::CREATED,
+        "create should succeed"
+    );
+
+    let created = create_resp
+        .json::<serde_json::Value>()
+        .await
+        .expect("parse create");
+    let file_id = created
+        .get("id")
+        .or_else(|| created.get("data").and_then(|d| d.get("id")))
+        .and_then(|v| {
+            v.as_str()
+                .map(String::from)
+                .or(v.as_i64().map(|i| i.to_string()))
+        })
+        .expect("id");
+
+    // PATCH without tags field - should succeed since tags is not in the body
+    let patch_resp = authed
+        .patch_json(
+            &format!("/api/files-validate/{file_id}"),
+            &serde_json::json!({
+                "original_name": "renamed.txt"
+            }),
+        )
+        .await
+        .expect("patch without tags");
+
+    assert!(
+        patch_resp.status().is_success(),
+        "PATCH without JSONB field should succeed (only present fields are validated), got: {}, body: {}",
+        patch_resp.status(),
+        patch_resp.text().await.unwrap_or_default()
     );
 
     server.shutdown().await.expect("server shutdown");

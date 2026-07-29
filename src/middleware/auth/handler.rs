@@ -28,7 +28,7 @@ use crate::middleware::auth::validators::jwt::create_token;
 ///
 /// # Errors
 ///
-/// Returns `AppError::Config` if `OAuth2` or JWT is not configured.
+/// Returns `AppError::ConfigurationError` if `OAuth2` or JWT is not configured.
 async fn get_oauth2_config(
     state: &AppState,
 ) -> Result<(Arc<OAuth2Config>, Arc<JwtConfig>), AppError> {
@@ -37,14 +37,14 @@ async fn get_oauth2_config(
         .auth
         .oauth2
         .as_ref()
-        .ok_or_else(|| AppError::Config("OAuth2 is not configured".to_string()))?
+        .ok_or_else(|| AppError::ConfigurationError("OAuth2 is not configured".to_string()))?
         .clone();
     let jwt_config_clone = config
         .auth
         .jwt
         .as_ref()
         .ok_or_else(|| {
-            AppError::Config(
+            AppError::ConfigurationError(
                 "JWT config is required for OAuth2 code flow (used to mint tokens after login)"
                     .to_string(),
             )
@@ -110,14 +110,14 @@ async fn exchange_token(
 ///
 /// # Errors
 ///
-/// Returns `AppError::Config` if the userinfo URL is empty, or
+/// Returns `AppError::ConfigurationError` if the userinfo URL is empty, or
 /// `AppError::Auth` if the userinfo request fails.
 async fn get_userinfo(
     oauth2: &OAuth2Config,
     access_token: &str,
 ) -> Result<(String, Option<String>), AppError> {
     if oauth2.userinfo_url.is_empty() {
-        return Err(AppError::Config(
+        return Err(AppError::ConfigurationError(
             "OAuth2 userinfo_url is required for the code flow".to_string(),
         ));
     }
@@ -153,7 +153,7 @@ fn mint_jwt(
 ///
 /// # Errors
 ///
-/// Returns `AppError::Config` if `success_url` contains invalid characters
+/// Returns `AppError::ConfigurationError` if `success_url` contains invalid characters
 /// (CRLF), or `AppError::Internal` if the response builder fails.
 fn build_redirect_response(
     success_url: &str,
@@ -164,7 +164,7 @@ fn build_redirect_response(
 ) -> Result<Response, AppError> {
     // Reject success_url values that could cause header injection via CRLF.
     if success_url.contains('\r') || success_url.contains('\n') {
-        return Err(AppError::Config(
+        return Err(AppError::ConfigurationError(
             "OAuth2 success_url contains invalid characters".to_string(),
         ));
     }
@@ -190,7 +190,7 @@ fn build_redirect_response(
 ///
 /// # Errors
 ///
-/// Returns `AppError::Config` if `OAuth2` is not configured or the authorization
+/// Returns `AppError::ConfigurationError` if `OAuth2` is not configured or the authorization
 /// URL is empty.
 pub async fn handle_oauth2_authorize(State(state): State<AppState>) -> Result<Response, AppError> {
     let config = state.config.read().await;
@@ -198,20 +198,20 @@ pub async fn handle_oauth2_authorize(State(state): State<AppState>) -> Result<Re
         .auth
         .oauth2
         .as_ref()
-        .ok_or_else(|| AppError::Config("OAuth2 is not configured".to_string()))?;
+        .ok_or_else(|| AppError::ConfigurationError("OAuth2 is not configured".to_string()))?;
 
     if oauth2.authorization_url.is_empty() {
-        return Err(AppError::Config(
+        return Err(AppError::ConfigurationError(
             "OAuth2 authorization_url is not configured".to_string(),
         ));
     }
     if oauth2.client_id.is_empty() {
-        return Err(AppError::Config(
+        return Err(AppError::ConfigurationError(
             "OAuth2 client_id is not configured".to_string(),
         ));
     }
     if oauth2.redirect_url.is_empty() {
-        return Err(AppError::Config(
+        return Err(AppError::ConfigurationError(
             "OAuth2 redirect_url is not configured".to_string(),
         ));
     }
@@ -224,7 +224,7 @@ pub async fn handle_oauth2_authorize(State(state): State<AppState>) -> Result<Re
 
     // Build the authorization URL with query parameters.
     let mut url = url::Url::parse(&oauth2.authorization_url)
-        .map_err(|e| AppError::Config(format!("Invalid authorization_url: {e}")))?;
+        .map_err(|e| AppError::ConfigurationError(format!("Invalid authorization_url: {e}")))?;
 
     let scopes = oauth2.scopes.join(" ");
     url.query_pairs_mut()

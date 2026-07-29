@@ -14,6 +14,7 @@ mod tests;
 pub use delete_builder::build_delete;
 pub use file_ref::{
     build_file_ref_delete, build_file_ref_insert, build_file_ref_max_order, build_file_ref_select,
+    build_file_ref_select_by_file_id,
 };
 pub use insert_builder::build_insert;
 pub use select_builder::{build_select_list, build_select_one};
