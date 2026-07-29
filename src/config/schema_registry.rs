@@ -29,7 +29,7 @@ impl SchemaRegistry {
     ///
     /// # Errors
     ///
-    /// Returns `AppError::Config` if:
+    /// Returns `AppError::ConfigurationError` if:
     /// - A global schema is not valid JSON Schema
     /// - An external schema file cannot be loaded or parsed
     /// - A `validation_schema_ref` references a non-existent global schema
@@ -44,7 +44,7 @@ impl SchemaRegistry {
             for (name, raw) in schemas {
                 let json_value = Self::yaml_to_json(raw)?;
                 let compiled = Validator::new(&json_value).map_err(|e| {
-                    AppError::Config(format!("Invalid global schema '{name}': {e}"))
+                    AppError::ConfigurationError(format!("Invalid global schema '{name}': {e}"))
                 })?;
                 global_schemas.insert(
                     name.clone(),
@@ -98,14 +98,14 @@ impl SchemaRegistry {
                 .unwrap_or_else(|| Path::new("."))
                 .join(&path);
             let resolved = full_path.canonicalize().map_err(|e| {
-                AppError::Config(format!(
+                AppError::ConfigurationError(format!(
                     "Failed to resolve external schema file '{}': {e}",
                     path.display()
                 ))
             })?;
             let json_value = Self::load_schema_file(&resolved)?;
             let compiled = Validator::new(&json_value).map_err(|e| {
-                AppError::Config(format!(
+                AppError::ConfigurationError(format!(
                     "Invalid schema in external file '{}' (column '{}'): {e}",
                     resolved.display(),
                     col.name
@@ -121,7 +121,7 @@ impl SchemaRegistry {
         if let Some(ref inline) = col.validation {
             let json_value = Self::yaml_to_json(inline)?;
             let compiled = Validator::new(&json_value).map_err(|e| {
-                AppError::Config(format!(
+                AppError::ConfigurationError(format!(
                     "Invalid inline schema for column '{}': {e}",
                     col.name
                 ))
@@ -134,7 +134,7 @@ impl SchemaRegistry {
             // Accept both "name" and "global_schemas.name" formats
             let name = ref_str.strip_prefix("global_schemas.").unwrap_or(ref_str);
             let global = global_schemas.get(name).ok_or_else(|| {
-                AppError::Config(format!(
+                AppError::ConfigurationError(format!(
                     "Global schema '{name}' not found (referenced by column '{}')",
                     col.name
                 ))
@@ -148,13 +148,13 @@ impl SchemaRegistry {
     /// Load a JSON Schema file (YAML input -> JSON Value).
     fn load_schema_file(path: &Path) -> Result<Value, AppError> {
         let content = std::fs::read_to_string(path).map_err(|e| {
-            AppError::Config(format!(
+            AppError::ConfigurationError(format!(
                 "Failed to read schema file '{}': {e}",
                 path.display()
             ))
         })?;
         let parsed: Value = serde_yaml::from_str(&content).map_err(|e| {
-            AppError::Config(format!(
+            AppError::ConfigurationError(format!(
                 "Failed to parse schema file '{}': {e}",
                 path.display()
             ))
@@ -165,7 +165,7 @@ impl SchemaRegistry {
     /// Convert a YAML value to a JSON value for schema compilation.
     fn yaml_to_json(value: &serde_yaml::Value) -> Result<Value, AppError> {
         serde_json::to_value(value)
-            .map_err(|e| AppError::Config(format!("Failed to convert schema value to JSON: {e}")))
+            .map_err(|e| AppError::ConfigurationError(format!("Failed to convert schema value to JSON: {e}")))
     }
 
     /// Return the validators for all schema-validated columns in the given

@@ -113,7 +113,7 @@ async fn test_create_with_invalid_jsonb_data_missing_required() {
             body["error"]["message"]
                 .as_str()
                 .unwrap_or("")
-                .contains("JSON Schema validation failed"),
+                .contains("JSONB validation failed"),
             "error message should mention JSON Schema validation, got: {body}"
         );
     }
@@ -148,7 +148,7 @@ async fn test_create_with_invalid_jsonb_data_wrong_type() {
             body["error"]["message"]
                 .as_str()
                 .unwrap_or("")
-                .contains("JSON Schema validation failed"),
+                .contains("JSONB validation failed"),
             "error should mention JSON Schema validation, got: {body}"
         );
     }
@@ -260,7 +260,7 @@ async fn test_update_with_invalid_jsonb_data() {
             body["error"]["message"]
                 .as_str()
                 .unwrap_or("")
-                .contains("JSON Schema validation failed"),
+                .contains("JSONB validation failed"),
             "error should mention JSON Schema validation, got: {body}"
         );
     }
@@ -456,7 +456,7 @@ async fn test_global_schema_reference_validation() {
             body["error"]["message"]
                 .as_str()
                 .unwrap_or("")
-                .contains("JSON Schema validation failed"),
+                .contains("JSONB validation failed"),
             "error should mention JSON Schema validation, got: {body}"
         );
     }

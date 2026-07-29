@@ -34,7 +34,7 @@ impl HandlerContext<'_> {
     /// # Errors
     ///
     /// Returns `AppError::Auth` if authentication fails.
-    /// Returns `AppError::Config` if the auth config is missing.
+    /// Returns `AppError::ConfigurationError` if the auth config is missing.
     pub async fn extract_auth_info(&self) -> Result<AuthInfo, AppError> {
         // extract_auth_info(self.state, self.endpoint, self.headers, self.query_params).await
         if self.endpoint.auth == "none" {

@@ -26,7 +26,7 @@ pub use crate::middleware::auth::extractor::AuthInfo;
 ///
 /// # Errors
 ///
-/// Returns `AppError::Config` if the auth type requires a config section that
+/// Returns `AppError::ConfigurationError` if the auth type requires a config section that
 /// is missing. Returns `AppError::Auth` or `AppError::AuthChallenge` if
 /// credentials are missing or invalid.
 ///
@@ -47,7 +47,7 @@ pub async fn authenticate<'a, S: RevocationStoreBackend>(
 
         "jwt" => {
             let jwt_config = auth_config.jwt.as_ref().ok_or_else(|| {
-                AppError::Config("JWT auth configured but no jwt config provided".to_string())
+                AppError::ConfigurationError("JWT auth configured but no jwt config provided".to_string())
             })?;
 
             // Try Authorization header first, then fall back to OAuth2 cookie.
@@ -89,7 +89,7 @@ pub async fn authenticate<'a, S: RevocationStoreBackend>(
 
         "api_key" => {
             let api_key_config = auth_config.api_key.as_ref().ok_or_else(|| {
-                AppError::Config(
+                AppError::ConfigurationError(
                     "API key auth configured but no api_key config provided".to_string(),
                 )
             })?;
@@ -106,7 +106,7 @@ pub async fn authenticate<'a, S: RevocationStoreBackend>(
 
         "basic" => {
             let basic_config = auth_config.basic.as_ref().ok_or_else(|| {
-                AppError::Config("Basic auth configured but no basic config provided".to_string())
+                AppError::ConfigurationError("Basic auth configured but no basic config provided".to_string())
             })?;
 
             let auth_header = headers.get("authorization").and_then(|v| v.to_str().ok());
@@ -139,7 +139,7 @@ pub async fn authenticate<'a, S: RevocationStoreBackend>(
 
         "oauth2" => {
             let oauth2_config = auth_config.oauth2.as_ref().ok_or_else(|| {
-                AppError::Config("OAuth2 auth configured but no oauth2 config provided".to_string())
+                AppError::ConfigurationError("OAuth2 auth configured but no oauth2 config provided".to_string())
             })?;
 
             let auth_header = headers
@@ -161,7 +161,7 @@ pub async fn authenticate<'a, S: RevocationStoreBackend>(
             })
         }
 
-        other => Err(AppError::Config(format!("Unknown auth type: '{other}'"))),
+        other => Err(AppError::ConfigurationError(format!("Unknown auth type: '{other}'"))),
     }
 }
 

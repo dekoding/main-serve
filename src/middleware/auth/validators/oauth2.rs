@@ -29,7 +29,7 @@ pub struct PendingOAuth2 {
 ///
 /// # Errors
 ///
-/// Returns `AppError::Config` if the userinfo URL is not set.
+/// Returns `AppError::ConfigurationError` if the userinfo URL is not set.
 /// Returns `AppError::Auth` if the userinfo request fails or the response
 /// is missing the `sub` claim.
 pub(crate) async fn validate_oauth2_token(
@@ -38,7 +38,7 @@ pub(crate) async fn validate_oauth2_token(
     role_mapping: Option<&RoleMappingConfig>,
 ) -> Result<(String, Option<String>), AppError> {
     if config.userinfo_url.is_empty() {
-        return Err(AppError::Config(
+        return Err(AppError::ConfigurationError(
             "OAuth2 userinfo_url is not configured".to_string(),
         ));
     }
@@ -169,7 +169,7 @@ pub(crate) async fn exchange_code(
     code_verifier: &str,
 ) -> Result<serde_json::Value, AppError> {
     if config.token_url.is_empty() {
-        return Err(AppError::Config(
+        return Err(AppError::ConfigurationError(
             "OAuth2 token_url is not configured".to_string(),
         ));
     }

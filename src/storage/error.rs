@@ -68,7 +68,7 @@ impl From<StorageError> for crate::error::AppError {
                 Self::FileOperation(format!("File operation failed: {}: {err}", path.display()))
             }
             StorageError::InvalidBackend(msg) => {
-                Self::Config(format!("Invalid storage backend: {msg}"))
+                Self::ConfigurationError(format!("Invalid storage backend: {msg}"))
             }
             StorageError::Internal(msg) => Self::Internal(msg),
             StorageError::ServiceUnavailable(msg) => Self::ServiceUnavailable(msg),

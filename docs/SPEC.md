@@ -96,7 +96,7 @@ The full config load pipeline is:
 5. **Deserialize** into strongly-typed `AppConfig` structs.
 6. **Validate** semantics (cross-references, required fields, safe SQL fragments, etc.).
 
-Steps 2-4 may fail with `AppError::Config`. Step 6 may fail with `AppError::Validation`. The complete validation error is combined into a single message:
+Steps 2-4 may fail with `AppError::ConfigurationError`. Step 6 may fail with `AppError::Validation`. The complete validation error is combined into a single message:
 
 ```
 Configuration validation failed:
@@ -1200,7 +1200,7 @@ The `details` field is omitted when no additional information is available. Each
 
 | Variant | Error Code |
 |---------|------------|
-| `AppError::Config(_)` | `config_error` |
+| `AppError::ConfigurationError(_)` | `config_error` |
 | `AppError::Validation(_)` | `validation_error` |
 | `AppError::Database(_)` | `database_error` |
 | `AppError::Auth(_)` / `AuthChallenge(_, _)` | `auth_error` |
@@ -1227,7 +1227,7 @@ The `details` field is omitted when no additional information is available. Each
 
 **Database error sanitization:** `AppError::Database` returns the hardcoded message `"A database error occurred"` to avoid leaking SQL/connection details.
 
-**Internal error sanitization:** `AppError::Config`, `AppError::Validation`, `AppError::FileOperation`, `AppError::Internal`, and `AppError::Io` all return the hardcoded message `"An internal error occurred"` to clients. The actual error message is always logged via `tracing::error!` for debugging but never exposed in the HTTP response. This prevents leaking internal paths, connection strings, or implementation details.
+**Internal error sanitization:** `AppError::ConfigurationError`, `AppError::Validation`, `AppError::FileOperation`, `AppError::Internal`, and `AppError::Io` all return the hardcoded message `"An internal error occurred"` to clients. The actual error message is always logged via `tracing::error!` for debugging but never exposed in the HTTP response. This prevents leaking internal paths, connection strings, or implementation details.
 
 ### 14.1 Config Load Errors
 

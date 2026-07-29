@@ -30,7 +30,7 @@ pub enum AppError {
     /// - A TLS certificate file path is specified but the file does not exist
     /// - A storage backend configuration references a store name that is not defined
     #[error("Configuration error: {0}")]
-    Config(String),
+    ConfigurationError(String),
 
     /// Validation error (internal / 500).
     ///
@@ -140,6 +140,23 @@ pub enum AppError {
     /// - A query parameter has an invalid format
     #[error("Bad request: {0}")]
     BadRequest(String),
+
+    /// JSONB column validation failure (client / 400).
+    ///
+    /// One or more JSONB column values in the request body failed JSON Schema
+    /// validation. The error includes a summary message and a structured list
+    /// of per-column violation details so clients can highlight specific fields.
+    ///
+    /// # Examples
+    /// - A JSONB `metadata` column is missing a required `title` property
+    /// - A JSONB `tags` array contains non-string elements
+    #[error("JSONB validation failed: {message}")]
+    JsonValidationError {
+        /// Summary message describing the first or most important validation failure.
+        message: String,
+        /// Per-column violation messages. Empty when there is only one error.
+        details: Vec<String>,
+    },
 
     /// Payload too large (client / 413).
     ///
@@ -270,11 +287,25 @@ struct ErrorDetail {
     details: Option<Vec<String>>,
 }
 
+#[derive(Serialize)]
+/// JSON response body for JSONB validation errors with structured per-column details.
+struct JsonValidationErrorBody {
+    error: JsonValidationErrorDetail,
+}
+
+#[derive(Serialize)]
+/// Structured JSONB validation error with a summary and per-column details.
+struct JsonValidationErrorDetail {
+    code: String,
+    message: String,
+    details: Vec<String>,
+}
+
 impl IntoResponse for AppError {
     /// Converts the error into an HTTP response with appropriate status code and JSON body.
     fn into_response(self) -> Response {
         let (status, code) = match &self {
-            Self::Config(e) => {
+            Self::ConfigurationError(e) => {
                 tracing::error!("Configuration error: {e}");
                 (StatusCode::INTERNAL_SERVER_ERROR, "config_error")
             }
@@ -290,7 +321,9 @@ impl IntoResponse for AppError {
             Self::Forbidden(_) => (StatusCode::FORBIDDEN, "forbidden"),
             Self::NotFound(_) => (StatusCode::NOT_FOUND, "not_found"),
             Self::RateLimited(_) => (StatusCode::TOO_MANY_REQUESTS, "rate_limited"),
-            Self::BadRequest(_) => (StatusCode::BAD_REQUEST, "bad_request"),
+            Self::BadRequest(_) | Self::JsonValidationError { .. } => {
+                (StatusCode::BAD_REQUEST, "bad_request")
+            }
             Self::Internal(e) => {
                 tracing::error!("Internal error: {e}");
                 (StatusCode::INTERNAL_SERVER_ERROR, "internal_error")
@@ -314,11 +347,23 @@ impl IntoResponse for AppError {
             }
         };
 
+        // JSONB validation errors use a dedicated response body with structured details.
+        if let Self::JsonValidationError { message, details } = self {
+            let body = JsonValidationErrorBody {
+                error: JsonValidationErrorDetail {
+                    code: "bad_request".to_string(),
+                    message,
+                    details,
+                },
+            };
+            return (status, axum::Json(body)).into_response();
+        }
+
         let (details, message) = match &self {
             // Sanitize database errors to avoid leaking connection strings or SQL.
             Self::Database(_) => (None, "A database error occurred".to_string()),
             // Sanitize other internal errors to avoid leaking paths, connection strings, or internals.
-            Self::Config(_)
+            Self::ConfigurationError(_)
             | Self::Validation(_)
             | Self::FileOperation(_)
             | Self::Internal(_)
@@ -338,52 +383,49 @@ impl IntoResponse for AppError {
         };
 
         let mut response = (status, axum::Json(body)).into_response();
-
-        // If this is a basic auth challenge, include the WWW-Authenticate header.
-        if let Self::AuthChallenge(_, ref challenge) = self
-            && let Ok(val) = http::HeaderValue::from_str(challenge)
-        {
-            response
-                .headers_mut()
-                .insert(http::header::WWW_AUTHENTICATE, val);
-        }
-
-        // If this is a rate limited response, include the Retry-After header.
-        if let Self::RateLimited(retry_secs) = self
-            && let Some(secs) = retry_secs
-            && let Ok(val) = http::HeaderValue::from_str(&secs.to_string())
-        {
-            response
-                .headers_mut()
-                .insert(http::header::RETRY_AFTER, val);
-        }
-
-        // If this is a method not allowed with allowed methods, include the Allow header.
-        if let Self::MethodNotAllowed { ref allowed, .. } = self
-            && !allowed.is_empty()
-        {
-            let allow_value = allowed
-                .iter()
-                .map(HttpMethod::as_str)
-                .collect::<Vec<&str>>()
-                .join(", ");
-            if let Ok(val) = http::HeaderValue::from_str(&allow_value) {
-                response.headers_mut().insert(http::header::ALLOW, val);
-            }
-        }
-
-        // If this is a range not satisfiable with a Content-Range value, include it.
-        if let Self::RequestedRangeNotSatisfiable {
-            ref content_range, ..
-        } = self
-            && let Some(cr) = content_range
-            && let Ok(val) = http::HeaderValue::from_str(cr)
-        {
-            response
-                .headers_mut()
-                .insert(http::header::CONTENT_RANGE, val);
-        }
-
+        add_error_headers(&self, &mut response);
         response
+    }
+}
+
+/// Add protocol-specific headers to an error response (WWW-Authenticate, Retry-After, Allow, Content-Range).
+fn add_error_headers(error: &AppError, response: &mut Response) {
+    if let AppError::AuthChallenge(_, challenge) = error
+        && let Ok(val) = http::HeaderValue::from_str(challenge)
+    {
+        response
+            .headers_mut()
+            .insert(http::header::WWW_AUTHENTICATE, val);
+    }
+
+    if let AppError::RateLimited(retry_secs) = error
+        && let Some(secs) = retry_secs
+        && let Ok(val) = http::HeaderValue::from_str(&secs.to_string())
+    {
+        response
+            .headers_mut()
+            .insert(http::header::RETRY_AFTER, val);
+    }
+
+    if let AppError::MethodNotAllowed { allowed, .. } = error
+        && !allowed.is_empty()
+    {
+        let allow_value = allowed
+            .iter()
+            .map(HttpMethod::as_str)
+            .collect::<Vec<&str>>()
+            .join(", ");
+        if let Ok(val) = http::HeaderValue::from_str(&allow_value) {
+            response.headers_mut().insert(http::header::ALLOW, val);
+        }
+    }
+
+    if let AppError::RequestedRangeNotSatisfiable { content_range, .. } = error
+        && let Some(cr) = content_range
+        && let Ok(val) = http::HeaderValue::from_str(cr)
+    {
+        response
+            .headers_mut()
+            .insert(http::header::CONTENT_RANGE, val);
     }
 }
