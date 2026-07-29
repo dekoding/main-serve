@@ -164,8 +164,9 @@ impl SchemaRegistry {
 
     /// Convert a YAML value to a JSON value for schema compilation.
     fn yaml_to_json(value: &serde_yaml::Value) -> Result<Value, AppError> {
-        serde_json::to_value(value)
-            .map_err(|e| AppError::ConfigurationError(format!("Failed to convert schema value to JSON: {e}")))
+        serde_json::to_value(value).map_err(|e| {
+            AppError::ConfigurationError(format!("Failed to convert schema value to JSON: {e}"))
+        })
     }
 
     /// Return the validators for all schema-validated columns in the given

@@ -90,8 +90,9 @@ pub async fn auth_middleware(
         return Ok(next.run(req).await);
     }
 
-    let auth_config = auth_config
-        .ok_or_else(|| AppError::ConfigurationError("Auth required but no auth config provided".to_string()))?;
+    let auth_config = auth_config.ok_or_else(|| {
+        AppError::ConfigurationError("Auth required but no auth config provided".to_string())
+    })?;
 
     let revocation_store = state.0.revocation_store.get();
     let auth_info = crate::middleware::auth::validate::authenticate(

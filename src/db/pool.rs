@@ -64,7 +64,9 @@ impl DatabasePool {
                     .acquire_timeout(Duration::from_secs(config.acquire_timeout))
                     .connect_with(options)
                     .await
-                    .map_err(|e| AppError::ConfigurationError(format!("Failed to connect to SQLite: {e}")))?;
+                    .map_err(|e| {
+                        AppError::ConfigurationError(format!("Failed to connect to SQLite: {e}"))
+                    })?;
                 Ok(Self::Sqlite(pool))
             }
             DatabaseDriver::Postgres => {
@@ -74,7 +76,9 @@ impl DatabasePool {
                     .acquire_timeout(Duration::from_secs(config.acquire_timeout))
                     .connect(&config.url)
                     .await
-                    .map_err(|e| AppError::ConfigurationError(format!("Failed to connect to Postgres: {e}")))?;
+                    .map_err(|e| {
+                        AppError::ConfigurationError(format!("Failed to connect to Postgres: {e}"))
+                    })?;
                 Ok(Self::Postgres(pool))
             }
             DatabaseDriver::Mysql => {
@@ -84,7 +88,9 @@ impl DatabasePool {
                     .acquire_timeout(Duration::from_secs(config.acquire_timeout))
                     .connect(&config.url)
                     .await
-                    .map_err(|e| AppError::ConfigurationError(format!("Failed to connect to MySQL: {e}")))?;
+                    .map_err(|e| {
+                        AppError::ConfigurationError(format!("Failed to connect to MySQL: {e}"))
+                    })?;
                 Ok(Self::Mysql(pool))
             }
         }

@@ -41,7 +41,9 @@ fn build_rustls_config(tls_config: &TlsConfig) -> Result<ServerConfig, AppError>
     let certs: Vec<rustls::pki_types::CertificateDer<'static>> =
         rustls_pemfile::certs(&mut cert_reader)
             .collect::<Result<Vec<_>, _>>()
-            .map_err(|e| AppError::ConfigurationError(format!("Failed to parse TLS certificates: {e}")))?;
+            .map_err(|e| {
+                AppError::ConfigurationError(format!("Failed to parse TLS certificates: {e}"))
+            })?;
 
     if certs.is_empty() {
         return Err(AppError::ConfigurationError(
@@ -67,10 +69,14 @@ fn build_rustls_config(tls_config: &TlsConfig) -> Result<ServerConfig, AppError>
     let config =
         ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
             .with_safe_default_protocol_versions()
-            .map_err(|e| AppError::ConfigurationError(format!("Failed to set TLS protocol versions: {e}")))?
+            .map_err(|e| {
+                AppError::ConfigurationError(format!("Failed to set TLS protocol versions: {e}"))
+            })?
             .with_no_client_auth()
             .with_single_cert(certs, key)
-            .map_err(|e| AppError::ConfigurationError(format!("Failed to build TLS config: {e}")))?;
+            .map_err(|e| {
+                AppError::ConfigurationError(format!("Failed to build TLS config: {e}"))
+            })?;
 
     Ok(config)
 }

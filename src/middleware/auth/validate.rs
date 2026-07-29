@@ -47,7 +47,9 @@ pub async fn authenticate<'a, S: RevocationStoreBackend>(
 
         "jwt" => {
             let jwt_config = auth_config.jwt.as_ref().ok_or_else(|| {
-                AppError::ConfigurationError("JWT auth configured but no jwt config provided".to_string())
+                AppError::ConfigurationError(
+                    "JWT auth configured but no jwt config provided".to_string(),
+                )
             })?;
 
             // Try Authorization header first, then fall back to OAuth2 cookie.
@@ -106,7 +108,9 @@ pub async fn authenticate<'a, S: RevocationStoreBackend>(
 
         "basic" => {
             let basic_config = auth_config.basic.as_ref().ok_or_else(|| {
-                AppError::ConfigurationError("Basic auth configured but no basic config provided".to_string())
+                AppError::ConfigurationError(
+                    "Basic auth configured but no basic config provided".to_string(),
+                )
             })?;
 
             let auth_header = headers.get("authorization").and_then(|v| v.to_str().ok());
@@ -139,7 +143,9 @@ pub async fn authenticate<'a, S: RevocationStoreBackend>(
 
         "oauth2" => {
             let oauth2_config = auth_config.oauth2.as_ref().ok_or_else(|| {
-                AppError::ConfigurationError("OAuth2 auth configured but no oauth2 config provided".to_string())
+                AppError::ConfigurationError(
+                    "OAuth2 auth configured but no oauth2 config provided".to_string(),
+                )
             })?;
 
             let auth_header = headers
@@ -161,7 +167,9 @@ pub async fn authenticate<'a, S: RevocationStoreBackend>(
             })
         }
 
-        other => Err(AppError::ConfigurationError(format!("Unknown auth type: '{other}'"))),
+        other => Err(AppError::ConfigurationError(format!(
+            "Unknown auth type: '{other}'"
+        ))),
     }
 }
 

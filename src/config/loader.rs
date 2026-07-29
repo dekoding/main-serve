@@ -264,9 +264,13 @@ fn resolve_glob(pattern: &str, base_dir: &Path) -> Result<Vec<PathBuf>, AppError
     })?;
 
     let mut paths: Vec<PathBuf> = glob::glob(pattern_str)
-        .map_err(|e| AppError::ConfigurationError(format!("Invalid $include glob pattern '{pattern}': {e}")))?
+        .map_err(|e| {
+            AppError::ConfigurationError(format!("Invalid $include glob pattern '{pattern}': {e}"))
+        })?
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| AppError::ConfigurationError(format!("Error reading $include glob '{pattern}': {e}")))?;
+        .map_err(|e| {
+            AppError::ConfigurationError(format!("Error reading $include glob '{pattern}': {e}"))
+        })?;
 
     // Sort for deterministic ordering.
     paths.sort();

@@ -135,7 +135,9 @@ pub async fn run_migrations(
             tracing::debug!("DDL: {sql}");
 
             pool.execute_raw(&sql).await.map_err(|e| {
-                AppError::ConfigurationError(format!("Migration failed for table '{table_name}': {e}"))
+                AppError::ConfigurationError(format!(
+                    "Migration failed for table '{table_name}': {e}"
+                ))
             })?;
         } else {
             // Table exists - compute diff and apply ALTER TABLE statements.
@@ -719,9 +721,9 @@ pub async fn ensure_media_columns<S: ::std::hash::BuildHasher + Sync>(
     }
 
     for (db_name, table_name) in &media_tables {
-        let pool = pools
-            .get(db_name)
-            .ok_or_else(|| AppError::ConfigurationError(format!("Database '{db_name}' not found")))?;
+        let pool = pools.get(db_name).ok_or_else(|| {
+            AppError::ConfigurationError(format!("Database '{db_name}' not found"))
+        })?;
 
         let driver = pool.driver();
         let col_exists = match driver {
