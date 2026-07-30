@@ -23,7 +23,7 @@ pub fn validate_endpoints(config: &AppConfig, errors: &mut Vec<String>) {
             EndpointAction::Media => validate_media_endpoint(i, ep, config, errors),
             EndpointAction::FileStore => validate_file_store_endpoint(i, ep, config, errors),
             EndpointAction::CustomResponse => {
-                validate_custom_response_endpoint(i, ep, config, errors)
+                validate_custom_response_endpoint(i, ep, config, errors);
             }
         }
     }

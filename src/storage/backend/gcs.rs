@@ -333,14 +333,9 @@ impl GcsStorage {
         }
 
         // Treat as file path.
-        let contents = tokio::task::spawn_blocking(|| std::fs::read_to_string(raw))
-            .await
-            .map_err(|e| {
-                StorageError::Authentication(format!("Failed to spawn blocking task: {e}"))
-            })?
-            .map_err(|e| {
-                StorageError::Authentication(format!("Failed to read credentials file: {e}"))
-            })?;
+        let contents = std::fs::read_to_string(raw).map_err(|e| {
+            StorageError::Authentication(format!("Failed to read credentials file: {e}"))
+        })?;
 
         let creds: ServiceAccountCredentials = serde_json::from_str(&contents).map_err(|e| {
             StorageError::Authentication(format!("Invalid GCS credentials JSON: {e}"))
