@@ -333,8 +333,11 @@ impl GcsStorage {
         }
 
         // Treat as file path.
-        let contents = tokio::fs::read_to_string(raw)
+        let contents = tokio::task::spawn_blocking(|| std::fs::read_to_string(raw))
             .await
+            .map_err(|e| {
+                StorageError::Authentication(format!("Failed to spawn blocking task: {e}"))
+            })?
             .map_err(|e| {
                 StorageError::Authentication(format!("Failed to read credentials file: {e}"))
             })?;
