@@ -3,6 +3,12 @@ use serde::Deserialize;
 
 use crate::db::query::types::JoinConfig;
 
+/// Maximum possible value for CRUD page size (default and max).
+pub const MAX_PAGE_SIZE: u64 = 100;
+
+/// Minimum possible value for CRUD default page size.
+pub const MIN_DEFAULT_PAGE_SIZE: u64 = 1;
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 /// CRUD-specific configuration for an endpoint.
