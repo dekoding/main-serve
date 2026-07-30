@@ -1,4 +1,6 @@
-use crate::config::types::{AppConfig, EndpointAction, EndpointConfig, MAX_PAGE_SIZE, MIN_DEFAULT_PAGE_SIZE};
+use crate::config::types::{
+    AppConfig, EndpointAction, EndpointConfig, MAX_PAGE_SIZE, MIN_DEFAULT_PAGE_SIZE,
+};
 use crate::db::query::helpers::is_safe_sql_fragment;
 
 /// Validate endpoint configs: correct action types, valid references, etc.
@@ -20,13 +22,20 @@ pub fn validate_endpoints(config: &AppConfig, errors: &mut Vec<String>) {
             EndpointAction::SpaHost => validate_spa_host_endpoint(i, ep, config, errors),
             EndpointAction::Media => validate_media_endpoint(i, ep, config, errors),
             EndpointAction::FileStore => validate_file_store_endpoint(i, ep, config, errors),
-            EndpointAction::CustomResponse => validate_custom_response_endpoint(i, ep, config, errors),
+            EndpointAction::CustomResponse => {
+                validate_custom_response_endpoint(i, ep, config, errors)
+            }
         }
     }
 }
 
 /// Validate a CRUD endpoint's table, database, pagination, and SQL fragments.
-pub fn validate_crud_endpoint(i: usize, ep: &EndpointConfig, config: &AppConfig, errors: &mut Vec<String>) {
+pub fn validate_crud_endpoint(
+    i: usize,
+    ep: &EndpointConfig,
+    config: &AppConfig,
+    errors: &mut Vec<String>,
+) {
     let label = format!("endpoints[{i}] ({})", ep.path);
 
     if let Some(ref crud) = ep.crud {
@@ -103,7 +112,12 @@ pub fn validate_crud_endpoint(i: usize, ep: &EndpointConfig, config: &AppConfig,
 }
 
 /// Validate a proxy endpoint's upstream URL.
-pub fn validate_proxy_endpoint(i: usize, ep: &EndpointConfig, _config: &AppConfig, errors: &mut Vec<String>) {
+pub fn validate_proxy_endpoint(
+    i: usize,
+    ep: &EndpointConfig,
+    _config: &AppConfig,
+    errors: &mut Vec<String>,
+) {
     let label = format!("endpoints[{i}] ({})", ep.path);
 
     if let Some(ref proxy) = ep.proxy {
@@ -118,7 +132,12 @@ pub fn validate_proxy_endpoint(i: usize, ep: &EndpointConfig, _config: &AppConfi
 }
 
 /// Validate a static files endpoint's storage reference.
-pub fn validate_static_files_endpoint(i: usize, ep: &EndpointConfig, config: &AppConfig, errors: &mut Vec<String>) {
+pub fn validate_static_files_endpoint(
+    i: usize,
+    ep: &EndpointConfig,
+    config: &AppConfig,
+    errors: &mut Vec<String>,
+) {
     let label = format!("endpoints[{i}] ({})", ep.path);
 
     if let Some(ref sf) = ep.static_files {
@@ -138,7 +157,12 @@ pub fn validate_static_files_endpoint(i: usize, ep: &EndpointConfig, config: &Ap
 }
 
 /// Validate a SPA host endpoint's storage reference.
-pub fn validate_spa_host_endpoint(i: usize, ep: &EndpointConfig, config: &AppConfig, errors: &mut Vec<String>) {
+pub fn validate_spa_host_endpoint(
+    i: usize,
+    ep: &EndpointConfig,
+    config: &AppConfig,
+    errors: &mut Vec<String>,
+) {
     let label = format!("endpoints[{i}] ({})", ep.path);
 
     if let Some(ref spa) = ep.spa_host {
@@ -158,7 +182,12 @@ pub fn validate_spa_host_endpoint(i: usize, ep: &EndpointConfig, config: &AppCon
 }
 
 /// Validate a media endpoint's storage, table, and database references.
-pub fn validate_media_endpoint(i: usize, ep: &EndpointConfig, config: &AppConfig, errors: &mut Vec<String>) {
+pub fn validate_media_endpoint(
+    i: usize,
+    ep: &EndpointConfig,
+    config: &AppConfig,
+    errors: &mut Vec<String>,
+) {
     let label = format!("endpoints[{i}] ({})", ep.path);
 
     if let Some(ref media) = ep.media {
@@ -194,7 +223,12 @@ pub fn validate_media_endpoint(i: usize, ep: &EndpointConfig, config: &AppConfig
 }
 
 /// Validate a file store endpoint's storage, table, and database references.
-pub fn validate_file_store_endpoint(i: usize, ep: &EndpointConfig, config: &AppConfig, errors: &mut Vec<String>) {
+pub fn validate_file_store_endpoint(
+    i: usize,
+    ep: &EndpointConfig,
+    config: &AppConfig,
+    errors: &mut Vec<String>,
+) {
     let label = format!("endpoints[{i}] ({})", ep.path);
 
     if let Some(ref fs) = ep.file_store {
@@ -230,7 +264,12 @@ pub fn validate_file_store_endpoint(i: usize, ep: &EndpointConfig, config: &AppC
 }
 
 /// Validate a custom response endpoint's HTTP status code.
-pub fn validate_custom_response_endpoint(i: usize, ep: &EndpointConfig, _config: &AppConfig, errors: &mut Vec<String>) {
+pub fn validate_custom_response_endpoint(
+    i: usize,
+    ep: &EndpointConfig,
+    _config: &AppConfig,
+    errors: &mut Vec<String>,
+) {
     const HTTP_STATUS_MIN: u16 = 100;
     const HTTP_STATUS_MAX: u16 = 599;
     let label = format!("endpoints[{i}] ({})", ep.path);
