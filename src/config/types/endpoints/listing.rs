@@ -52,7 +52,7 @@ impl Default for FilteringConfig {
 pub struct SortingConfig {
     /// Whether sorting is active.
     pub enabled: bool,
-    /// Default sort field (empty = primary key).
+    /// Default sort field. Empty means use the primary key (per spec section 13.1).
     pub default_field: String,
     /// Default sort direction.
     pub default_order: SortOrder,

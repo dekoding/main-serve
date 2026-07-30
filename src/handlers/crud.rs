@@ -103,7 +103,7 @@ async fn handle_list<S: BuildHasher + Send + Sync>(
     let built = match build_select_list(db_ctx, select_ctx, &qp, context) {
         Ok(q) => q,
         Err(e) => {
-            tracing::error!("build_select_list failed: {:?}", e);
+            tracing::error!("build_select_list failed: {e}");
             return Err(e);
         }
     };
