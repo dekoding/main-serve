@@ -1,7 +1,8 @@
-/// CRUD query builders for all endpoint types.
-///
-/// Each query builder function produces a `BuiltQuery` with a parameterized
-/// SQL string and its associated bind parameters.
+//! CRUD query builders for all endpoint types.
+//!
+//! Each query builder function produces a `BuiltQuery` with a parameterized
+//! SQL string and its associated bind parameters.
+
 mod delete_builder;
 mod file_ref;
 mod insert_builder;

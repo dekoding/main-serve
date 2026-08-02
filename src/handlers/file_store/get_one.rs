@@ -1,3 +1,4 @@
+//! Retrieve a single file store entry by ID.
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 

@@ -1,3 +1,4 @@
+//! Request body size limiting middleware.
 use axum::body::Body;
 use axum::extract::State;
 use axum::http::Request;

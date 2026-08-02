@@ -1,4 +1,4 @@
-/// Media trash management handlers.
+//! Trash management for media entries.
 use std::path::Path;
 
 use axum::http::StatusCode;

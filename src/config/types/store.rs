@@ -1,13 +1,12 @@
-/// Named storage backend configuration types.
-///
-/// Defines `StoreConfig` and backend-specific configs (S3, Azure, GCS)
-/// that endpoints reference by name via the `stores` section of the YAML config.
+//! Storage backend configuration types.
+//!
+//! Defines `StoreConfig` and backend-specific configs (S3, Azure, GCS)
+//! that endpoints reference by name via the `stores` section of the YAML config.
 use serde::Deserialize;
 
 /// Top-level store definition - references a named storage backend.
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// `StoreConfig`
 pub struct StoreConfig {
     /// Storage backend type: "native" (local disk), "s3" (Amazon S3),
     /// "azure" (Azure Blob Storage), "gcs" (Google Cloud Storage),

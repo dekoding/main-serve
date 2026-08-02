@@ -1,7 +1,7 @@
-/// Reverse proxy handler: forwards requests to upstream servers.
-///
-/// Supports path rewriting, custom header injection, and per-endpoint timeouts.
-/// Uses `reqwest` with `rustls-tls` as the HTTP client.
+//! Reverse proxy endpoint handler.
+//!
+//! Supports path rewriting, custom header injection, and per-endpoint timeouts.
+//! Uses `reqwest` with `rustls-tls` as the HTTP client.
 use std::sync::OnceLock;
 use std::time::Duration;
 

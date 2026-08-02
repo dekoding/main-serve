@@ -1,3 +1,4 @@
+//! Server configuration types (host, port, TLS, workers).
 use serde::Deserialize;
 use std::fmt;
 
@@ -7,7 +8,6 @@ const DEFAULT_MAX_BODY_SIZE: usize = 10 * 1024 * 1024;
 /// Server bind address, port, TLS, and runtime settings.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// `ServerConfig`
 pub struct ServerConfig {
     /// Bind address (e.g. `"127.0.0.1"` or `"0.0.0.0"`).
     pub host: String,

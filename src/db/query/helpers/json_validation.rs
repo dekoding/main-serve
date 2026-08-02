@@ -1,8 +1,8 @@
-/// JSON Schema validation helpers for JSONB column validation in CRUD handlers.
-///
-/// Validates JSON values in request bodies against per-column JSON schemas
-/// configured in the YAML config. Validation runs at the handler level,
-/// before SQL building, to catch schema violations with clear error messages.
+//! JSON Schema validation utilities for JSONB columns.
+//!
+//! Validates JSON values in request bodies against per-column JSON schemas
+//! configured in the YAML config. Validation runs at the handler level,
+//! before SQL building, to catch schema violations with clear error messages.
 use serde_json::Value;
 
 use crate::config::schema_registry::{SchemaRegistry, validate_json_with_schema};

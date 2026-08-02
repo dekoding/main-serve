@@ -1,4 +1,4 @@
-/// Media library endpoint configuration types.
+//! Media action configuration types.
 use serde::Deserialize;
 
 use super::common::{

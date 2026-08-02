@@ -1,4 +1,4 @@
-/// Media sharing handlers.
+//! Public share link generation and access.
 use std::path::Path;
 
 use axum::http::StatusCode;

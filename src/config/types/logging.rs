@@ -1,9 +1,9 @@
+//! Logging configuration types.
 use serde::Deserialize;
 
 /// Logging level and output format configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// `LoggingConfig`
 pub struct LoggingConfig {
     /// Log verbosity level.
     pub level: LogLevel,

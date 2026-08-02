@@ -1,4 +1,4 @@
-/// Media content reference handlers (attach/detach).
+//! Content reference management for media entries.
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 

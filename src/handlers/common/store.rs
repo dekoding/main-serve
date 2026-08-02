@@ -1,7 +1,7 @@
-/// Shared storage resolution helpers.
-///
-/// Eliminates duplicated store resolution logic across media, `file_store`,
-/// `spa_host`, and `static_files` handlers.
+//! Storage backend resolution from endpoint configuration.
+//!
+//! Eliminates duplicated store resolution logic across media, `file_store`,
+//! `spa_host`, and `static_files` handlers.
 use std::path::PathBuf;
 use std::sync::Arc;
 

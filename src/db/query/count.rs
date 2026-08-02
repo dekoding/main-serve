@@ -1,8 +1,8 @@
-/// COUNT query builder for list pagination.
-///
-/// Generates `SELECT COUNT(*) ...` with the same WHERE clause filters as the
-/// corresponding list query, ensuring JSONB support, bracket notation, and
-/// multiple filter handling are consistent with the full `SelectBuilder` pipeline.
+//! Count query generation and helper utilities.
+//!
+//! Generates `SELECT COUNT(*) ...` with the same WHERE clause filters as the
+//! corresponding list query, ensuring JSONB support, bracket notation, and
+//! multiple filter handling are consistent with the full `SelectBuilder` pipeline.
 use crate::config::types::{DatabaseDriver, TableConfig};
 use crate::db::query::select::SelectBuilder;
 use crate::db::query::types::{BuiltQuery, QueryParams, SelectContext};

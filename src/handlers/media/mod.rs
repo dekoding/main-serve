@@ -1,22 +1,14 @@
-/// Media library handler.
+//! Media library handler: upload, trash, sharing, content references, and image resizing.
+
 pub mod content_refs;
-/// create
 pub mod create;
-/// delete
 pub mod delete;
-/// list
 pub mod list;
-/// `move_rename`
 pub mod move_rename;
-/// resize
 pub mod resize;
-/// sharing
 pub mod sharing;
-/// trash
 pub mod trash;
-/// update
 pub mod update;
-/// upload
 pub mod upload;
 
 use std::collections::HashMap;

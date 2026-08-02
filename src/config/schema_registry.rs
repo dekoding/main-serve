@@ -1,8 +1,8 @@
-/// Schema registry: loads JSON schemas from config, compiles them, and
-/// provides per-column validators for the CRUD handlers.
-///
-/// The registry is built once at config load time and is shareable across
-/// requests (via `Arc`).
+//! Schema registry: loads JSON schemas from config, compiles them, and
+//! provides per-column validators for the CRUD handlers.
+//!
+//! The registry is built once at config load time and is shareable across
+//! requests (via `Arc`).
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

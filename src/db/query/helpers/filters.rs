@@ -1,3 +1,4 @@
+//! Filter expression parsing, validation, and SQL generation.
 use crate::config::types::ColumnConfig;
 use crate::db::query::helpers::compile_regex;
 use crate::db::query::helpers::{

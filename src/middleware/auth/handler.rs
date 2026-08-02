@@ -1,8 +1,8 @@
-/// `OAuth2` endpoint handlers.
-///
-/// Handles the `OAuth2` authorization code flow:
-/// - `GET /_main-serve/oauth2/authorize` - redirects to `IdP`
-/// - `GET /_main-serve/oauth2/callback` - handles `IdP` callback
+//! `OAuth2` authorization code flow handler.
+//!
+//! Handles the `OAuth2` authorization code flow:
+//! - `GET /_main-serve/oauth2/authorize` - redirects to `IdP`
+//! - `GET /_main-serve/oauth2/callback` - handles `IdP` callback
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;

@@ -1,3 +1,4 @@
+//! Delete uploaded files.
 use std::path::Path;
 
 use axum::http::StatusCode;

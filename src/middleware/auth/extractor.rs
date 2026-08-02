@@ -1,6 +1,6 @@
-/// Auth middleware extractors for use in handlers.
-///
-/// Provides Axum extractors for `AuthInfo` and `RequestContext`.
+//! Authentication info extraction from request headers.
+//!
+//! Provides Axum extractors for `AuthInfo` and `RequestContext`.
 use axum::{extract::FromRequestParts, http::StatusCode};
 use http::request::Parts;
 use std::convert::Infallible;
@@ -9,7 +9,6 @@ use std::convert::Infallible;
 ///
 /// Extracted by the auth middleware from request credentials.
 #[derive(Debug, Clone, Default)]
-/// `AuthInfo`
 pub struct AuthInfo {
     /// The authenticated user's identifier (sub claim, username, key id, etc.).
     pub subject: String,
@@ -41,7 +40,6 @@ impl AuthInfo {
 /// Returns `AuthInfo` if the user is authenticated, or returns a 401 Unauthorized
 /// response if authentication is missing or invalid.
 #[derive(Debug)]
-/// `AuthInfo`
 pub struct RequireAuth(pub AuthInfo);
 
 /// Extractor for optional authentication.
@@ -49,7 +47,6 @@ pub struct RequireAuth(pub AuthInfo);
 /// Returns `Option<AuthInfo>` - `Some(AuthInfo)` if authenticated, or `None`
 /// if authentication is not present or invalid.
 #[derive(Debug)]
-/// Option
 pub struct OptionalAuth(pub Option<AuthInfo>);
 
 impl<S> FromRequestParts<S> for RequireAuth
@@ -89,7 +86,6 @@ where
 ///
 /// Populated by the auth middleware and made available to handlers.
 #[derive(Debug, Clone)]
-/// `RequestContext`
 pub struct RequestContext {
     /// The unique identifier of the authenticated user, if any.
     pub user_id: Option<String>,
@@ -119,7 +115,6 @@ impl Default for RequestContext {
 /// This is a lightweight type used primarily in tests and internal helpers
 /// to populate the user-specific fields of a `RequestContext`.
 #[derive(Debug, Clone)]
-/// `UserInfo`
 pub struct UserInfo {
     /// The unique identifier of the user.
     pub id: String,

@@ -1,3 +1,4 @@
+//! INSERT query builder.
 use crate::config::types::{ColumnType, DatabaseDriver};
 use crate::db::query::helpers::{
     coerce_filter_value_by_type, find_pk_column, interpolate_value, is_valid_identifier,

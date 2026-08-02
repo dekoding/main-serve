@@ -1,16 +1,11 @@
-/// File store (database-backed file catalog) handler.
+//! File store (database-backed file catalog) handler.
+
 pub mod content_refs;
-/// Create new file store entries.
 pub mod create;
-/// Delete file store entries.
 pub mod delete;
-/// Retrieve a single file store entry by ID.
 pub mod get_one;
-/// List file store entries with filtering, sorting, and pagination.
 pub mod list;
-/// Trash management for file store entries.
 pub mod trash;
-/// Update file store entries.
 pub mod update;
 
 use std::collections::HashMap;
@@ -71,13 +66,14 @@ impl FileStoreContext<'_> {
 /// Returns an `AppError::NotFound` if the endpoint is not found, or an error
 /// if the requested action is not supported or authentication fails.
 #[allow(clippy::implicit_hasher)]
+// Needs the implicit hasher for queries.
 pub async fn handle_file_store_route(
     state: axum::extract::State<AppState>,
     matched_path: axum::extract::MatchedPath,
     method: axum::http::Method,
     uri: axum::http::Uri,
     headers: axum::http::HeaderMap,
-    #[allow(clippy::implicit_hasher)] query: axum::extract::Query<HashMap<String, String>>,
+    query: axum::extract::Query<HashMap<String, String>>,
     body: axum::body::Bytes,
 ) -> Result<Response, AppError> {
     let path_str = matched_path.as_str();

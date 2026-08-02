@@ -1,3 +1,4 @@
+//! CORS middleware: constructs and applies CORS policies from config.
 use axum::http::{HeaderValue, header};
 use axum::response::Response;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};

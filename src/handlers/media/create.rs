@@ -1,3 +1,4 @@
+//! Create new media entries.
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 

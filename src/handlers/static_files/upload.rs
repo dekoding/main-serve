@@ -1,3 +1,4 @@
+//! File upload handling with validation and storage.
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

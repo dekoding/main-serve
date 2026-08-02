@@ -1,8 +1,8 @@
-/// API key validation (header or query parameter).
-///
-/// Looks up the API key from the configured location (header name or query
-/// parameter) and validates it against the list of known keys. Returns the
-/// associated role if the key is found.
+//! API key credential validation.
+//!
+//! Looks up the API key from the configured location (header name or query
+//! parameter) and validates it against the list of known keys. Returns the
+//! associated role if the key is found.
 use axum::http::HeaderMap;
 use std::collections::HashMap;
 use subtle::ConstantTimeEq;

@@ -1,10 +1,7 @@
-/// delete
+//! Static file serving handler: upload, directory listing, range requests, and file serving.
+
 pub mod delete;
-/// directory
 pub mod directory;
-/// routing
 pub mod routing;
-/// serving
 pub mod serving;
-/// upload
 pub mod upload;

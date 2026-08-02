@@ -1,7 +1,7 @@
-/// Database connection pool creation and lifecycle management.
-///
-/// Wraps sqlx's driver-specific pools behind a unified `DatabasePool` enum.
-/// Pools are created from YAML config and stored in `AppState` by name.
+//! Database connection pool creation and lifecycle management.
+//!
+//! Wraps sqlx's driver-specific pools behind a unified `DatabasePool` enum.
+//! Pools are created from YAML config and stored in `AppState` by name.
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -13,7 +13,6 @@ use crate::error::AppError;
 
 /// A database connection pool that abstracts over the supported backends.
 #[derive(Debug, Clone)]
-/// `DatabasePool`
 pub enum DatabasePool {
     /// `SQLite` connection pool.
     Sqlite(sqlx::SqlitePool),

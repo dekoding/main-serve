@@ -1,4 +1,4 @@
-/// Token revocation and user registration/login handlers.
+//! User registration endpoint handler.
 use axum::{
     Json,
     extract::{Request, State},
@@ -121,7 +121,6 @@ pub async fn handle_revoke(
 
 /// Request body for user registration.
 #[derive(Deserialize)]
-/// `RegisterRequest`
 pub struct RegisterRequest {
     /// User's email address.
     pub email: String,
@@ -134,7 +133,6 @@ pub struct RegisterRequest {
 
 /// Request body for user login.
 #[derive(Deserialize)]
-/// `LoginRequest`
 pub struct LoginRequest {
     /// User's email address.
     pub email: String,
@@ -144,7 +142,6 @@ pub struct LoginRequest {
 
 /// Response body for auth endpoints.
 #[derive(serde::Serialize)]
-/// `AuthResponse`
 pub struct AuthResponse {
     /// The minted JWT token.
     pub token: String,

@@ -1,3 +1,7 @@
+//! HTTP router construction and endpoint registration.
+//!
+//! Builds the axum `Router` from the parsed configuration, wiring up
+//! handlers, middleware, and path-matching logic.
 use axum::routing::MethodRouter;
 use std::collections::HashMap;
 use tower_http::compression::CompressionLayer;

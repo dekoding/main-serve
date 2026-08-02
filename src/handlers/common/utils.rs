@@ -1,7 +1,7 @@
-/// Shared handler utilities: auth extraction, DB context, and ID extraction.
-///
-/// These functions are duplicated across media, `file_store`, and `static_files`
-/// modules. They are centralized here to maintain a single source of truth.
+//! Handler utilities: context types, response helpers, and common logic.
+//!
+//! These functions are duplicated across media, `file_store`, and `static_files`
+//! modules. They are centralized here to maintain a single source of truth.
 use std::collections::HashMap;
 use std::path::Path;
 

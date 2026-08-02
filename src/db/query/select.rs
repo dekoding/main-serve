@@ -1,8 +1,8 @@
-/// Core SELECT query builder pipeline.
-///
-/// Accumulates the clauses of a SELECT statement so that both list and
-/// single-get queries share the same logic for fields, joins, computed
-/// fields, and WHERE conditions.
+//! List and paginated query selection builders.
+//!
+//! Accumulates the clauses of a SELECT statement so that both list and
+//! single-get queries share the same logic for fields, joins, computed
+//! fields, and WHERE conditions.
 use std::collections::HashMap;
 use std::fmt::Write;
 

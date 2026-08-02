@@ -1,31 +1,23 @@
 //! Endpoint definitions and action-specific configurations.
 //!
 //! Types are organized into submodules by action type:
-//! - `common` - EndpointConfig, HttpMethod, RolesConfig, EndpointAction, and shared helpers
-//! - `crud` - CrudConfig, PaginationConfig, FilteringConfig, SortingConfig
-//! - `proxy` - ProxyConfig, PathRewriteConfig, ProxyTimeouts
-//! - `static_files` - StaticFilesConfig, UploadConfig, ImageResizeConfig, StreamingConfig
-//! - `media` - MediaConfig and all media-specific config types
-//! - `file_store` - FileStoreConfig and file store-specific config types
-//! - `spa_host` - SpaHostConfig
-//! - `custom_response` - CustomResponseConfig
-/// common
+//! - `common` - `EndpointConfig`, `HttpMethod`, `RolesConfig`, `EndpointAction`, and shared helpers
+//! - `crud` - `CrudConfig`, `PaginationConfig`, `FilteringConfig`, `SortingConfig`
+//! - `proxy` - `ProxyConfig`, `PathRewriteConfig`, `ProxyTimeouts`
+//! - `static_files` - `StaticFilesConfig`, `UploadConfig`, `ImageResizeConfig`, `StreamingConfig`
+//! - `media` - `MediaConfig` and all media-specific config types
+//! - `file_store` - `FileStoreConfig` and file store-specific config types
+//! - `spa_host` - `SpaHostConfig`
+//! - `custom_response` - `CustomResponseConfig`
+
 pub mod common;
-/// crud
 pub mod crud;
-/// `custom_response`
 pub mod custom_response;
-/// `file_store`
 pub mod file_store;
-/// listing
 pub mod listing;
-/// media
 pub mod media;
-/// proxy
 pub mod proxy;
-/// `spa_host`
 pub mod spa_host;
-/// `static_files`
 pub mod static_files;
 
 pub use common::*;

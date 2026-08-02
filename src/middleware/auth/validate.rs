@@ -1,8 +1,8 @@
-/// Authentication validation functions used by the auth middleware.
-///
-/// These functions perform the actual credential validation and role checking
-/// but do not contain middleware logic. They're designed to be called from
-/// middleware layers or handlers.
+//! Authentication and role verification logic.
+//!
+//! These functions perform the actual credential validation and role checking
+//! but do not contain middleware logic. They're designed to be called from
+//! middleware layers or handlers.
 use std::collections::{HashMap, HashSet};
 
 use axum::http::HeaderMap;

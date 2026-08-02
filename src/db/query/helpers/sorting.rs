@@ -1,3 +1,4 @@
+//! Sort field parsing and SQL ORDER BY clause generation.
 use crate::{
     config::types::listing::SortOrder,
     db::query::{

@@ -1,3 +1,4 @@
+//! SELECT query builder.
 use crate::db::query::helpers::{coerce_pk_value, find_pk_column, resolve_fields};
 use crate::db::query::select::SelectBuilder;
 use crate::db::query::types::{BuiltQuery, SelectContext};

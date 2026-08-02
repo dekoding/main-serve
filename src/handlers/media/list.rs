@@ -1,4 +1,4 @@
-/// Media list and get handlers.
+//! List and retrieve media entries.
 use std::collections::HashMap;
 
 use axum::http::StatusCode;
@@ -22,8 +22,8 @@ use crate::middleware::auth::extractor::RequestContext;
     clippy::cast_precision_loss,
     clippy::cast_sign_loss
 )]
-/// Conversions to f64 and back to u64 are intentional for computing
-/// `total_pages` via ceiling division for DB pagination parameters.
+// Conversions to f64 and back to u64 are intentional for computing
+// `total_pages` via ceiling division for DB pagination parameters.
 pub async fn handle_media_list<S: std::hash::BuildHasher + Send + Sync>(
     db_ctx: &DatabaseContext,
     config: &MediaConfig,

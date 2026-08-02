@@ -1,4 +1,4 @@
-/// Common endpoint configuration types shared across all action types.
+//! `EndpointConfig`, `HttpMethod`, `RolesConfig`, and shared helpers.
 use serde::Deserialize;
 use std::path::Path;
 

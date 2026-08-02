@@ -1,7 +1,7 @@
-/// Dedicated UPDATE query builders for common non-CRUD patterns.
-///
-/// These functions handle UPDATE queries that don't fit the general CRUD builder API,
-/// such as trash operations and file path updates.
+//! Update query builder.
+//!
+//! These functions handle UPDATE queries that don't fit the general CRUD builder API,
+//! such as trash operations and file path updates.
 use crate::config::types::DatabaseDriver;
 use crate::db::query::helpers::{now_expr, placeholder, quote_identifier};
 use crate::db::query::types::BuiltQuery;

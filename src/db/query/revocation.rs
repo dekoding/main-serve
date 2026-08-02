@@ -1,8 +1,8 @@
-/// Token revocation store query builders.
-///
-/// Contains functions for building SQL queries used by the database-backed
-/// JWT token revocation store (`DatabaseRevocationStore` in `server/state.rs`).
-/// Each function generates driver-specific SQL for the supported backends.
+//! Query revocation logic.
+//!
+//! Contains functions for building SQL queries used by the database-backed
+//! JWT token revocation store (`DatabaseRevocationStore` in `server/state.rs`).
+//! Each function generates driver-specific SQL for the supported backends.
 use crate::config::types::DatabaseDriver;
 use crate::db::query::helpers::{now_expr, placeholder, quote_identifier};
 use crate::db::query::types::BuiltQuery;

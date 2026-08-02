@@ -1,7 +1,7 @@
-/// Custom/static response handler for fixed JSON, HTML, or template responses.
-///
-/// Returns a pre-configured response body, status code, content type, and headers.
-/// For 3xx redirect responses, returns a response with the correct status code and Location header.
+//! Custom static response endpoint handler.
+//!
+//! Returns a pre-configured response body, status code, content type, and headers.
+//! For 3xx redirect responses, returns a response with the correct status code and Location header.
 use axum::http::{HeaderName, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 

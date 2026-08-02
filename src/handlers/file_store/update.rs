@@ -1,3 +1,4 @@
+//! Update file store entries.
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 

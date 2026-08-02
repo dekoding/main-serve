@@ -1,3 +1,4 @@
+//! Delete file store entries.
 use std::path::PathBuf;
 
 use axum::http::StatusCode;

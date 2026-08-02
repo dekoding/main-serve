@@ -1,4 +1,4 @@
-/// Database connection and table schema configuration.
+//! Database connection and table schema configuration types.
 use serde::{Deserialize, Serialize};
 
 /// Default pool acquire timeout in seconds.
@@ -11,7 +11,6 @@ pub const DEFAULT_MIN_CONNECTIONS: u32 = 1;
 /// A named database connection configuration.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// `DatabaseConfig`
 pub struct DatabaseConfig {
     /// Database backend to use.
     pub driver: DatabaseDriver,

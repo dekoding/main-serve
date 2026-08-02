@@ -1,9 +1,9 @@
+//! File and directory metadata types for storage backends.
 use std::path::PathBuf;
 use std::time::SystemTime;
 
 /// Metadata for a file or directory entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
-/// `FileMetadata`
 pub struct FileMetadata {
     /// Name of the file or directory.
     pub name: String,
@@ -39,7 +39,6 @@ impl FileMetadata {
 
 /// A directory entry.
 #[derive(Debug, Clone, PartialEq, Eq)]
-/// `DirEntry`
 pub struct DirEntry {
     /// Name of the entry.
     pub name: String,

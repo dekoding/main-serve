@@ -1,8 +1,8 @@
-/// Shared path utilities for file storage operations.
-///
-/// These functions handle storage path construction, filename sanitization,
-/// and subdirectory pattern expansion used by uploads across media and
-/// `static_files` handlers.
+//! Path construction and sanitization for file storage.
+//!
+//! These functions handle storage path construction, filename sanitization,
+//! and subdirectory pattern expansion used by uploads across media and
+//! `static_files` handlers.
 use std::path::Path;
 use std::sync::Arc;
 
@@ -91,8 +91,8 @@ pub fn sanitize_filename(name: &str, is_upload: bool) -> Result<String, AppError
 ///
 /// Returns an `AppError::Forbidden` if the resulting path is outside the root.
 #[allow(clippy::literal_string_with_formatting_args)]
-/// Template substitution patterns like `{user_id}` use `.replace()`, not
-/// `format!()`, so the clippy lint about format-like strings does not apply.
+// Template substitution patterns like `{user_id}` use `.replace()`, not
+// `format!()`, so the clippy lint about format-like strings does not apply.
 pub fn build_storage_path(
     root: &Path,
     filename: &str,

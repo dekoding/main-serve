@@ -1,4 +1,4 @@
-/// File store (database-backed file catalog) configuration types.
+//! File store action configuration types.
 use std::collections::HashMap;
 
 use serde::Deserialize;

@@ -1,3 +1,4 @@
+//! Configuration validation: semantic checks on parsed `AppConfig`.
 mod auth;
 mod databases;
 mod endpoints;

@@ -1,3 +1,4 @@
+//! Storage backend configuration validation.
 use std::collections::HashMap;
 
 use crate::config::types::{StoreBackend, StoreConfig};

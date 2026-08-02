@@ -1,13 +1,13 @@
-/// Shared image resize logic used by `static_files` and media handlers.
-///
-/// Both modules needed identical implementations for:
-/// - Parsing resize query parameters (w, h, fit, format)
-/// - Calculating target dimensions
-/// - Resizing with Lanczos3 filter
-/// - Encoding to output format
-///
-/// This module centralizes that logic so both callers can focus on
-/// their specific response-building responsibilities.
+//! Image resizing logic for static files and media.
+//!
+//! Both modules needed identical implementations for:
+//! - Parsing resize query parameters (w, h, fit, format)
+//! - Calculating target dimensions
+//! - Resizing with Lanczos3 filter
+//! - Encoding to output format
+//!
+//! This module centralizes that logic so both callers can focus on
+//! their specific response-building responsibilities.
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 
