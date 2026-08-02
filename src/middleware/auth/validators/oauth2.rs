@@ -1,8 +1,8 @@
+//! `OAuth2` token introspection and code flow validation.
+//!
+//! Provides validation functions for externally-obtained Bearer tokens.
+//! The authorization code flow handlers are in `middleware::auth::handler`.
 use base64::Engine;
-/// OAuth2/OIDC authentication validation.
-///
-/// Provides validation functions for externally-obtained Bearer tokens.
-/// The authorization code flow handlers are in `middleware::auth::handler`.
 use sha2::Digest;
 
 use std::collections::HashMap;
@@ -13,7 +13,6 @@ use crate::error::AppError;
 
 /// Pending `OAuth2` authorization flow (stored between authorize and callback).
 #[derive(Debug)]
-/// `PendingOAuth2`
 pub struct PendingOAuth2 {
     /// PKCE code verifier to include in the token exchange.
     pub code_verifier: String,

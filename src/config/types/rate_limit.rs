@@ -1,9 +1,9 @@
+//! Rate limiting configuration types.
 use serde::Deserialize;
 
 /// Rate limiting configuration (global or per-endpoint override).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-/// `RateLimitConfig`
 pub struct RateLimitConfig {
     /// Whether rate limiting is active.
     pub enabled: bool,
@@ -42,7 +42,6 @@ impl Default for RateLimitConfig {
 /// How to extract the rate-limit key from a request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
-/// `RateLimitKeyStrategy`
 pub enum RateLimitKeyStrategy {
     /// Use the client's remote IP address as the key.
     Ip,

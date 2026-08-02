@@ -1,4 +1,4 @@
-/// Validate table schemas reference existing databases and have valid columns.
+//! Table schema validation.
 pub fn validate_tables(config: &crate::config::types::AppConfig, errors: &mut Vec<String>) {
     // Check for duplicate table name + database combinations
     let mut seen_tables = std::collections::HashSet::new();

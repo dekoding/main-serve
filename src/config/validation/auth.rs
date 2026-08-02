@@ -1,3 +1,4 @@
+//! Authentication configuration validation.
 use std::collections::HashMap;
 
 use crate::config::types::{AppConfig, RoleHierarchy};

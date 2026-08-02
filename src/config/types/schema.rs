@@ -1,8 +1,8 @@
-/// JSON Schema types for column-level validation.
-///
-/// Provides `JsonSchema` (a compiled JSON Schema), `SchemaSource`
-/// (tracking where the schema came from), and `GlobalSchema` (named schemas
-/// stored in `global_schemas`).
+//! JSON Schema types for column-level validation.
+//!
+//! Provides `JsonSchema` (a compiled JSON Schema), `SchemaSource`
+//! (tracking where the schema came from), and `GlobalSchema` (named schemas
+//! stored in `global_schemas`).
 use std::path::PathBuf;
 
 use jsonschema::Validator;

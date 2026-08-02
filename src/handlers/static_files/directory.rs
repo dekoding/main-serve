@@ -1,3 +1,4 @@
+//! Directory listing and traversal.
 use std::fmt::Write;
 use std::path::Path;
 

@@ -1,9 +1,9 @@
-/// AWS S3 storage backend implementation.
-///
-/// Implements the `Storage` trait using the AWS SDK for Rust (s3 1.x) to perform
-/// file operations against an S3 bucket. Uses virtual directories (prefixes
-/// ending with `/`) to represent directory structures, and directory marker
-/// objects for empty directories.
+//! AWS S3 storage backend.
+//!
+//! Implements the `Storage` trait using the AWS SDK for Rust (s3 1.x) to perform
+//! file operations against an S3 bucket. Uses virtual directories (prefixes
+//! ending with `/`) to represent directory structures, and directory marker
+//! objects for empty directories.
 use std::path::{Path, PathBuf};
 
 use aws_credential_types::Credentials;

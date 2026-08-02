@@ -1,3 +1,4 @@
+//! Native filesystem storage backend.
 use std::path::{Path, PathBuf};
 
 use tokio::fs;
@@ -14,7 +15,6 @@ use std::os::unix::fs::MetadataExt;
 /// root directory. All paths passed to storage methods are resolved
 /// relative to this root.
 #[derive(Clone)]
-/// `NativeStorage`
 pub struct NativeStorage {
     /// Root directory for this storage instance.
     /// All paths are resolved relative to this directory.

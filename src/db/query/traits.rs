@@ -1,3 +1,5 @@
+//! Traits and interfaces for query builder implementations.
+
 /// Sub-trait for equality operators (eq / ne).
 ///
 /// Default implementations use `=` for equality and `<>` for inequality,

@@ -1,11 +1,11 @@
-/// Generic CRUD handlers driven by YAML endpoint configuration.
-///
-/// Each CRUD endpoint is dispatched by HTTP method:
-/// - GET (no path param)  -> list records (with pagination, filtering, sorting)
-/// - GET (with path param) -> get single record by PK
-/// - POST                  -> insert new record
-/// - PUT / PATCH           -> update record by PK
-/// - DELETE                -> delete record by PK
+//! CRUD endpoint handler: dispatches to select, insert, update, and delete builders.
+//!
+//! Each CRUD endpoint is dispatched by HTTP method:
+//! - GET (no path param)  -> list records (with pagination, filtering, sorting)
+//! - GET (with path param) -> get single record by PK
+//! - POST                  -> insert new record
+//! - PUT / PATCH           -> update record by PK
+//! - DELETE                -> delete record by PK
 use std::collections::HashMap;
 use std::hash::BuildHasher;
 

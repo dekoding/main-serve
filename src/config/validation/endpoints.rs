@@ -1,3 +1,4 @@
+//! Endpoint configuration validation.
 use crate::config::types::{
     AppConfig, EndpointAction, EndpointConfig, MAX_PAGE_SIZE, MIN_DEFAULT_PAGE_SIZE,
 };

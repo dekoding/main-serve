@@ -1,3 +1,4 @@
+//! File reference query builders for content references.
 use crate::config::types::DatabaseDriver;
 use crate::db::query::helpers::{placeholder, quote_identifier};
 use crate::db::query::types::BuiltQuery;

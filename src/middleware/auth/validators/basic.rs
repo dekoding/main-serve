@@ -1,7 +1,7 @@
-/// HTTP Basic authentication.
-///
-/// Decodes the Base64-encoded `Authorization: Basic <credentials>` header,
-/// looks up the username, and verifies the password against stored Argon2 hashes.
+//! HTTP Basic authentication validation.
+//!
+//! Decodes the Base64-encoded `Authorization: Basic <credentials>` header,
+//! looks up the username, and verifies the password against stored Argon2 hashes.
 use argon2::{Argon2, PasswordHash, PasswordVerifier};
 use base64::{Engine, engine::general_purpose::STANDARD};
 

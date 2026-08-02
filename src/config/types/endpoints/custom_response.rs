@@ -1,4 +1,4 @@
-/// Custom/static response configuration types.
+//! Custom response action configuration types.
 use std::collections::HashMap;
 
 use serde::Deserialize;

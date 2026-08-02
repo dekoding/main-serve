@@ -1,4 +1,4 @@
-/// Media resize and thumbnail handlers.
+//! Image resizing for media entries.
 use std::path::Path;
 
 use axum::response::Response;

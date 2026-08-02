@@ -1,7 +1,7 @@
-/// Dedicated SELECT query builders for common non-CRUD patterns.
-///
-/// These functions handle queries that don't fit the general CRUD builder API,
-/// such as field-specific lookups, file path retrieval, and schema introspection.
+//! Single-record query selection builder.
+//!
+//! These functions handle queries that don't fit the general CRUD builder API,
+//! such as field-specific lookups, file path retrieval, and schema introspection.
 use crate::config::types::DatabaseDriver;
 use crate::db::query::helpers::{now_expr, placeholder, quote_identifier};
 use crate::db::query::types::BuiltQuery;

@@ -1,9 +1,9 @@
+//! Hot-reload and health check endpoint handlers.
+//!
+//! These are hard-coded system endpoints that are always present:
+//! - `GET /_main-serve/health` - unauthenticated health check
+//! - `POST /_main-serve/reload` - authenticated config reload
 use axum::Json;
-/// Hot-reload and health check endpoint handlers.
-///
-/// These are hard-coded system endpoints that are always present:
-/// - `GET /_main-serve/health` - unauthenticated health check
-/// - `POST /_main-serve/reload` - authenticated config reload
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;

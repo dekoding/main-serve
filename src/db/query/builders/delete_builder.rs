@@ -1,3 +1,4 @@
+//! DELETE query builder.
 use crate::db::query::helpers::{
     coerce_pk_value, find_pk_column, interpolate_where_clause, placeholder, quote_identifier,
 };

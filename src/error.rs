@@ -1,9 +1,9 @@
-/// Unified error types for the application.
-///
-/// All HTTP error responses follow the format:
-/// ```json
-/// { "error": { "code": "...", "message": "..." } }
-/// ```
+//! Unified error types for the application.
+//!
+//! All HTTP error responses follow the format:
+//! ```json
+//! { "error": { "code": "...", "message": "..." } }
+//! ```
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
@@ -16,7 +16,6 @@ use crate::config::types::HttpMethod;
 /// or a system/internal error (typically 5xx). This distinction determines the HTTP
 /// status code and whether the error message should be returned to the client.
 #[derive(Debug, thiserror::Error)]
-/// `AppError`
 pub enum AppError {
     /// Configuration error (internal / 500).
     ///
@@ -272,14 +271,14 @@ pub enum AppError {
     },
 }
 
-#[derive(Serialize)]
 /// JSON response body containing the error code and message.
+#[derive(Serialize)]
 struct ErrorBody {
     error: ErrorDetail,
 }
 
-#[derive(Serialize)]
 /// Error detail with a machine-readable code and human-readable message.
+#[derive(Serialize)]
 struct ErrorDetail {
     code: String,
     message: String,
@@ -287,14 +286,14 @@ struct ErrorDetail {
     details: Option<Vec<String>>,
 }
 
-#[derive(Serialize)]
 /// JSON response body for JSONB validation errors with structured per-column details.
+#[derive(Serialize)]
 struct JsonValidationErrorBody {
     error: JsonValidationErrorDetail,
 }
 
-#[derive(Serialize)]
 /// Structured JSONB validation error with a summary and per-column details.
+#[derive(Serialize)]
 struct JsonValidationErrorDetail {
     code: String,
     message: String,

@@ -1,3 +1,4 @@
+//! Types for query parameters, filters, and build results.
 use serde::Deserialize;
 
 use crate::config::types::{ComputedFieldConfig, CrudConfig, listing::SortOrder};
@@ -5,7 +6,6 @@ use crate::config::types::{ComputedFieldConfig, CrudConfig, listing::SortOrder};
 /// SQL join type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
-/// `JoinType`
 pub enum JoinType {
     /// INNER JOIN.
     Inner,
@@ -22,7 +22,6 @@ const fn default_join_type() -> JoinType {
 
 /// Parameters extracted from an HTTP request for a CRUD operation.
 #[derive(Debug, Default)]
-/// `QueryParams`
 pub struct QueryParams {
     /// Page number (1-indexed).
     pub page: Option<u64>,
@@ -38,7 +37,6 @@ pub struct QueryParams {
 
 /// A built query ready for execution.
 #[derive(Debug)]
-/// `BuiltQuery`
 pub struct BuiltQuery {
     /// The SQL query string.
     pub sql: String,
@@ -48,7 +46,6 @@ pub struct BuiltQuery {
 
 /// Context needed by insert/update/delete builders.
 #[derive(Debug, Default)]
-/// `MutationContext`
 pub struct MutationContext {
     /// Fields the client is allowed to write.
     pub writable_fields: Vec<String>,
@@ -62,7 +59,6 @@ pub struct MutationContext {
 
 /// Context needed by select builders.
 #[derive(Debug, Default)]
-/// `SelectContext`
 pub struct SelectContext {
     /// Fields to select (empty = all fields).
     pub fields: Vec<String>,
@@ -98,7 +94,6 @@ impl SelectContext {
     /// This is useful when the caller doesn't have a `CrudConfig` to convert from,
     /// but still needs filtering, sorting, and pagination to work with sensible defaults.
     #[must_use]
-    /// permissive
     pub fn permissive() -> Self {
         Self {
             fields: vec!["*".to_string()],
@@ -152,7 +147,6 @@ impl From<&CrudConfig> for SelectContext {
 /// Join configuration.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
-/// `JoinConfig`
 pub struct JoinConfig {
     /// Table to join.
     pub table: String,

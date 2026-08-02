@@ -1,4 +1,4 @@
-/// Media delete handlers.
+//! Delete media entries.
 use std::path::Path;
 
 use axum::http::StatusCode;

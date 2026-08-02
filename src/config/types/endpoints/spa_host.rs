@@ -1,4 +1,4 @@
-/// SPA hosting configuration types.
+//! SPA host action configuration types.
 use serde::Deserialize;
 
 use crate::config::types::DEFAULT_CACHE_MAX_AGE;

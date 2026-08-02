@@ -1,10 +1,10 @@
+//! Storage error types.
 use std::path::PathBuf;
 
 use thiserror::Error;
 
 /// Error type for storage operations.
 #[derive(Debug, Error)]
-/// `StorageError`
 pub enum StorageError {
     /// File or directory not found.
     #[error("Not found: {0:?}")]

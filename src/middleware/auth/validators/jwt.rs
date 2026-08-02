@@ -1,8 +1,8 @@
-/// JWT token creation and validation.
-///
-/// Validates JWT Bearer tokens from the `Authorization` header against the
-/// configured secret, algorithm, issuer, and audience. Extracts the user's
-/// role from a configurable claim.
+//! JWT token validation and verification.
+//!
+//! Validates JWT Bearer tokens from the `Authorization` header against the
+//! configured secret, algorithm, issuer, and audience. Extracts the user's
+//! role from a configurable claim.
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
 

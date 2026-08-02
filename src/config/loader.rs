@@ -1,14 +1,14 @@
-/// YAML loading, parsing, and environment variable interpolation.
-///
-/// Supports `${ENV_VAR}` and `${ENV_VAR:-default}` syntax in any string value.
-/// Environment variables are resolved at load time before YAML parsing.
-///
-/// Supports `$include` directives to split configuration across multiple files:
-/// - In a sequence: `- $include: "path/to/file.yaml"` includes a single item
-/// - In a sequence with glob: `- $include: "endpoints/*.yaml"` includes all matches
-/// - In a mapping: `$include: "path/or/glob"` merges included mappings into the parent
-///
-/// Include paths are relative to the directory of the file containing the directive.
+//! YAML loading, parsing, and environment variable interpolation.
+//!
+//! Supports `${ENV_VAR}` and `${ENV_VAR:-default}` syntax in any string value.
+//! Environment variables are resolved at load time before YAML parsing.
+//!
+//! Supports `$include` directives to split configuration across multiple files:
+//! - In a sequence: `- $include: "path/to/file.yaml"` includes a single item
+//! - In a sequence with glob: `- $include: "endpoints/*.yaml"` includes all matches
+//! - In a mapping: `$include: "path/or/glob"` merges included mappings into the parent
+//!
+//! Include paths are relative to the directory of the file containing the directive.
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
@@ -138,8 +138,7 @@ fn resolve_mapping_includes(
         // A mapping-level $include should be the only key.
         if map.len() > 1 {
             return Err(AppError::ConfigurationError(
-                "$include in a mapping must be the only key (cannot mix with other keys)"
-                    .to_string(),
+                "$include in a mapping must be the only key".to_string(),
             ));
         }
 

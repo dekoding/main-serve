@@ -1,3 +1,4 @@
+//! SQL value interpolation and parameter binding helpers.
 use crate::config::types::DatabaseDriver;
 use crate::db::query::helpers::placeholder;
 use crate::error::AppError;

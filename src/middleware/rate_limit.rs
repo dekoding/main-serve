@@ -1,10 +1,10 @@
-/// Rate limiting middleware.
-///
-/// Implements a sliding-window rate limiter keyed by IP address, header value,
-/// or token. Uses an in-memory `HashMap` behind `Arc<Mutex<>>` for tracking.
-///
-/// This is applied as a per-request check inside handler closures rather than
-/// as a tower Layer, since each endpoint can have its own rate limit config.
+//! Rate limiting middleware.
+//!
+//! Implements a sliding-window rate limiter keyed by IP address, header value,
+//! or token. Uses an in-memory `HashMap` behind `Arc<Mutex<>>` for tracking.
+//!
+//! This is applied as a per-request check inside handler closures rather than
+//! as a tower Layer, since each endpoint can have its own rate limit config.
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -23,7 +23,6 @@ use crate::error::AppError;
 
 /// Entry tracking request counts within a time window.
 #[derive(Debug)]
-/// Tracks a client's request count and the start of the current rate-limit window.
 struct RateLimitEntry {
     count: u64,
     window_start: Instant,
@@ -31,7 +30,6 @@ struct RateLimitEntry {
 
 /// Shared rate limiter state - a map of key -> (count, `window_start`).
 #[derive(Debug, Clone)]
-/// `RateLimiter`
 pub struct RateLimiter {
     entries: Arc<Mutex<HashMap<String, RateLimitEntry>>>,
 }

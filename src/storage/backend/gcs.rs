@@ -1,7 +1,7 @@
-/// Google Cloud Storage backend implementation.
-///
-/// Provides a full implementation of the `Storage` trait using the GCS REST API
-/// with `OAuth2` service account authentication (RS256 JWT bearer token flow).
+//! Google Cloud Storage backend.
+//!
+//! Provides a full implementation of the `Storage` trait using the GCS REST API
+//! with `OAuth2` service account authentication (RS256 JWT bearer token flow).
 use std::path::{Path, PathBuf};
 
 use futures_util::StreamExt;

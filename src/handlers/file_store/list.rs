@@ -1,3 +1,4 @@
+//! List file store entries with filtering, sorting, and pagination.
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 

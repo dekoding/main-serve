@@ -1,3 +1,4 @@
+//! Trash management for file store entries.
 use std::path::Path;
 
 use axum::http::StatusCode;

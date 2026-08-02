@@ -1,7 +1,10 @@
-/// Request/response logging middleware.
-///
-/// Wraps `tower_http::trace::TraceLayer` with structured logging via `tracing`.
-/// Optionally logs request and/or response bodies when enabled in config.
+//! Request/response logging middleware.
+//!
+//! Wraps `tower_http::trace::TraceLayer` with structured logging via `tracing`.
+//! Optionally logs request and/or response bodies when enabled in config.
+//!
+//! Maximum body size is configurable via `logging.max_body_log_size`.
+//! Bodies larger than this are truncated in the log output.
 use axum::body::Body;
 use axum::extract::State;
 use axum::http::Request;
@@ -12,16 +15,12 @@ use tower_http::trace::TraceLayer;
 
 use crate::server::state::AppState;
 
-// Maximum body size is configurable via `logging.max_body_log_size`.
-// Bodies larger than this are truncated in the log output.
-
 /// Build a `TraceLayer` for HTTP request/response tracing.
 ///
 /// Wraps `tower_http::classify::SharedClassifier<tower_http::classify::ServerErrorsAsFailures>`
 /// with default HTTP tracing behavior via `TraceLayer::new_for_http()`.
 /// Body-level logging is handled separately by `body_logging_middleware`.
 #[must_use]
-/// `build_trace_layer`
 pub fn build_trace_layer()
 -> TraceLayer<tower_http::classify::SharedClassifier<tower_http::classify::ServerErrorsAsFailures>>
 {

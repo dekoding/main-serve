@@ -1,4 +1,4 @@
-/// Static file serving and upload configuration types.
+//! Static files action configuration types.
 use serde::Deserialize;
 
 use crate::config::types::DEFAULT_CACHE_MAX_AGE;

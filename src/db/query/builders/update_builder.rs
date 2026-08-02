@@ -1,3 +1,4 @@
+//! UPDATE query builder.
 use crate::config::types::{ColumnType, DatabaseDriver};
 use crate::db::query::helpers::{
     coerce_pk_value, find_pk_column, interpolate_value, interpolate_where_clause,

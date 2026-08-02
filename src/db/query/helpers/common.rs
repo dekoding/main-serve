@@ -1,3 +1,4 @@
+//! Shared query helper utilities for column existence checks and identifier quoting.
 use crate::config::types::{ColumnConfig, DatabaseDriver};
 
 /// Check if a column in the table config is a JSON or JSONB type.

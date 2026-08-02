@@ -1,4 +1,4 @@
-/// Authentication provider configurations.
+//! Authentication provider configuration types.
 use std::fmt;
 
 use serde::Deserialize;
@@ -6,7 +6,6 @@ use serde::Deserialize;
 /// Password hashing algorithm for user registration.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "snake_case")]
-/// `PasswordHashAlgorithm`
 pub enum PasswordHashAlgorithm {
     /// Argon2id hashing algorithm.
     #[default]

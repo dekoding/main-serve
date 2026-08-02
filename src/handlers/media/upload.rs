@@ -1,4 +1,4 @@
-/// Media upload handler.
+//! Upload media files.
 use std::path::PathBuf;
 
 use axum::http::StatusCode;

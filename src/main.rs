@@ -1,3 +1,8 @@
+//! Main Serve CLI entry point.
+//!
+//! Parses CLI arguments, loads the YAML configuration, initializes the
+//! database pools and router, and runs the HTTP server.
+
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process;
@@ -19,7 +24,6 @@ use main_serve::server::state::{
 };
 use main_serve::server::{AppState, build_router, build_tls_acceptor};
 
-/// Main Serve - a high-performance, YAML-configured web server.
 #[derive(Parser)]
 #[command(name = "main-serve", version, about)]
 struct Cli {

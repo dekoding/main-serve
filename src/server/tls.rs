@@ -1,7 +1,7 @@
-/// TLS support via rustls.
-///
-/// Loads PEM-encoded certificate and private key files, builds a `rustls::ServerConfig`,
-/// and provides a TLS acceptor for wrapping TCP connections.
+//! TLS support via rustls.
+//!
+//! Loads PEM-encoded certificate and private key files, builds a `rustls::ServerConfig`,
+//! and provides a TLS acceptor for wrapping TCP connections.
 use std::path::Path;
 use std::sync::Arc;
 

@@ -1,19 +1,19 @@
-/// Auto-migration: translates YAML table schemas into SQL DDL.
-///
-/// On each migration run the system introspects existing tables and computes
-/// a diff against the YAML-defined schema:
-///
-/// * **New tables** -> `CREATE TABLE`
-/// * **New columns** (in YAML but not in DB) -> `ALTER TABLE ... ADD COLUMN`
-/// * **Removed columns** (in DB but not in YAML) -> `ALTER TABLE ... DROP COLUMN`
-///   only when `allow_destructive` is `true` for that database; otherwise a
-///   warning is logged and the column is left untouched.
-/// * **Type / constraint mismatches** -> logged as warnings; no automatic
-///   alteration is attempted because cross-driver support is inconsistent.
-///
-/// Indexes are created idempotently. `SQLite` and `PostgreSQL` use
-/// `CREATE INDEX IF NOT EXISTS`; `MySQL` introspects existing indexes first and
-/// only creates missing ones.
+//! Auto-migration: translates YAML table schemas into SQL DDL.
+//!
+//! On each migration run the system introspects existing tables and computes
+//! a diff against the YAML-defined schema:
+//!
+//! * **New tables** -> `CREATE TABLE`
+//! * **New columns** (in YAML but not in DB) -> `ALTER TABLE ... ADD COLUMN`
+//! * **Removed columns** (in DB but not in YAML) -> `ALTER TABLE ... DROP COLUMN`
+//!   only when `allow_destructive` is `true` for that database; otherwise a
+//!   warning is logged and the column is left untouched.
+//! * **Type / constraint mismatches** -> logged as warnings; no automatic
+//!   alteration is attempted because cross-driver support is inconsistent.
+//!
+//! Indexes are created idempotently. `SQLite` and `PostgreSQL` use
+//! `CREATE INDEX IF NOT EXISTS`; `MySQL` introspects existing indexes first and
+//! only creates missing ones.
 use std::collections::HashMap;
 use std::fmt::Write;
 

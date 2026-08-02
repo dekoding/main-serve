@@ -1,3 +1,4 @@
+//! Listing and pagination configuration types.
 use serde::Deserialize;
 
 /// Pagination settings for list endpoints.

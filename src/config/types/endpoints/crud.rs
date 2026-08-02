@@ -1,4 +1,4 @@
-/// CRUD-specific endpoint configuration types.
+//! CRUD action configuration types.
 use serde::Deserialize;
 
 use crate::db::query::types::JoinConfig;

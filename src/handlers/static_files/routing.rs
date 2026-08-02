@@ -1,3 +1,4 @@
+//! Route matching and dispatch for static file endpoints.
 use axum::extract::Query;
 use axum::extract::State;
 use axum::http::Uri;

@@ -1,3 +1,4 @@
+//! Microsoft Azure Blob Storage backend.
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};

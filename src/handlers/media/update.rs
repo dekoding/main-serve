@@ -1,4 +1,4 @@
-/// Media update handler.
+//! Update media entry metadata.
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 

@@ -1,4 +1,4 @@
-/// Proxy action configuration types.
+//! Reverse proxy action configuration types.
 use std::collections::HashMap;
 
 use serde::Deserialize;

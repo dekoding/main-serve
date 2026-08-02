@@ -1,3 +1,4 @@
+//! In-memory storage backend for testing.
 use std::collections::{HashMap, HashSet};
 use std::io::Cursor;
 use std::path::{Path, PathBuf};

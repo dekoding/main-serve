@@ -1,4 +1,4 @@
-/// Validate database configs have required fields.
+//! Database configuration validation.
 pub fn validate_databases(config: &crate::config::types::AppConfig, errors: &mut Vec<String>) {
     for (name, db) in &config.databases {
         if db.url.is_empty() {

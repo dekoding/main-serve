@@ -1,3 +1,5 @@
+//! File serving with caching, `ETags`, and range requests.
+
 use std::collections::HashMap;
 use std::path::Path;
 

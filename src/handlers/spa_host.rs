@@ -1,7 +1,7 @@
-/// SPA hosting handler.
-///
-/// Serves static files with SPA-style fallback: non-existent paths return
-/// the index file with the configured fallback status code. Read-only (GET/HEAD only).
+//! Single-page application host endpoint handler.
+//!
+//! Serves static files with SPA-style fallback: non-existent paths return
+//! the index file with the configured fallback status code. Read-only (GET/HEAD only).
 use std::path::Path;
 
 use axum::http::{HeaderValue, StatusCode};

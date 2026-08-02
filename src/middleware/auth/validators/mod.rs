@@ -1,8 +1,6 @@
-/// `api_key`
+//! Authentication validators for JWT, API key, HTTP Basic, and `OAuth2`.
+
 pub mod api_key;
-/// basic
 pub mod basic;
-/// jwt
 pub mod jwt;
-/// oauth2
 pub mod oauth2;
