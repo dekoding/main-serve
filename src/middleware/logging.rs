@@ -2,7 +2,7 @@
 //!
 //! Wraps `tower_http::trace::TraceLayer` with structured logging via `tracing`.
 //! Optionally logs request and/or response bodies when enabled in config.
-//! 
+//!
 //! Maximum body size is configurable via `logging.max_body_log_size`.
 //! Bodies larger than this are truncated in the log output.
 use axum::body::Body;
