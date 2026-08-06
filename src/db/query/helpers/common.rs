@@ -55,7 +55,6 @@ pub fn parse_sort_field(field: &str) -> (String, Vec<String>) {
     let chars: Vec<char> = field.chars().collect();
 
     while i < chars.len() {
-        // SAFETY: i < chars.len() is guaranteed by the while loop condition.
         let c = chars[i];
 
         if c == '[' {

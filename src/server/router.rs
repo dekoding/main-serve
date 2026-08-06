@@ -45,7 +45,6 @@ use crate::middleware::rate_limit::rate_limit_middleware;
 /// then iterates over configured endpoints to register action-specific handlers with
 /// per-endpoint CORS layers and middleware (body limit, logging, auth, rate limiting,
 /// compression, request ID propagation).
-#[allow(clippy::too_many_lines)] // router assembly requires many sequential route registrations
 pub async fn build_router(config: &AppConfig, state: AppState) -> Router {
     let mut endpoint_configs = std::collections::HashMap::new();
     for endpoint in &config.endpoints {
@@ -125,64 +124,7 @@ pub async fn build_router(config: &AppConfig, state: AppState) -> Router {
     }
 
     for endpoint in &config.endpoints {
-        let path_for_routes = endpoint.path.replace('*', "{*rest}");
-        let static_catch_all_added =
-            endpoint.action == EndpointAction::StaticFiles && !path_for_routes.contains("{*rest}");
-        let path = if static_catch_all_added {
-            let trimmed = path_for_routes.trim_end_matches('/');
-            format!("{trimmed}/{{*rest}}")
-        } else {
-            path_for_routes
-        };
-
-        // Always provide a CORS config for per-endpoint routing:
-        // - Use endpoint's own CORS if present
-        // - Otherwise, fall back to global CORS config
-        let endpoint_cors = endpoint.cors.as_ref().unwrap_or(&config.cors);
-
-        // Combine all methods into a single route to enable CORS preflight support
-        // and avoid CORS conflicts from multiple route_layer calls
-        let mut combined_router = Router::new();
-        for method in &endpoint.methods {
-            combined_router = add_endpoint_route(
-                combined_router,
-                &path,
-                *method,
-                endpoint,
-                Some(endpoint_cors),
-            );
-        }
-
-        // Apply CORS layer to the combined router for this endpoint
-        let combined_router = combined_router.layer(build_cors_layer(endpoint_cors));
-
-        router = router.merge(combined_router);
-
-        if endpoint.action == EndpointAction::StaticFiles && path.ends_with("{*rest}") {
-            let bare = path.trim_end_matches("{*rest}").trim_end_matches('/');
-            if bare.is_empty() {
-                router = register_static_bare_routes(router, "/", endpoint, endpoint_cors);
-            } else {
-                router = register_static_bare_routes(router, bare, endpoint, endpoint_cors);
-                router = register_static_bare_routes(
-                    router,
-                    &format!("{bare}/"),
-                    endpoint,
-                    endpoint_cors,
-                );
-            }
-        }
-
-        if endpoint.action == EndpointAction::SpaHost && path.ends_with("{*rest}") {
-            let bare = path.trim_end_matches("{*rest}").trim_end_matches('/');
-            if bare.is_empty() {
-                router = register_spa_bare_routes(router, "/", endpoint, endpoint_cors);
-            } else {
-                router = register_spa_bare_routes(router, bare, endpoint, endpoint_cors);
-                router =
-                    register_spa_bare_routes(router, &format!("{bare}/"), endpoint, endpoint_cors);
-            }
-        }
+        router = register_all_routes(endpoint, config, router);
     }
 
     let router = router.with_state(state.clone());
@@ -201,8 +143,6 @@ pub async fn build_router(config: &AppConfig, state: AppState) -> Router {
     } else {
         router
     };
-
-    // Apply global CORS as a base layer.
 
     // Auth middleware must run before body logging so auth info is available in
     // request extensions for logging. Auth info is also needed for token-based
@@ -224,6 +164,70 @@ pub async fn build_router(config: &AppConfig, state: AppState) -> Router {
         .layer(build_trace_layer())
         .layer(PropagateRequestIdLayer::x_request_id())
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
+}
+
+/// Register routes for an endpoint
+///
+/// Registers all configured routes for an endpoint.
+fn register_all_routes(
+    endpoint: &EndpointConfig,
+    config: &AppConfig,
+    mut router: Router<AppState>,
+) -> Router<AppState> {
+    let path_for_routes = endpoint.path.replace('*', "{*rest}");
+    let static_catch_all_added =
+        endpoint.action == EndpointAction::StaticFiles && !path_for_routes.contains("{*rest}");
+    let path = if static_catch_all_added {
+        let trimmed = path_for_routes.trim_end_matches('/');
+        format!("{trimmed}/{{*rest}}")
+    } else {
+        path_for_routes
+    };
+
+    // Always provide a CORS config for per-endpoint routing:
+    // - Use endpoint's own CORS if present
+    // - Otherwise, fall back to global CORS config
+    let endpoint_cors = endpoint.cors.as_ref().unwrap_or(&config.cors);
+
+    // Combine all methods into a single route to enable CORS preflight support
+    // and avoid CORS conflicts from multiple route_layer calls
+    let mut combined_router = Router::new();
+    for method in &endpoint.methods {
+        combined_router = add_endpoint_route(
+            combined_router,
+            &path,
+            *method,
+            endpoint,
+            Some(endpoint_cors),
+        );
+    }
+
+    // Apply CORS layer to the combined router for this endpoint
+    let combined_router = combined_router.layer(build_cors_layer(endpoint_cors));
+
+    router = router.merge(combined_router);
+
+    if endpoint.action == EndpointAction::StaticFiles && path.ends_with("{*rest}") {
+        let bare = path.trim_end_matches("{*rest}").trim_end_matches('/');
+        if bare.is_empty() {
+            router = register_static_bare_routes(router, "/", endpoint, endpoint_cors);
+        } else {
+            router = register_static_bare_routes(router, bare, endpoint, endpoint_cors);
+            router =
+                register_static_bare_routes(router, &format!("{bare}/"), endpoint, endpoint_cors);
+        }
+    }
+
+    if endpoint.action == EndpointAction::SpaHost && path.ends_with("{*rest}") {
+        let bare = path.trim_end_matches("{*rest}").trim_end_matches('/');
+        if bare.is_empty() {
+            router = register_spa_bare_routes(router, "/", endpoint, endpoint_cors);
+        } else {
+            router = register_spa_bare_routes(router, bare, endpoint, endpoint_cors);
+            router = register_spa_bare_routes(router, &format!("{bare}/"), endpoint, endpoint_cors);
+        }
+    }
+    router
 }
 
 /// Register static files routes for a bare path (with or without trailing slash).

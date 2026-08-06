@@ -1,5 +1,6 @@
 //! Configuration validation: semantic checks on parsed `AppConfig`.
 mod auth;
+mod cors;
 mod databases;
 mod endpoints;
 mod server;
@@ -10,6 +11,7 @@ use super::types::AppConfig;
 
 pub(crate) use auth::validate_auth;
 pub(crate) use auth::validate_role_hierarchy;
+pub(crate) use cors::validate_cors;
 pub(crate) use databases::validate_databases;
 pub(crate) use endpoints::validate_endpoints;
 pub(crate) use server::validate_server;
@@ -36,6 +38,17 @@ pub fn validate_config(config: &AppConfig) -> Result<(), AppError> {
     validate_endpoints(config, &mut errors);
     validate_auth(config, &mut errors);
     validate_role_hierarchy(config.role_hierarchy.as_ref(), &mut errors);
+
+    validate_cors(&config.cors, "cors", &mut errors);
+    for (i, endpoint) in config.endpoints.iter().enumerate() {
+        if let Some(ref endpoint_cors) = endpoint.cors {
+            validate_cors(
+                endpoint_cors,
+                &format!("endpoints[{i}] ({})", endpoint.path),
+                &mut errors,
+            );
+        }
+    }
 
     if errors.is_empty() {
         Ok(())
@@ -1009,6 +1022,107 @@ mod tests {
         assert!(
             result.is_ok(),
             "single validation field on JSONB column should be valid"
+        );
+    }
+
+    #[test]
+    fn test_validate_cors_wildcard_with_credentials_rejected() {
+        let config = types::AppConfig {
+            cors: types::CorsConfig {
+                allowed_origins: vec!["*".to_string()],
+                allow_credentials: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let result = validate_config(&config);
+        assert!(result.is_err(), "wildcard + credentials must be rejected");
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("allowed_origins contains")
+                && msg.contains('*')
+                && msg.contains("allow_credentials is true"),
+            "Expected mutual exclusivity error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_validate_cors_wildcard_without_credentials_ok() {
+        let config = types::AppConfig {
+            cors: types::CorsConfig {
+                allowed_origins: vec!["*".to_string()],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let result = validate_config(&config);
+        assert!(
+            result.is_ok(),
+            "wildcard without credentials should be valid"
+        );
+    }
+
+    #[test]
+    fn test_validate_cors_credentials_without_wildcard_ok() {
+        let config = types::AppConfig {
+            cors: types::CorsConfig {
+                allowed_origins: vec!["https://example.com".to_string()],
+                allow_credentials: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let result = validate_config(&config);
+        assert!(
+            result.is_ok(),
+            "specific origins with credentials should be valid"
+        );
+    }
+
+    #[test]
+    fn test_validate_cors_per_endpoint_wildcard_with_credentials_rejected() {
+        let mut config = types::AppConfig::default();
+        config.endpoints.push(make_endpoint(
+            "/api",
+            types::HttpMethod::Get,
+            types::EndpointAction::CustomResponse,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(types::CustomResponseConfig {
+                status: 200,
+                content_type: "application/json".to_string(),
+                body: "{}".to_string(),
+                headers: HashMap::new(),
+            }),
+        ));
+        config.endpoints[0].cors = Some(types::CorsConfig {
+            allowed_origins: vec!["*".to_string()],
+            allow_credentials: true,
+            ..Default::default()
+        });
+        let result = validate_config(&config);
+        assert!(
+            result.is_err(),
+            "per-endpoint wildcard + credentials must be rejected"
+        );
+        let msg = result.unwrap_err().to_string();
+        assert!(
+            msg.contains("endpoints[0]") && msg.contains("/api"),
+            "Error label should identify the endpoint, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_validate_cors_empty_origins_ok() {
+        let config = types::AppConfig::default();
+        let result = validate_config(&config);
+        assert!(
+            result.is_ok(),
+            "empty origins should be valid (no cross-origin access)"
         );
     }
 }

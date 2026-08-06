@@ -2,10 +2,9 @@
 use axum::extract::Query;
 use axum::extract::State;
 use axum::http::Uri;
-use axum::http::{Method, StatusCode, header};
+use axum::http::{Method, StatusCode};
 use axum::response::IntoResponse;
 use axum::response::Response;
-use http::HeaderValue;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -16,7 +15,6 @@ use crate::error::AppError;
 use crate::handlers::common::path::extract_relative_path;
 use crate::handlers::common::store::resolve_store;
 use crate::handlers::static_files::delete::handle_file_delete;
-use crate::middleware::cors;
 use crate::server::state::AppState;
 use crate::storage::Storage;
 
@@ -102,18 +100,7 @@ pub async fn handle_static_files(
         Method::DELETE => {
             handle_file_delete(storage.as_ref(), &endpoint, static_config, &relative, &root).await
         }
-        Method::OPTIONS => {
-            let mut response = (StatusCode::OK).into_response();
-            if let Some(cors) = endpoint.cors.as_ref() {
-                // Extract the Origin header from the request if present.
-                let origin = headers
-                    .get(header::ORIGIN)
-                    .and_then(|v| v.to_str().ok())
-                    .and_then(|s| HeaderValue::from_str(s).ok());
-                cors::apply_cors_headers(&mut response, cors, origin.as_ref());
-            }
-            Ok(response)
-        }
+        Method::OPTIONS => Ok((StatusCode::OK).into_response()),
         _ => Err(AppError::MethodNotAllowed {
             message: format!("Method {method} not allowed for this endpoint"),
             allowed: endpoint.methods.clone(),
