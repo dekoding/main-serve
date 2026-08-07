@@ -360,14 +360,14 @@
                 },
 "allowed_methods": {
     "type": "array",
-    "description": "Allowed HTTP methods.",
+    "description": "Allowed HTTP methods. Default is all methods (GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD).",
     "items": {
         "anyOf": [
             { "type": "string", "enum": [ "GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD" ] },
             { "$ref": "#/definitions/EnvVar" }
         ]
     },
-    "default": []
+    "default": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"]
                 },
                 "allowed_headers": {
                     "type": "array",
