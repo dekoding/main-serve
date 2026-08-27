@@ -146,8 +146,7 @@ pub(crate) async fn handle_spa_head(
             if let Some(if_none_match) = headers.get(header::IF_NONE_MATCH) {
                 let etag_match = if_none_match
                     .to_str()
-                    .ok()
-                    .is_some_and(|s| s.trim() == etag_value.trim());
+                    .is_ok_and(|s| s.trim() == etag_value.trim());
                 if etag_match {
                     *response.status_mut() = StatusCode::NOT_MODIFIED;
                     response.headers_mut().insert(
@@ -227,8 +226,7 @@ async fn serve_spa_file(
         if let Some(if_none_match) = headers.get(header::IF_NONE_MATCH) {
             let etag_match = if_none_match
                 .to_str()
-                .ok()
-                .is_some_and(|s| s.trim() == etag_value.trim());
+                .is_ok_and(|s| s.trim() == etag_value.trim());
             if etag_match {
                 *response.status_mut() = StatusCode::NOT_MODIFIED;
                 *response.headers_mut() = std::mem::take(response.headers_mut());

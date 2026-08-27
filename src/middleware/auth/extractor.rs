@@ -55,10 +55,13 @@ where
 {
     type Rejection = (StatusCode, String);
 
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+    fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> {
         let auth_info = parts.extensions.get::<AuthInfo>().cloned();
 
-        auth_info.map_or_else(
+        std::future::ready(auth_info.map_or_else(
             || {
                 Err((
                     StatusCode::UNAUTHORIZED,
@@ -66,7 +69,7 @@ where
                 ))
             },
             |info| Ok(Self(info)),
-        )
+        ))
     }
 }
 
@@ -76,9 +79,12 @@ where
 {
     type Rejection = Infallible;
 
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+    fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> {
         let auth_info = parts.extensions.get::<AuthInfo>().cloned();
-        Ok(Self(auth_info))
+        std::future::ready(Ok(Self(auth_info)))
     }
 }
 

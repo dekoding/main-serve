@@ -56,8 +56,8 @@ systemctl daemon-reload 2>/dev/null || true
 
 [dependencies]
 # Async runtime
-tokio = { version = "1", features = ["full"] }
-async-trait = "0.1"
+tokio = { version = "1.53.1", features = ["full"] }
+async-trait = "0.1.92"
 
 # HTTP framework
 axum = { version = "0.8", features = ["macros", "multipart"] }
@@ -94,7 +94,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 # Error handling
-thiserror = "2"
+thiserror = "2.0.20"
 
 # Utilities
 uuid = { version = "1", features = ["v4"] }
@@ -126,7 +126,7 @@ aws-sdk-s3 = { version = "1", optional = true }
 aws-config = { version = "1", features = ["behavior-version-latest"], optional = true }
 aws-types = { version = "1", optional = true }
 aws-credential-types = { version = "1", features = ["hardcoded-credentials"], optional = true }
-aws-smithy-types = { version = "1", optional = true }
+aws-smithy-types = { version = "1.6.2", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
