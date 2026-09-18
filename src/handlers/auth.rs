@@ -7,7 +7,7 @@ use axum::{
 };
 use http_body_util::BodyExt;
 
-use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier, password_hash::SaltString};
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 
 use crate::config::types::{JwtAlgorithm, JwtConfig};
 use crate::db::query::select_one::{
@@ -365,12 +365,10 @@ pub async fn handle_login(
 ///
 /// Returns `AppError::Internal` if the hashing operation fails.
 fn hash_password(password: &str) -> Result<String, AppError> {
-    let salt = SaltString::generate(&mut rand::rngs::OsRng);
     let argon2 = Argon2::default();
     let hash = argon2
-        .hash_password(password.as_bytes(), &salt)
+        .hash_password(password.as_bytes())
         .map_err(|e| AppError::Internal(format!("Password hashing error: {e}")))?;
-
     Ok(hash.to_string())
 }
 
@@ -385,7 +383,7 @@ fn verify_password(password: &str, hash: &str) -> Result<bool, AppError> {
         .map_err(|_| AppError::Internal("Invalid password hash".to_string()))?;
     match Argon2::default().verify_password(password.as_bytes(), &parsed_hash) {
         Ok(()) => Ok(true),
-        Err(argon2::password_hash::Error::Password) => Ok(false),
+        Err(argon2::password_hash::Error::PasswordInvalid) => Ok(false),
         Err(e) => Err(AppError::Internal(format!(
             "Password verification error: {e}"
         ))),

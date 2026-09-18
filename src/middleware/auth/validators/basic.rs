@@ -69,13 +69,12 @@ pub(crate) fn extract_basic_auth(auth_header: &str) -> Option<&str> {
 mod tests {
     use super::*;
     use crate::config::types::{BasicAuthConfig, BasicAuthUser};
-    use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
+    use argon2::{Argon2, PasswordHasher};
 
     fn hash_password(password: &str) -> String {
-        let salt = SaltString::from_b64("dGVzdHNhbHR2YWx1ZQ").unwrap();
         let argon2 = Argon2::default();
         argon2
-            .hash_password(password.as_bytes(), &salt)
+            .hash_password(password.as_bytes())
             .unwrap()
             .to_string()
     }

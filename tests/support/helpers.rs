@@ -48,16 +48,13 @@ pub fn basic_auth_hash() -> String {
     basic_auth_hash_with_password("s3cureP@ss")
 }
 
-/// Generate an argon2 password hash with a custom password and a fixed salt.
-///
-/// Uses the salt `dGVzdHNhbHR2YWx1ZQ` (decoded: `testsaltvalue`) so the hash
-/// is deterministic across test runs.
+/// Generate an argon2 password hash with a custom password.
 pub fn basic_auth_hash_with_password(password: &str) -> String {
-    use argon2::{Argon2, PasswordHasher, password_hash::SaltString};
+    use argon2::{Argon2, PasswordHasher};
 
-    let salt = SaltString::from_b64("dGVzdHNhbHR2YWx1ZQ").unwrap();
-    Argon2::default()
-        .hash_password(password.as_bytes(), &salt)
+    let argon2 = Argon2::default();
+    argon2
+        .hash_password(password.as_bytes())
         .unwrap()
         .to_string()
 }
