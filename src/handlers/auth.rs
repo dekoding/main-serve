@@ -397,7 +397,7 @@ mod tests {
     #[test]
     fn test_hash_password_produces_valid_argon2_hash() {
         let hash = hash_password("testpassword123").unwrap();
-        assert!(!hash.is_empty());
+        assert_ne!(hash, "");
         assert!(hash.starts_with("$argon2id$"));
     }
 

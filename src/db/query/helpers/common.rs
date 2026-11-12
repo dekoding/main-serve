@@ -136,7 +136,7 @@ mod tests {
     fn test_parse_sort_field_simple() {
         let (base, path) = parse_sort_field("title");
         assert_eq!(base, "title");
-        assert!(path.is_empty());
+        assert_eq!(path, [] as [std::string::String; 0]);
     }
 
     #[test]

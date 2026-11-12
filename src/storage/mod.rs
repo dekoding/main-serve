@@ -229,7 +229,7 @@ mod tests {
     fn test_create_store_s3_disabled() {
         let config = StoreConfig {
             backend: StoreBackend::S3,
-            s3: Some(Default::default()),
+            s3: Some(crate::config::types::S3StoreConfig::default()),
             ..Default::default()
         };
         let result = block_on_future(create_store(&config));
@@ -241,7 +241,7 @@ mod tests {
     fn test_create_store_azure_disabled() {
         let config = StoreConfig {
             backend: StoreBackend::Azure,
-            azure: Some(Default::default()),
+            azure: Some(crate::config::types::AzureStoreConfig::default()),
             ..Default::default()
         };
         let result = block_on_future(create_store(&config));
@@ -253,7 +253,7 @@ mod tests {
     fn test_create_store_gcs_disabled() {
         let config = StoreConfig {
             backend: StoreBackend::Gcs,
-            gcs: Some(Default::default()),
+            gcs: Some(crate::config::types::GcsStoreConfig::default()),
             ..Default::default()
         };
         let result = block_on_future(create_store(&config));

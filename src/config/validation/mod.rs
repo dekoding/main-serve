@@ -190,7 +190,7 @@ mod tests {
         );
         let mut errors = Vec::new();
         validate_stores(&stores, &mut errors);
-        assert!(errors.is_empty());
+        assert_eq!(errors, [] as [std::string::String; 0]);
     }
 
     #[test]
@@ -242,7 +242,7 @@ mod tests {
         );
         let mut errors = Vec::new();
         validate_stores(&stores, &mut errors);
-        assert!(errors.is_empty());
+        assert_eq!(errors, [] as [std::string::String; 0]);
     }
 
     #[test]
@@ -267,7 +267,7 @@ mod tests {
         );
         let mut errors = Vec::new();
         validate_stores(&stores, &mut errors);
-        assert!(errors.is_empty());
+        assert_eq!(errors, [] as [std::string::String; 0]);
     }
 
     #[test]
@@ -291,7 +291,7 @@ mod tests {
         );
         let mut errors = Vec::new();
         validate_stores(&stores, &mut errors);
-        assert!(errors.is_empty());
+        assert_eq!(errors, [] as [std::string::String; 0]);
     }
 
     #[test]
@@ -319,7 +319,7 @@ mod tests {
         );
         let mut errors = Vec::new();
         validate_stores(&stores, &mut errors);
-        assert!(errors.is_empty());
+        assert_eq!(errors, [] as [std::string::String; 0]);
     }
 
     #[test]
@@ -382,7 +382,7 @@ mod tests {
         );
         let mut errors = Vec::new();
         validate_stores(&stores, &mut errors);
-        assert!(errors.is_empty());
+        assert_eq!(errors, [] as [std::string::String; 0]);
     }
 
     #[test]
@@ -407,7 +407,7 @@ mod tests {
         );
         let mut errors = Vec::new();
         validate_stores(&stores, &mut errors);
-        assert!(errors.is_empty());
+        assert_eq!(errors, [] as [std::string::String; 0]);
     }
 
     #[test]

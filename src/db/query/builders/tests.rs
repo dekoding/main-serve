@@ -202,7 +202,7 @@ fn test_build_select_list_postgres_placeholders() {
     assert!(q.sql.contains("SELECT"));
     assert!(q.sql.contains("posts"));
     assert!(q.sql.contains('$')); // PostgreSQL placeholders
-    assert!(!q.params.is_empty());
+    assert_ne!(q.params, [] as [serde_json::Value; 0]);
 }
 
 #[test]
@@ -413,7 +413,7 @@ fn test_filter_dot_notation_nested() {
             .contains("json_extract(metadata, '$.user.profile.email')")
     );
     assert!(q.sql.contains('='));
-    assert!(!q.params.is_empty());
+    assert_ne!(q.params, [] as [serde_json::Value; 0]);
 }
 
 #[test]
@@ -434,7 +434,7 @@ fn test_filter_lhs_bracket_eq() {
     assert!(q.sql.contains("posts"));
     assert!(q.sql.contains("json_extract(metadata, '$.role')"));
     assert!(q.sql.contains('='));
-    assert!(!q.params.is_empty());
+    assert_ne!(q.params, [] as [serde_json::Value; 0]);
 }
 
 #[test]
@@ -455,7 +455,7 @@ fn test_filter_lhs_bracket_gt() {
     assert!(q.sql.contains("posts"));
     assert!(q.sql.contains("json_extract(metadata, '$.user.age')"));
     assert!(q.sql.contains('>'));
-    assert!(!q.params.is_empty());
+    assert_ne!(q.params, [] as [serde_json::Value; 0]);
 }
 
 #[test]
@@ -477,7 +477,7 @@ fn test_filter_lhs_bracket_lt() {
     assert!(q.sql.contains("posts"));
     assert!(q.sql.contains("json_extract(metadata, '$.user.age')"));
     assert!(q.sql.contains("<="));
-    assert!(!q.params.is_empty());
+    assert_ne!(q.params, [] as [serde_json::Value; 0]);
 }
 
 #[test]
