@@ -206,18 +206,36 @@ roles:
             config.clone_for_method(HttpMethod::Post),
             vec!["editor", "admin"]
         );
-        assert_eq!(config.clone_for_method(HttpMethod::Put), [] as [std::string::String; 0]);
-        assert_eq!(config.clone_for_method(HttpMethod::Patch), [] as [std::string::String; 0]);
+        assert_eq!(
+            config.clone_for_method(HttpMethod::Put),
+            [] as [std::string::String; 0]
+        );
+        assert_eq!(
+            config.clone_for_method(HttpMethod::Patch),
+            [] as [std::string::String; 0]
+        );
         assert_eq!(config.clone_for_method(HttpMethod::Delete), vec!["admin"]);
-        assert_eq!(config.clone_for_method(HttpMethod::Head), [] as [std::string::String; 0]);
-        assert_eq!(config.clone_for_method(HttpMethod::Options), [] as [std::string::String; 0]);
+        assert_eq!(
+            config.clone_for_method(HttpMethod::Head),
+            [] as [std::string::String; 0]
+        );
+        assert_eq!(
+            config.clone_for_method(HttpMethod::Options),
+            [] as [std::string::String; 0]
+        );
     }
 
     #[test]
     fn test_clone_for_method_flat_empty_allows_all() {
         let config = RolesConfig::Flat(vec![]);
-        assert_eq!(config.clone_for_method(HttpMethod::Get), [] as [std::string::String; 0]);
-        assert_eq!(config.clone_for_method(HttpMethod::Post), [] as [std::string::String; 0]);
+        assert_eq!(
+            config.clone_for_method(HttpMethod::Get),
+            [] as [std::string::String; 0]
+        );
+        assert_eq!(
+            config.clone_for_method(HttpMethod::Post),
+            [] as [std::string::String; 0]
+        );
     }
 
     #[test]
