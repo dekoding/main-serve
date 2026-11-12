@@ -61,18 +61,15 @@ pub async fn auth_middleware(
     };
 
     let headers = req.headers().clone();
-    let query_params: std::collections::HashMap<String, String> = req
-        .uri()
-        .query()
-        .map(|q| {
+    let query_params: std::collections::HashMap<String, String> =
+        req.uri().query().map_or_default(|q| {
             q.split('&')
                 .filter_map(|p| {
                     p.split_once('=')
                         .map(|(k, v)| (k.to_string(), v.to_string()))
                 })
                 .collect()
-        })
-        .unwrap_or_default();
+        });
 
     let required_roles = endpoint_config
         .as_ref()
