@@ -5,7 +5,6 @@ edition = "2024"
 description = "A high-performance, YAML-configured web server with full API support"
 license = "MIT"
 repository = "https://github.com/dekoding/main-serve"
-homepage = "https://github.com/dekoding/main-serve"
 keywords = ["yaml", "server", "api", "rest", "crud"]
 categories = ["network-programming", "web-programming::http-server"]
 readme = "README.md"

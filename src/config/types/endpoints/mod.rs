@@ -57,6 +57,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::assert_is_empty)]
     fn test_deserialize_method_specific_roles() {
         let yaml = r#"
 roles:
@@ -120,6 +121,7 @@ roles:
     }
 
     #[test]
+    #[allow(clippy::assert_is_empty)]
     #[allow(clippy::items_after_statements)] // test-only struct defined inline with test logic
     fn test_deserialize_empty_roles() {
         #[allow(clippy::match_wildcard_for_single_variants)]
@@ -136,6 +138,7 @@ roles:
     }
 
     #[test]
+    #[allow(clippy::assert_is_empty)]
     #[allow(clippy::items_after_statements)] // test-only struct defined inline with test logic
     fn test_deserialize_default_roles() {
         #[allow(clippy::match_wildcard_for_single_variants)]
@@ -203,18 +206,36 @@ roles:
             config.clone_for_method(HttpMethod::Post),
             vec!["editor", "admin"]
         );
-        assert!(config.clone_for_method(HttpMethod::Put).is_empty());
-        assert!(config.clone_for_method(HttpMethod::Patch).is_empty());
+        assert_eq!(
+            config.clone_for_method(HttpMethod::Put),
+            [] as [std::string::String; 0]
+        );
+        assert_eq!(
+            config.clone_for_method(HttpMethod::Patch),
+            [] as [std::string::String; 0]
+        );
         assert_eq!(config.clone_for_method(HttpMethod::Delete), vec!["admin"]);
-        assert!(config.clone_for_method(HttpMethod::Head).is_empty());
-        assert!(config.clone_for_method(HttpMethod::Options).is_empty());
+        assert_eq!(
+            config.clone_for_method(HttpMethod::Head),
+            [] as [std::string::String; 0]
+        );
+        assert_eq!(
+            config.clone_for_method(HttpMethod::Options),
+            [] as [std::string::String; 0]
+        );
     }
 
     #[test]
     fn test_clone_for_method_flat_empty_allows_all() {
         let config = RolesConfig::Flat(vec![]);
-        assert!(config.clone_for_method(HttpMethod::Get).is_empty());
-        assert!(config.clone_for_method(HttpMethod::Post).is_empty());
+        assert_eq!(
+            config.clone_for_method(HttpMethod::Get),
+            [] as [std::string::String; 0]
+        );
+        assert_eq!(
+            config.clone_for_method(HttpMethod::Post),
+            [] as [std::string::String; 0]
+        );
     }
 
     #[test]

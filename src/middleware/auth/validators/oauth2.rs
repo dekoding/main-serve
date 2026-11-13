@@ -386,21 +386,21 @@ mod tests {
     fn test_extract_role_values_from_null() {
         let json = serde_json::Value::Null;
         let result = extract_role_values(&json);
-        assert!(result.is_empty());
+        assert_eq!(result, [] as [std::string::String; 0]);
     }
 
     #[test]
     fn test_extract_role_values_from_number() {
         let json = serde_json::json!(42);
         let result = extract_role_values(&json);
-        assert!(result.is_empty());
+        assert_eq!(result, [] as [std::string::String; 0]);
     }
 
     #[test]
     fn test_extract_role_values_from_empty_array() {
         let json = serde_json::json!([]);
         let result = extract_role_values(&json);
-        assert!(result.is_empty());
+        assert_eq!(result, [] as [std::string::String; 0]);
     }
 
     #[test]

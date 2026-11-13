@@ -604,7 +604,7 @@ mod tests {
         let path = PathBuf::from("empty");
         storage.create_dir(&path).await.unwrap();
         let entries = storage.list(&path).await.unwrap();
-        assert!(entries.is_empty());
+        assert_eq!(entries, [] as [crate::storage::metadata::DirEntry; 0]);
         let _ = fs::remove_dir_all(&tmp);
     }
 

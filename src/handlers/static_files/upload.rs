@@ -123,17 +123,13 @@ async fn validate_input(
         });
     }
 
-    let query_params: HashMap<String, String> = endpoint
-        .crud
-        .as_ref()
-        .map(|c| {
-            c.filtering
-                .allowed_fields
-                .iter()
-                .map(|field| (field.clone(), field.clone()))
-                .collect()
-        })
-        .unwrap_or_default();
+    let query_params: HashMap<String, String> = endpoint.crud.as_ref().map_or_default(|c| {
+        c.filtering
+            .allowed_fields
+            .iter()
+            .map(|field| (field.clone(), field.clone()))
+            .collect()
+    });
 
     let handler_ctx = HandlerContext {
         state,

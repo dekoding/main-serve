@@ -5,7 +5,7 @@ pub fn validate_tables(config: &crate::config::types::AppConfig, errors: &mut Ve
 
     for table in &config.tables {
         let table_key = format!("{}.{}", table.name, table.database);
-        if !seen_tables.insert(table_key.clone()) {
+        if !seen_tables.insert(table_key) {
             errors.push(format!(
                 "Duplicate table definition for '{}.{}'",
                 table.name, table.database

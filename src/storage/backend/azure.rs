@@ -615,12 +615,12 @@ impl Storage for AzureStorage {
 
         for (file_name, size) in files {
             let file_path = PathBuf::from(format!("{prefix}{file_name}"));
-            entries.push(DirEntry::new(file_name.clone(), false, size).with_path(file_path));
+            entries.push(DirEntry::new(file_name, false, size).with_path(file_path));
         }
 
         for dir_name in dirs {
             let dir_path = PathBuf::from(format!("{prefix}{dir_name}"));
-            entries.push(DirEntry::new(dir_name.clone(), true, 0).with_path(dir_path));
+            entries.push(DirEntry::new(dir_name, true, 0).with_path(dir_path));
         }
 
         Ok(entries)
@@ -761,8 +761,7 @@ impl Storage for AzureStorage {
             .headers()
             .get("x-ms-copy-status")
             .and_then(|v| v.to_str().ok())
-            .map(std::string::ToString::to_string)
-            .unwrap_or_default();
+            .map_or_default(std::string::ToString::to_string);
         Self::handle_response(response, &to_blob)?;
 
         if copy_status == "pending" || copy_status == "success" {
@@ -802,8 +801,7 @@ impl Storage for AzureStorage {
             .headers()
             .get("x-ms-copy-status")
             .and_then(|v| v.to_str().ok())
-            .map(std::string::ToString::to_string)
-            .unwrap_or_default();
+            .map_or_default(std::string::ToString::to_string);
         Self::handle_response(response, &to_blob)?;
 
         if copy_status == "pending" || copy_status == "success" {

@@ -699,7 +699,7 @@ mod tests {
         let storage = MemoryStorage::new();
         storage.create_dir(&PathBuf::from("/empty")).await.unwrap();
         let entries = storage.list(&PathBuf::from("/empty")).await.unwrap();
-        assert!(entries.is_empty());
+        assert_eq!(entries, [] as [crate::storage::metadata::DirEntry; 0]);
     }
 
     #[tokio::test]
