@@ -2784,7 +2784,7 @@ dependencies = [
  "aws-smithy-types",
  "aws-types",
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "bytes",
  "chrono",
  "clap",
